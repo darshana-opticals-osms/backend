@@ -1,5 +1,7 @@
 const express = require('express');
 const healthRoutes = require('./routes/health.routes');
+const notFound = require('./middleware/notFound');
+const errorHandler = require('./middleware/errorHandler');
 
 function createApp() {
   const app = express();
@@ -7,18 +9,11 @@ function createApp() {
   app.use(express.json());
   app.use('/api', healthRoutes);
 
-  app.use((err, req, res, next) => {
-    if (res.headersSent) {
-      return next(err);
-    }
+  // Catch-all route handler for non-existent endpoints (404)
+  app.use(notFound);
 
-    const statusCode = err.statusCode || 500;
-    const safeMessage = statusCode >= 500 ? 'Internal server error' : err.message;
-
-    return res.status(statusCode).json({
-      error: safeMessage,
-    });
-  });
+  // Centralized Error Handling Middleware
+  app.use(errorHandler);
 
   return app;
 }
