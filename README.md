@@ -43,3 +43,9 @@ Example response:
 "status": "ok",
 "service": "osms-backend"
 }
+
+## Code Quality & Formatting
+
+- Run linter: `npm run lint`
+- Check formatting: `npm run format:check`
+- Fix formatting: `npm run format`
