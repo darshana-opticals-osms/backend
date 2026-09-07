@@ -21,6 +21,12 @@ Start the backend in development mode:
 
 npm run dev
 
+### MongoDB setup
+
+- Ensure MongoDB is running locally or provide a MongoDB Atlas connection string.
+- Copy `.env.example` to `.env` and set `MONGODB_URI` for your environment.
+- In test mode, the application starts an in-memory MongoDB instance automatically when `MONGODB_URI` is not set.
+
 ## Production-style start
 
 npm start
