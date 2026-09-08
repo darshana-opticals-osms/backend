@@ -1,0 +1,46 @@
+# Backend continuous integration workflow
+name: Backend CI
+
+# Run CI on every push and on pull requests targeting develop
+on:
+  push:
+  pull_request:
+    branches:
+      - develop
+
+jobs:
+  backend-ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Download the repository code to the GitHub Actions runner
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Configure Node.js for the backend
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # Install the exact dependency versions from package-lock.json
+      - name: Install dependencies
+        run: npm ci
+
+      # Check JavaScript code-quality rules
+      - name: Run ESLint
+        run: npm run lint
+
+      # Check whether files follow the configured Prettier rules
+      - name: Check formatting
+        run: npm run format:check
+
+      # Run automated tests and generate the Jest coverage report
+      - name: Run tests with coverage
+        run: npm test -- --coverage
+
+      # Check dependencies for known security vulnerabilities
+      - name: Run dependency security scan
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
+        run: npm audit --audit-level=high
