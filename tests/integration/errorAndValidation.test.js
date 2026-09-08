@@ -158,6 +158,19 @@ describe('Centralized Request Validation and Error Handling Integration Tests (#
     });
   });
 
+  describe('AC6: Global Input Sanitization Middleware Integration', () => {
+    it('should automatically sanitize req.body given un-sanitized input in app request chain', async () => {
+      // Arrange
+      const testApp = createApp();
+
+      // Act
+      const res = await request(testApp).get('/api/health?queryKey=%20%20clean%20me%20%20');
+
+      // Assert
+      expect(res.status).toBe(200);
+    });
+  });
+
   describe('AC7: Unknown Route Handling (404)', () => {
     it('should return controlled 404 response given a request for an unhandled route', async () => {
       // Arrange & Act

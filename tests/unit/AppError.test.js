@@ -30,7 +30,7 @@ describe('AppError', () => {
       expect(err.errorCode).toBe(errorCode);
     });
 
-    it('should default status to error given a 5xx status code', () => {
+    it('should default status to error and isOperational to false given a 5xx status code', () => {
       // Arrange
       const message = 'Internal server error';
       const statusCode = 500;
@@ -40,6 +40,7 @@ describe('AppError', () => {
 
       // Assert
       expect(err.status).toBe('error');
+      expect(err.isOperational).toBe(false);
     });
   });
 
@@ -56,12 +57,19 @@ describe('AppError', () => {
 
       // Assert
       expect(badRequest.statusCode).toBe(400);
+      expect(badRequest.isOperational).toBe(true);
       expect(unauthorized.statusCode).toBe(401);
+      expect(unauthorized.isOperational).toBe(true);
       expect(forbidden.statusCode).toBe(403);
+      expect(forbidden.isOperational).toBe(true);
       expect(notFound.statusCode).toBe(404);
+      expect(notFound.isOperational).toBe(true);
       expect(conflict.statusCode).toBe(409);
+      expect(conflict.isOperational).toBe(true);
       expect(validation.statusCode).toBe(422);
+      expect(validation.isOperational).toBe(true);
       expect(internalServer.statusCode).toBe(500);
+      expect(internalServer.isOperational).toBe(false);
     });
   });
 });
