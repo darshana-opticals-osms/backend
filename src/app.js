@@ -1,24 +1,24 @@
 const express = require('express');
 const healthRoutes = require('./routes/health.routes');
+const notFound = require('./middleware/notFound');
+const errorHandler = require('./middleware/errorHandler');
+const { sanitizeInput } = require('./utils/sanitizer');
 
 function createApp() {
   const app = express();
 
   app.use(express.json());
+
+  // Input Sanitization Middleware (trims whitespace, strips script tags, prevents Mongo injection)
+  app.use(sanitizeInput);
+
   app.use('/api', healthRoutes);
 
-  app.use((err, req, res, next) => {
-    if (res.headersSent) {
-      return next(err);
-    }
+  // Catch-all route handler for non-existent endpoints (404)
+  app.use(notFound);
 
-    const statusCode = err.statusCode || 500;
-    const safeMessage = statusCode >= 500 ? 'Internal server error' : err.message;
-
-    return res.status(statusCode).json({
-      error: safeMessage,
-    });
-  });
+  // Centralized Error Handling Middleware
+  app.use(errorHandler);
 
   return app;
 }
