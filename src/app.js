@@ -2,11 +2,16 @@ const express = require('express');
 const healthRoutes = require('./routes/health.routes');
 const notFound = require('./middleware/notFound');
 const errorHandler = require('./middleware/errorHandler');
+const { sanitizeInput } = require('./utils/sanitizer');
 
 function createApp() {
   const app = express();
 
   app.use(express.json());
+
+  // Input Sanitization Middleware (trims whitespace, strips script tags, prevents Mongo injection)
+  app.use(sanitizeInput);
+
   app.use('/api', healthRoutes);
 
   // Catch-all route handler for non-existent endpoints (404)

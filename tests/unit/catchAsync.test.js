@@ -18,5 +18,22 @@ describe('catchAsync', () => {
       // Assert
       expect(next).toHaveBeenCalledWith(error);
     });
+
+    it('should invoke Express next() with error given a function that throws synchronously', () => {
+      // Arrange
+      const error = new Error('Synchronous execution failed');
+      const syncFn = catchAsync(() => {
+        throw error;
+      });
+      const req = {};
+      const res = {};
+      const next = jest.fn();
+
+      // Act
+      syncFn(req, res, next);
+
+      // Assert
+      expect(next).toHaveBeenCalledWith(error);
+    });
   });
 });

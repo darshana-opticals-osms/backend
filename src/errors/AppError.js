@@ -5,13 +5,14 @@ class AppError extends Error {
    * @param {number} statusCode - HTTP status code (default 500).
    * @param {any} [details=null] - Additional validation or contextual error details.
    * @param {string|null} [errorCode=null] - Application error code identifier.
+   * @param {boolean} [isOperational] - Operational flag (defaults to true for 4xx, false for 5xx).
    */
-  constructor(message, statusCode = 500, details = null, errorCode = null) {
+  constructor(message, statusCode = 500, details = null, errorCode = null, isOperational) {
     super(message);
 
     this.statusCode = statusCode;
     this.status = `${statusCode}`.startsWith('4') ? 'fail' : 'error';
-    this.isOperational = true;
+    this.isOperational = isOperational !== undefined ? isOperational : statusCode < 500;
     this.details = details;
     this.errorCode = errorCode;
 
@@ -61,7 +62,7 @@ class InternalServerError extends AppError {
     details = null,
     errorCode = 'INTERNAL_SERVER_ERROR'
   ) {
-    super(message, 500, details, errorCode);
+    super(message, 500, details, errorCode, false);
   }
 }
 
