@@ -53,7 +53,7 @@ async function connectDatabase() {
   try {
     await mongoose.connect(mongoUri);
     return mongoose.connection;
-  } catch (error) {
+  } catch {
     const safeError = createSafeMongoError();
     console.error('Database connection failed:', safeError.message);
     throw safeError;

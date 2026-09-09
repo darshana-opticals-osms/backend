@@ -14,20 +14,25 @@ describe('MongoDB foundation', () => {
   });
 
   it('should require MONGODB_URI in non-test environments', () => {
+    // Arrange
     process.env.NODE_ENV = 'development';
     delete process.env.MONGODB_URI;
 
+    // Act
     expect(() => loadConfig()).toThrow(
       'Configuration validation failed: MONGODB_URI is required in development, production, and other non-test environments.'
     );
   });
 
   it('should connect to an in-memory MongoDB instance in test mode', async () => {
+    // Arrange
     process.env.NODE_ENV = 'test';
     delete process.env.MONGODB_URI;
 
+    // Act
     await connectDatabase();
 
+    // Assert
     expect(global.__MONGOOSE_CONNECTION__ || global.__MONGODB_MEMORY_SERVER__).toBeDefined();
 
     await disconnectDatabase();
@@ -41,12 +46,15 @@ describe('MongoDB foundation', () => {
       .mockRejectedValue(new Error(`MongoDB connection failed for ${fakeUri}`));
 
     try {
+      // Arrange
       process.env.NODE_ENV = 'production';
       process.env.PORT = '5000';
       process.env.MONGODB_URI = fakeUri;
 
+      // Act
       const error = await connectDatabase().catch((err) => err);
 
+      // Assert
       expect(error).toBeInstanceOf(Error);
       expect(error.message).toBe(
         'Database connection failed. Please check the MongoDB configuration and try again.'
