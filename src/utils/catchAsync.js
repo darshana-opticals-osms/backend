@@ -1,13 +1,17 @@
 /**
  * Wraps an async route handler or middleware to catch any rejected promises
- * and pass them to the express next() error handler.
+ * or synchronous throws and pass them to the express next() error handler.
  *
- * @param {Function} fn - Async express route handler function
+ * @param {Function} fn - Express route handler or middleware function
  * @returns {Function} Express middleware function
  */
 const catchAsync = (fn) => {
   return (req, res, next) => {
-    fn(req, res, next).catch(next);
+    try {
+      Promise.resolve(fn(req, res, next)).catch(next);
+    } catch (err) {
+      next(err);
+    }
   };
 };
 
