@@ -11,8 +11,10 @@ function loadConfig(overrides = {}) {
   const env = {
     NODE_ENV: process.env.NODE_ENV || 'development',
     PORT: process.env.PORT || '5000',
-    ...overrides,
+    MONGODB_URI: process.env.MONGODB_URI || '',
   };
+
+  Object.assign(env, overrides);
 
   const errors = [];
 
@@ -24,6 +26,12 @@ function loadConfig(overrides = {}) {
     errors.push('PORT must be a valid TCP port.');
   }
 
+  if (env.NODE_ENV !== 'test' && !env.MONGODB_URI) {
+    errors.push(
+      'MONGODB_URI is required in development, production, and other non-test environments.'
+    );
+  }
+
   if (errors.length > 0) {
     const message = `Configuration validation failed: ${errors.join(' ')}`;
     throw new Error(message);
@@ -32,6 +40,7 @@ function loadConfig(overrides = {}) {
   return {
     nodeEnv: env.NODE_ENV,
     port: Number(env.PORT),
+    mongoUri: env.MONGODB_URI || undefined,
   };
 }
 
