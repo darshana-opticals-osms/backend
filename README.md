@@ -67,6 +67,50 @@ Example response:
 "service": "osms-backend"
 }
 
+## Public customer registration
+
+The backend exposes the public customer registration endpoint:
+
+POST /api/auth/register
+
+Request body:
+
+{
+"name": "Alice Customer",
+"email": "alice.customer@example.com",
+"address": "12 Main Street, Colombo",
+"phone": "+94711234567",
+"password": "StrongPass123!"
+}
+
+Rules:
+
+- Public registration creates a CUSTOMER account only.
+- `role` and other privileged account fields are rejected by validation.
+- Email is trimmed and normalized to lowercase before duplicate checking and persistence.
+- Passwords are hashed with bcrypt before the customer record is saved.
+- No JWT is returned on registration.
+
+Example success response:
+
+{
+"success": true,
+"data": {
+"id": "66c5d2a9d7e2b8f2d7c4ff12",
+"name": "Alice Customer",
+"email": "alice.customer@example.com",
+"address": "12 Main Street, Colombo",
+"phone": "+94711234567",
+"role": "CUSTOMER"
+}
+}
+
+HTTP status:
+
+- 201 Created for successful customer registration
+- 409 Conflict if the email already exists for a customer, staff member, or admin
+- 422 Validation failure for missing or invalid registration data
+
 ## Code Quality & Formatting
 
 - Run linter: `npm run lint`
