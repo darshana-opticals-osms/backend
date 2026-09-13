@@ -2,6 +2,23 @@
 
 Backend API and business logic for Darshana Opticals OSMS
 
+[![Backend CI](https://github.com/darshana-opticals-osms/backend/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/darshana-opticals-osms/backend/actions/workflows/ci.yml)
+![Test Coverage](https://img.shields.io/badge/coverage-85.05%25-brightgreen)
+
+## Continuous Integration
+
+Backend changes are automatically validated using GitHub Actions.
+
+The CI pipeline performs:
+
+- ESLint code-quality checks
+- Prettier formatting validation
+- Automated Jest tests
+- Test coverage generation
+- Dependency vulnerability scanning
+
+The current backend test suite contains 21 passing tests with approximately 85.05% line coverage.
+
 ## Prerequisites
 
 - Node.js 18+ recommended
