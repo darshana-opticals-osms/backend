@@ -1,5 +1,5 @@
 const express = require('express');
-const { register } = require('../controllers/auth.controller');
+const { register, login } = require('../controllers/auth.controller');
 const { validate } = require('../middleware/validate');
 
 const phonePattern = /^\+?[0-9\s()-]{7,20}$/;
@@ -73,8 +73,47 @@ const registerValidation = (req) => {
   return validationErrors;
 };
 
+const loginValidation = (req) => {
+  const { body = {} } = req;
+  const validationErrors = [];
+  const allowedFields = new Set(['email', 'password']);
+
+  for (const key of Object.keys(body)) {
+    if (!allowedFields.has(key)) {
+      validationErrors.push({
+        field: key,
+        message: `${key} is not allowed for login.`,
+      });
+    }
+  }
+
+  const emailValue = body.email;
+  if (emailValue === undefined || emailValue === null || emailValue === '') {
+    validationErrors.push({ field: 'email', message: 'email is required' });
+  } else if (typeof emailValue !== 'string') {
+    validationErrors.push({ field: 'email', message: 'email must be a valid email address' });
+  } else {
+    const normalizedEmail = emailValue.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      validationErrors.push({ field: 'email', message: 'email must be a valid email address' });
+    } else {
+      req.body.email = normalizedEmail;
+    }
+  }
+
+  const passwordValue = body.password;
+  if (passwordValue === undefined || passwordValue === null || passwordValue === '') {
+    validationErrors.push({ field: 'password', message: 'password is required' });
+  } else if (typeof passwordValue !== 'string') {
+    validationErrors.push({ field: 'password', message: 'password must be a string' });
+  }
+
+  return validationErrors;
+};
+
 const router = express.Router();
 
 router.post('/auth/register', validate(registerValidation), register);
+router.post('/auth/login', validate(loginValidation), login);
 
 module.exports = router;
