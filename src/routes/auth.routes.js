@@ -37,11 +37,15 @@ const registerValidation = (req) => {
   const emailValue = body.email;
   if (emailValue === undefined || emailValue === null || emailValue === '') {
     validationErrors.push({ field: 'email', message: 'email is required' });
-  } else if (
-    typeof emailValue !== 'string' ||
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailValue.trim())
-  ) {
+  } else if (typeof emailValue !== 'string') {
     validationErrors.push({ field: 'email', message: 'email must be a valid email address' });
+  } else {
+    const normalizedEmail = emailValue.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      validationErrors.push({ field: 'email', message: 'email must be a valid email address' });
+    } else {
+      req.body.email = normalizedEmail;
+    }
   }
 
   const addressValue = body.address;
