@@ -3,7 +3,8 @@ const Customer = require('../models/customer.model');
 const Staff = require('../models/staff.model');
 const Admin = require('../models/admin.model');
 const { ROLE_VALUES } = require('../constants/roles');
-const { ConflictError } = require('../errors/AppError');
+const { ConflictError, UnauthorizedError } = require('../errors/AppError');
+const { createAccessToken } = require('../utils/jwt');
 
 const BCRYPT_SALT_ROUNDS = 12;
 
@@ -25,6 +26,44 @@ const buildSafeCustomerResponse = (customer) => ({
   phone: customer.phone,
   role: customer.role,
 });
+
+const buildSafeIdentityResponse = (identity) => {
+  const safeIdentity = {
+    id: identity._id ? identity._id.toString() : identity.id,
+    name: identity.name,
+    email: identity.email,
+    role: identity.role,
+  };
+
+  if (identity.address !== undefined) safeIdentity.address = identity.address;
+  if (identity.phone !== undefined) safeIdentity.phone = identity.phone;
+
+  return safeIdentity;
+};
+
+const findLoginIdentity = async (email) => {
+  const matches = await Promise.all([
+    Customer.findOne({ email }).select('+passwordHash'),
+    Staff.findOne({ email }).select('+passwordHash'),
+    Admin.findOne({ email }).select('+passwordHash'),
+  ]);
+
+  const identities = matches.filter(Boolean);
+  return identities.length === 1 ? identities[0] : null;
+};
+
+const login = async ({ email, password }) => {
+  const identity = await findLoginIdentity(email);
+
+  if (!identity || !(await bcrypt.compare(password, identity.passwordHash))) {
+    throw new UnauthorizedError('Invalid email or password.');
+  }
+
+  const user = buildSafeIdentityResponse(identity);
+  const token = createAccessToken({ userId: user.id, role: user.role });
+
+  return { token, user };
+};
 
 const registerCustomer = async (customerInput = {}) => {
   const { name, email, address, phone, password } = customerInput;
@@ -53,4 +92,7 @@ module.exports = {
   checkExistingIdentity,
   registerCustomer,
   buildSafeCustomerResponse,
+  findLoginIdentity,
+  login,
+  buildSafeIdentityResponse,
 };
