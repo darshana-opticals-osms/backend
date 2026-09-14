@@ -1,5 +1,6 @@
 const express = require('express');
 const healthRoutes = require('./routes/health.routes');
+const authRoutes = require('./routes/auth.routes');
 const notFound = require('./middleware/notFound');
 const errorHandler = require('./middleware/errorHandler');
 const { sanitizeInput } = require('./utils/sanitizer');
@@ -13,6 +14,7 @@ function createApp() {
   app.use(sanitizeInput);
 
   app.use('/api', healthRoutes);
+  app.use('/api', authRoutes);
 
   // Catch-all route handler for non-existent endpoints (404)
   app.use(notFound);
