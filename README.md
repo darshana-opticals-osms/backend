@@ -157,6 +157,50 @@ The JWT contains only the authenticated MongoDB user ID and canonical role. No
 refresh tokens, logout API, or RBAC permission middleware are included in this
 issue.
 
+## Authentication vs authorization
+
+This backend separates authentication from authorization.
+
+- Authentication answers: "Who is this user?"
+- Authorization answers: "What may this authenticated role do?"
+
+The existing `authenticate` middleware verifies the Bearer token and attaches the
+trusted server-generated identity to `req.auth`.
+
+The RBAC middleware uses that existing context only:
+
+```javascript
+const authenticate = require('./src/middleware/authenticate');
+const { authorizeRoles } = require('./src/middleware/authorizeRoles');
+const { ROLE_VALUES } = require('./src/constants/roles');
+
+router.get('/admin-report', authenticate, authorizeRoles(ROLE_VALUES.SYSTEM_ADMIN), getAdminReport);
+
+router.get(
+  '/branch-or-management-report',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.MANAGEMENT),
+  getBranchReport
+);
+```
+
+Rules:
+
+- `authorizeRoles(...)` reads only `req.auth.role`
+- it never trusts a role from the request body, query string, or headers
+- it never re-verifies JWTs or queries the database
+- a missing or invalid authenticated context returns HTTP 401
+- an authenticated but disallowed role returns HTTP 403
+- the canonical role values are defined centrally by `ROLE_VALUES`
+
+The authorization middleware is reusable and should be configured with canonical
+roles only. Example single-role and multi-role checks use:
+
+```javascript
+authorizeRoles(ROLE_VALUES.OPTOMETRIST);
+authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.MANAGEMENT);
+```
+
 ## Code Quality & Formatting
 
 - Run linter: `npm run lint`
