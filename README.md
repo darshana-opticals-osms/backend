@@ -32,6 +32,12 @@ The current backend test suite contains 21 passing tests with approximately 85.0
    copy .env.example .env
 3. Update the values in .env as needed for your environment.
 
+Authentication configuration:
+
+- `JWT_SECRET` is required outside test mode. Set it to a long, random secret
+  and never commit the real value.
+- `JWT_EXPIRES_IN` controls access-token lifetime and defaults to `24h`.
+
 ## Development
 
 Start the backend in development mode:
@@ -110,6 +116,46 @@ HTTP status:
 - 201 Created for successful customer registration
 - 409 Conflict if the email already exists for a customer, staff member, or admin
 - 422 Validation failure for missing or invalid registration data
+
+## User login and JWT authentication
+
+The backend exposes stateless login for customer, staff, and admin identities:
+
+POST /api/auth/login
+
+Request body:
+
+{
+"email": "alice.customer@example.com",
+"password": "StrongPass123!"
+}
+
+Successful login returns HTTP 200:
+
+{
+"success": true,
+"data": {
+"token": "<signed-jwt>",
+"user": {
+"id": "66c5d2a9d7e2b8f2d7c4ff12",
+"name": "Alice Customer",
+"email": "alice.customer@example.com",
+"role": "CUSTOMER"
+}
+}
+}
+
+Use the token on protected requests with:
+
+Authorization: Bearer <signed-jwt>
+
+Missing, malformed, expired, invalid, or incorrectly credentialed requests
+return HTTP 401 with a safe error response. Login trims and lowercases email
+before lookup and does not apply registration password-strength rules.
+
+The JWT contains only the authenticated MongoDB user ID and canonical role. No
+refresh tokens, logout API, or RBAC permission middleware are included in this
+issue.
 
 ## Code Quality & Formatting
 
