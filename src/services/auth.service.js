@@ -7,6 +7,7 @@ const { ConflictError, UnauthorizedError } = require('../errors/AppError');
 const { createAccessToken } = require('../utils/jwt');
 
 const BCRYPT_SALT_ROUNDS = 12;
+const DUMMY_PASSWORD_HASH = '$2b$12$yQa0uZLdNMNWbfUR4Cq40ObkJsDegwPc51KLL2pYzbZRPFfJZMaKe';
 
 const checkExistingIdentity = async (email) => {
   const [customer, staff, admin] = await Promise.all([
@@ -54,8 +55,10 @@ const findLoginIdentity = async (email) => {
 
 const login = async ({ email, password }) => {
   const identity = await findLoginIdentity(email);
+  const passwordHash = identity ? identity.passwordHash : DUMMY_PASSWORD_HASH;
+  const passwordMatches = await bcrypt.compare(password, passwordHash);
 
-  if (!identity || !(await bcrypt.compare(password, identity.passwordHash))) {
+  if (!identity || !passwordMatches) {
     throw new UnauthorizedError('Invalid email or password.');
   }
 

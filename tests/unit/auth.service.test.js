@@ -1,5 +1,9 @@
 const bcrypt = require('bcrypt');
-const { checkExistingIdentity, registerCustomer } = require('../../src/services/auth.service');
+const {
+  checkExistingIdentity,
+  registerCustomer,
+  login,
+} = require('../../src/services/auth.service');
 const Customer = require('../../src/models/customer.model');
 const Staff = require('../../src/models/staff.model');
 const Admin = require('../../src/models/admin.model');
@@ -7,24 +11,47 @@ const { ROLE_VALUES } = require('../../src/constants/roles');
 
 jest.mock('bcrypt', () => ({
   hash: jest.fn(),
+  compare: jest.fn(),
 }));
 
 jest.mock('../../src/models/customer.model', () => ({
   create: jest.fn(),
   exists: jest.fn(),
+  findOne: jest.fn(),
 }));
 
 jest.mock('../../src/models/staff.model', () => ({
   exists: jest.fn(),
+  findOne: jest.fn(),
 }));
 
 jest.mock('../../src/models/admin.model', () => ({
   exists: jest.fn(),
+  findOne: jest.fn(),
 }));
 
 describe('Auth service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it('should compare an unknown email against a fixed dummy bcrypt hash', async () => {
+    // Arrange
+    const query = { select: jest.fn().mockResolvedValue(null) };
+    Customer.findOne.mockReturnValue(query);
+    Staff.findOne.mockReturnValue(query);
+    Admin.findOne.mockReturnValue(query);
+    bcrypt.compare.mockResolvedValue(false);
+
+    // Act
+    const loginResult = login({ email: 'unknown@example.com', password: 'WrongPassword' });
+
+    // Assert
+    await expect(loginResult).rejects.toThrow('Invalid email or password.');
+    expect(bcrypt.compare).toHaveBeenCalledWith(
+      'WrongPassword',
+      expect.stringMatching(/^\$2b\$12\$/)
+    );
   });
 
   it('should detect a duplicate identity across customer, staff, and admin collections', async () => {
