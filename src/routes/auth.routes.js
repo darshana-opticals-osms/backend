@@ -137,9 +137,15 @@ const router = express.Router();
  *                     email:
  *                       type: string
  *                       example: kamal@example.com
+ *                     address:
+ *                       type: string
+ *                       example: No 12, Main Street, Kandy
+ *                     phone:
+ *                       type: string
+ *                       example: "0771234567"
  *                     role:
  *                       type: string
- *                       example: PATIENT
+ *                       example: CUSTOMER
  *       400:
  *         description: Validation error or invalid input
  *       409:

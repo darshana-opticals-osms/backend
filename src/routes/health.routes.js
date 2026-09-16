@@ -22,9 +22,9 @@ const router = express.Router();
  *                 status:
  *                   type: string
  *                   example: ok
- *                 message:
+ *                 service:
  *                   type: string
- *                   example: OSMS API is running
+ *                   example: osms-backend
  */
 router.get('/health', getHealthStatus);
 
