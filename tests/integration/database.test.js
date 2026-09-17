@@ -50,6 +50,7 @@ describe('MongoDB foundation', () => {
       process.env.NODE_ENV = 'production';
       process.env.PORT = '5000';
       process.env.MONGODB_URI = fakeUri;
+      process.env.JWT_SECRET = 'controlled-test-jwt-secret';
 
       // Act
       const error = await connectDatabase().catch((err) => err);

@@ -12,6 +12,8 @@ function loadConfig(overrides = {}) {
     NODE_ENV: process.env.NODE_ENV || 'development',
     PORT: process.env.PORT || '5000',
     MONGODB_URI: process.env.MONGODB_URI || '',
+    JWT_SECRET: process.env.JWT_SECRET || '',
+    JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '24h',
   };
 
   Object.assign(env, overrides);
@@ -32,6 +34,12 @@ function loadConfig(overrides = {}) {
     );
   }
 
+  if (env.NODE_ENV !== 'test' && !env.JWT_SECRET) {
+    errors.push(
+      'JWT_SECRET is required in development, production, and other non-test environments.'
+    );
+  }
+
   if (errors.length > 0) {
     const message = `Configuration validation failed: ${errors.join(' ')}`;
     throw new Error(message);
@@ -41,6 +49,8 @@ function loadConfig(overrides = {}) {
     nodeEnv: env.NODE_ENV,
     port: Number(env.PORT),
     mongoUri: env.MONGODB_URI || undefined,
+    jwtSecret: env.JWT_SECRET || undefined,
+    jwtExpiresIn: env.JWT_EXPIRES_IN,
   };
 }
 
