@@ -1,4 +1,6 @@
 const express = require('express');
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./config/swagger');
 const healthRoutes = require('./routes/health.routes');
 const authRoutes = require('./routes/auth.routes');
 const notFound = require('./middleware/notFound');
@@ -12,6 +14,9 @@ function createApp() {
 
   // Input Sanitization Middleware (trims whitespace, strips script tags, prevents Mongo injection)
   app.use(sanitizeInput);
+
+  // Swagger API Documentation
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
   app.use('/api', healthRoutes);
   app.use('/api', authRoutes);

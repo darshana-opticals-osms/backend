@@ -113,6 +113,82 @@ const loginValidation = (req) => {
 
 const router = express.Router();
 
+/**
+ * @openapi
+ * /auth/register:
+ *   post:
+ *     summary: Register a new customer / patient
+ *     description: Public registration endpoint for new customers.
+ *     tags:
+ *       - Authentication
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - email
+ *               - address
+ *               - phone
+ *               - password
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 example: Kamal Perera
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: kamal@example.com
+ *               address:
+ *                 type: string
+ *                 example: No 12, Main Street, Kandy
+ *               phone:
+ *                 type: string
+ *                 example: "0771234567"
+ *               password:
+ *                 type: string
+ *                 format: password
+ *                 minLength: 8
+ *                 example: Password123
+ *     responses:
+ *       201:
+ *         description: Customer successfully registered
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       example: 6737f1a23b45c67890def123
+ *                     name:
+ *                       type: string
+ *                       example: Kamal Perera
+ *                     email:
+ *                       type: string
+ *                       example: kamal@example.com
+ *                     address:
+ *                       type: string
+ *                       example: No 12, Main Street, Kandy
+ *                     phone:
+ *                       type: string
+ *                       example: "0771234567"
+ *                     role:
+ *                       type: string
+ *                       example: CUSTOMER
+ *       400:
+ *         description: Validation error or invalid input
+ *       409:
+ *         description: Email or phone number already registered
+ */
 router.post('/auth/register', validate(registerValidation), register);
 router.post('/auth/login', validate(loginValidation), login);
 

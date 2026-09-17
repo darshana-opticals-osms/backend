@@ -21,8 +21,10 @@
     "bcrypt": "^6.0.0",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "jsonwebtoken": "^9.0.3",
-    "mongoose": "^8.8.4"
+    "mongoose": "^8.8.4",
+    "swagger-jsdoc": "^6.3.0",
+    "swagger-ui-express": "^5.0.1",
+    "jsonwebtoken": "^9.0.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
