@@ -117,6 +117,37 @@ HTTP status:
 - 409 Conflict if the email already exists for a customer, staff member, or admin
 - 422 Validation failure for missing or invalid registration data
 
+## Customer profile management
+
+The backend exposes self-service customer profile endpoints for authenticated customers:
+
+### Get my profile
+
+GET /api/profile/me
+
+Requires a valid CUSTOMER JWT and returns only the safe customer profile shape.
+
+### Update my profile
+
+PATCH /api/profile/me
+
+Request body may include any subset of the allowed editable fields:
+
+{
+"name": "Alice Customer",
+"email": "alice.customer@example.com",
+"address": "12 Main Street, Colombo",
+"phone": "+94711234567"
+}
+
+Rules:
+
+- Only `name`, `email`, `address`, and `phone` are allowed.
+- `role`, `password`, `passwordHash`, and other restricted fields are rejected with HTTP 422.
+- `email` is normalized to lowercase before duplicate checking and persistence.
+- Customers may only access their own profile using the authenticated token.
+- Prescription history, profile images, and password changes are out of scope for this ticket.
+
 ## User login and JWT authentication
 
 The backend exposes stateless login for customer, staff, and admin identities:
