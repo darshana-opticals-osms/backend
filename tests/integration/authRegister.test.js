@@ -1,6 +1,5 @@
 const bcrypt = require('bcrypt');
 const request = require('supertest');
-const { createApp } = require('../../src/app');
 const { connectDatabase, disconnectDatabase } = require('../../src/config/database');
 const Customer = require('../../src/models/customer.model');
 const Staff = require('../../src/models/staff.model');
@@ -8,24 +7,33 @@ const Admin = require('../../src/models/admin.model');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 
 const validBcryptHash = bcrypt.hashSync('placeholderPassword', 12);
+const originalAuthRateLimitMax = process.env.AUTH_RATE_LIMIT_MAX;
 
 describe('POST /api/auth/register', () => {
   let app;
+  let createApp;
 
   beforeAll(async () => {
     process.env.NODE_ENV = 'test';
     delete process.env.MONGODB_URI;
+    process.env.AUTH_RATE_LIMIT_MAX = '1000';
+    ({ createApp } = require('../../src/app'));
     await connectDatabase();
-    app = createApp();
   });
 
   beforeEach(async () => {
     await Promise.all([Customer.deleteMany({}), Staff.deleteMany({}), Admin.deleteMany({})]);
+    app = createApp();
   });
 
   afterAll(async () => {
     await Promise.all([Customer.deleteMany({}), Staff.deleteMany({}), Admin.deleteMany({})]);
     await disconnectDatabase();
+    if (originalAuthRateLimitMax === undefined) {
+      delete process.env.AUTH_RATE_LIMIT_MAX;
+    } else {
+      process.env.AUTH_RATE_LIMIT_MAX = originalAuthRateLimitMax;
+    }
   });
 
   it('should create a customer account and return a safe response given valid registration data', async () => {
@@ -72,6 +80,73 @@ describe('POST /api/auth/register', () => {
     const isMatch = await bcrypt.compare(payload.password, customer.passwordHash);
     expect(isMatch).toBe(true);
     expect(customer.passwordHash).not.toBe(payload.password);
+  });
+
+  it('should create a customer account successfully when optional address field is omitted', async () => {
+    // Arrange
+    const payloadWithoutAddress = {
+      name: 'Bob Customer',
+      email: 'bob.noaddress@example.com',
+      phone: '+94719876543',
+      password: 'StrongPass123!',
+    };
+
+    // Act
+    const response = await request(app).post('/api/auth/register').send(payloadWithoutAddress);
+
+    // Assert
+    expect(response.status).toBe(201);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data).toMatchObject({
+      name: 'Bob Customer',
+      email: 'bob.noaddress@example.com',
+      address: '',
+      phone: '+94719876543',
+      role: ROLE_VALUES.CUSTOMER,
+    });
+
+    const customer = await Customer.findOne({ email: 'bob.noaddress@example.com' }).lean();
+    expect(customer).toBeTruthy();
+    expect(customer.address).toBe('');
+  });
+
+  it('should reject registration when a provided address is not a string (e.g. number or object)', async () => {
+    // Arrange: payload with a non-string address (number)
+    const numberAddressPayload = {
+      name: 'Invalid Address User',
+      email: 'invalid.address1@example.com',
+      address: 12345,
+      phone: '+94719876543',
+      password: 'StrongPass123!',
+    };
+
+    // Act
+    const numberResponse = await request(app).post('/api/auth/register').send(numberAddressPayload);
+
+    // Assert
+    expect(numberResponse.status).toBe(422);
+    expect(numberResponse.body.success).toBe(false);
+    expect(numberResponse.body.error.code).toBe('VALIDATION_ERROR');
+    expect(numberResponse.body.error.message).toContain('address must be a string');
+
+    // Arrange: payload with a non-string address (object)
+    const objectAddressPayload = {
+      name: 'Invalid Address User 2',
+      email: 'invalid.address2@example.com',
+      address: { street: 'Main St', city: 'Colombo' },
+      phone: '+94719876543',
+      password: 'StrongPass123!',
+    };
+
+    // Act
+    const objectResponse = await request(app).post('/api/auth/register').send(objectAddressPayload);
+
+    // Assert
+    expect(objectResponse.status).toBe(422);
+    expect(objectResponse.body.error.code).toBe('VALIDATION_ERROR');
+    expect(objectResponse.body.error.message).toContain('address must be a string');
+
+    expect(await Customer.countDocuments({ email: /invalid\.address/ })).toBe(0);
   });
 
   it('should reject duplicate customer emails with 409 conflict', async () => {

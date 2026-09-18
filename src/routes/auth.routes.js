@@ -49,8 +49,8 @@ const registerValidation = (req) => {
   }
 
   const addressValue = body.address;
-  if (addressValue === undefined || addressValue === null || addressValue === '') {
-    validationErrors.push({ field: 'address', message: 'address is required' });
+  if (addressValue !== undefined && addressValue !== null && typeof addressValue !== 'string') {
+    validationErrors.push({ field: 'address', message: 'address must be a string' });
   }
 
   const phoneValue = body.phone;
@@ -130,7 +130,6 @@ const router = express.Router();
  *             required:
  *               - name
  *               - email
- *               - address
  *               - phone
  *               - password
  *             properties:
