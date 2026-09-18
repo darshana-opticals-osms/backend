@@ -74,6 +74,34 @@ describe('POST /api/auth/register', () => {
     expect(customer.passwordHash).not.toBe(payload.password);
   });
 
+  it('should create a customer account successfully when optional address field is omitted', async () => {
+    // Arrange
+    const payloadWithoutAddress = {
+      name: 'Bob Customer',
+      email: 'bob.noaddress@example.com',
+      phone: '+94719876543',
+      password: 'StrongPass123!',
+    };
+
+    // Act
+    const response = await request(app).post('/api/auth/register').send(payloadWithoutAddress);
+
+    // Assert
+    expect(response.status).toBe(201);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data).toMatchObject({
+      name: 'Bob Customer',
+      email: 'bob.noaddress@example.com',
+      address: '',
+      phone: '+94719876543',
+      role: ROLE_VALUES.CUSTOMER,
+    });
+
+    const customer = await Customer.findOne({ email: 'bob.noaddress@example.com' }).lean();
+    expect(customer).toBeTruthy();
+    expect(customer.address).toBe('');
+  });
+
   it('should reject duplicate customer emails with 409 conflict', async () => {
     // Arrange
     const payload = {

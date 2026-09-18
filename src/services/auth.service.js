@@ -69,7 +69,7 @@ const login = async ({ email, password }) => {
 };
 
 const registerCustomer = async (customerInput = {}) => {
-  const { name, email, address, phone, password } = customerInput;
+  const { name, email, address = '', phone, password } = customerInput;
 
   const existingIdentity = await checkExistingIdentity(email);
   if (existingIdentity) {
@@ -81,7 +81,7 @@ const registerCustomer = async (customerInput = {}) => {
   const customer = await Customer.create({
     name,
     email,
-    address,
+    address: typeof address === 'string' ? address.trim() : '',
     phone,
     role: ROLE_VALUES.CUSTOMER,
     passwordHash,
