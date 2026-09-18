@@ -16,11 +16,11 @@ describe('POST /api/auth/register', () => {
     process.env.NODE_ENV = 'test';
     delete process.env.MONGODB_URI;
     await connectDatabase();
-    app = createApp();
   });
 
   beforeEach(async () => {
     await Promise.all([Customer.deleteMany({}), Staff.deleteMany({}), Admin.deleteMany({})]);
+    app = createApp();
   });
 
   afterAll(async () => {
