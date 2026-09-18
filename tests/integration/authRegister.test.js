@@ -1,6 +1,5 @@
 const bcrypt = require('bcrypt');
 const request = require('supertest');
-const { createApp } = require('../../src/app');
 const { connectDatabase, disconnectDatabase } = require('../../src/config/database');
 const Customer = require('../../src/models/customer.model');
 const Staff = require('../../src/models/staff.model');
@@ -8,13 +7,17 @@ const Admin = require('../../src/models/admin.model');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 
 const validBcryptHash = bcrypt.hashSync('placeholderPassword', 12);
+const originalAuthRateLimitMax = process.env.AUTH_RATE_LIMIT_MAX;
 
 describe('POST /api/auth/register', () => {
   let app;
+  let createApp;
 
   beforeAll(async () => {
     process.env.NODE_ENV = 'test';
     delete process.env.MONGODB_URI;
+    process.env.AUTH_RATE_LIMIT_MAX = '1000';
+    ({ createApp } = require('../../src/app'));
     await connectDatabase();
   });
 
@@ -26,6 +29,11 @@ describe('POST /api/auth/register', () => {
   afterAll(async () => {
     await Promise.all([Customer.deleteMany({}), Staff.deleteMany({}), Admin.deleteMany({})]);
     await disconnectDatabase();
+    if (originalAuthRateLimitMax === undefined) {
+      delete process.env.AUTH_RATE_LIMIT_MAX;
+    } else {
+      process.env.AUTH_RATE_LIMIT_MAX = originalAuthRateLimitMax;
+    }
   });
 
   it('should create a customer account and return a safe response given valid registration data', async () => {
