@@ -71,6 +71,33 @@ describe('Security Hardening Integration Tests (#18)', () => {
       // Assert
       expect([200, 204]).toContain(res.status);
     });
+
+    it('should NOT set Access-Control-Allow-Origin header for an unapproved origin in production mode', async () => {
+      // Arrange: force production env with restricted FRONTEND_ORIGIN
+      const savedEnv = process.env.NODE_ENV;
+      const savedOrigin = process.env.FRONTEND_ORIGIN;
+
+      process.env.NODE_ENV = 'production';
+      process.env.FRONTEND_ORIGIN = 'http://localhost:3000';
+
+      jest.resetModules();
+      const { createApp: createProdApp } = require('../../src/app');
+      const prodApp = createProdApp();
+
+      // Act: request from an unapproved origin
+      const res = await request(prodApp)
+        .get('/api/health')
+        .set('Origin', 'http://unauthorized-malicious-site.com');
+
+      // Assert: unapproved origin must not receive Access-Control-Allow-Origin header
+      expect(res.headers['access-control-allow-origin']).toBeUndefined();
+
+      // Cleanup
+      process.env.NODE_ENV = savedEnv;
+      if (savedOrigin !== undefined) process.env.FRONTEND_ORIGIN = savedOrigin;
+      else delete process.env.FRONTEND_ORIGIN;
+      jest.resetModules();
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -332,6 +359,45 @@ describe('Security Hardening Integration Tests (#18)', () => {
       expect(JSON.stringify(res.body)).not.toMatch(/password/i);
 
       consoleSpy.mockRestore();
+    });
+
+    it('should sanitize production server error logs so passwords, tokens, and stack traces are not written to logs', async () => {
+      // Arrange
+      const savedEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const express = require('express');
+      const errorHandler = require('../../src/middleware/errorHandler');
+
+      const prodApp = express();
+      prodApp.get('/test-sensitive-crash', () => {
+        throw new Error(
+          'Database crash: mongodb://admin:s3cr3t@localhost:27017/db password=supersecretpassword token=abc123secret bearer eyJhbGciOiJIUzI1NiJ9'
+        );
+      });
+      prodApp.use(errorHandler);
+
+      // Act
+      await request(prodApp).get('/test-sensitive-crash');
+
+      // Assert
+      expect(consoleSpy).toHaveBeenCalled();
+      const loggedOutput = consoleSpy.mock.calls
+        .flat()
+        .map((arg) => (typeof arg === 'object' ? JSON.stringify(arg) : String(arg)))
+        .join(' ');
+
+      // Verify no raw passwords, tokens, secrets or stack traces are logged
+      expect(loggedOutput).not.toMatch(/supersecretpassword/i);
+      expect(loggedOutput).not.toMatch(/abc123secret/i);
+      expect(loggedOutput).not.toMatch(/s3cr3t/i);
+      expect(loggedOutput).not.toMatch(/at Layer\.handle/i); // no raw stack trace log
+      expect(loggedOutput).toMatch(/password=\[REDACTED\]/i);
+      expect(loggedOutput).toMatch(/token=\[REDACTED\]/i);
+
+      consoleSpy.mockRestore();
+      process.env.NODE_ENV = savedEnv;
     });
   });
 

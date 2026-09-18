@@ -38,6 +38,26 @@ const handleJWTExpiredError = () =>
   new AppError('Your token has expired! Please log in again.', 401, null, 'UNAUTHORIZED');
 
 /**
+ * Sanitizes error messages to strip passwords, secrets, tokens, DB URIs, and credentials before logging.
+ *
+ * @param {string} message
+ * @returns {string}
+ */
+const sanitizeLogMessage = (message) => {
+  if (typeof message !== 'string') {
+    return '';
+  }
+
+  return message
+    .replace(/mongodb(?:\+srv)?:\/\/[^\s]+/gi, 'mongodb://[REDACTED]')
+    .replace(
+      /(password|passwd|pwd|secret|token|bearer|key|api_key|authorization|auth|passwordHash)=([^\s&,{}]+)/gi,
+      '$1=[REDACTED]'
+    )
+    .replace(/(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, '$1[REDACTED]');
+};
+
+/**
  * Centralized Error Handling Middleware
  *
  * @param {Error} err
@@ -85,7 +105,16 @@ const errorHandler = (err, req, res, next) => {
 
   // Log non-operational / unexpected errors for server logs
   if (statusCode >= 500 && !isOperational) {
-    console.error('UNHANDLED SERVER ERROR 💥:', err);
+    if (process.env.NODE_ENV === 'production') {
+      const safeMessage = sanitizeLogMessage(err.message || '');
+      console.error('UNHANDLED SERVER ERROR 💥:', {
+        name: err.name || 'Error',
+        message: safeMessage || 'An unexpected error occurred.',
+        code: error.errorCode || (statusCode >= 500 ? 'INTERNAL_SERVER_ERROR' : 'ERROR'),
+      });
+    } else {
+      console.error('UNHANDLED SERVER ERROR 💥:', err);
+    }
   }
 
   return res.status(statusCode).json(response);
