@@ -102,6 +102,45 @@ describe('POST /api/auth/register', () => {
     expect(customer.address).toBe('');
   });
 
+  it('should reject registration when a provided address is not a string (e.g. number or object)', async () => {
+    // Arrange: payload with a non-string address (number)
+    const numberAddressPayload = {
+      name: 'Invalid Address User',
+      email: 'invalid.address1@example.com',
+      address: 12345,
+      phone: '+94719876543',
+      password: 'StrongPass123!',
+    };
+
+    // Act
+    const numberResponse = await request(app).post('/api/auth/register').send(numberAddressPayload);
+
+    // Assert
+    expect(numberResponse.status).toBe(422);
+    expect(numberResponse.body.success).toBe(false);
+    expect(numberResponse.body.error.code).toBe('VALIDATION_ERROR');
+    expect(numberResponse.body.error.message).toContain('address must be a string');
+
+    // Arrange: payload with a non-string address (object)
+    const objectAddressPayload = {
+      name: 'Invalid Address User 2',
+      email: 'invalid.address2@example.com',
+      address: { street: 'Main St', city: 'Colombo' },
+      phone: '+94719876543',
+      password: 'StrongPass123!',
+    };
+
+    // Act
+    const objectResponse = await request(app).post('/api/auth/register').send(objectAddressPayload);
+
+    // Assert
+    expect(objectResponse.status).toBe(422);
+    expect(objectResponse.body.error.code).toBe('VALIDATION_ERROR');
+    expect(objectResponse.body.error.message).toContain('address must be a string');
+
+    expect(await Customer.countDocuments({ email: /invalid\.address/ })).toBe(0);
+  });
+
   it('should reject duplicate customer emails with 409 conflict', async () => {
     // Arrange
     const payload = {
