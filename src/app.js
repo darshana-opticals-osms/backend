@@ -8,6 +8,7 @@ const { generalLimiter, authLimiter } = require('./middleware/rateLimiter');
 const healthRoutes = require('./routes/health.routes');
 const authRoutes = require('./routes/auth.routes');
 const profileRoutes = require('./routes/profile.routes');
+const productRoutes = require('./routes/product.routes');
 const notFound = require('./middleware/notFound');
 const errorHandler = require('./middleware/errorHandler');
 const { sanitizeInput } = require('./utils/sanitizer');
@@ -20,7 +21,7 @@ function createApp() {
   // AC1: Security HTTP headers (Content-Security-Policy, X-Frame-Options, etc.)
   app.use(helmet());
 
-  // AC2: CORS — allow only configured frontend origins
+  // AC2: CORS â€” allow only configured frontend origins
   app.use(cors(CORS_CONFIG));
 
   // AC7: Reject oversized request bodies before application processing
@@ -29,7 +30,7 @@ function createApp() {
   // AC8: Input Sanitization (trims whitespace, strips script tags, prevents Mongo injection)
   app.use(sanitizeInput);
 
-  // AC3: General API rate limiter — applied to all /api routes
+  // AC3: General API rate limiter â€” applied to all /api routes
   app.use('/api', generalLimiter);
 
   // AC4, AC5: Stricter rate limiter on authentication endpoints
@@ -42,6 +43,7 @@ function createApp() {
   app.use('/api', healthRoutes);
   app.use('/api', authRoutes);
   app.use('/api', profileRoutes);
+  app.use('/api', productRoutes);
 
   // Catch-all route handler for non-existent endpoints (404)
   app.use(notFound);
