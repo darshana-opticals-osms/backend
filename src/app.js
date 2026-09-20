@@ -8,6 +8,7 @@ const { generalLimiter, authLimiter } = require('./middleware/rateLimiter');
 const healthRoutes = require('./routes/health.routes');
 const authRoutes = require('./routes/auth.routes');
 const profileRoutes = require('./routes/profile.routes');
+const productRoutes = require('./routes/product.routes');
 const inventoryRoutes = require('./routes/inventory.routes');
 const notFound = require('./middleware/notFound');
 const errorHandler = require('./middleware/errorHandler');
@@ -43,6 +44,7 @@ function createApp() {
   app.use('/api', healthRoutes);
   app.use('/api', authRoutes);
   app.use('/api', profileRoutes);
+  app.use('/api', productRoutes);
   app.use('/api', inventoryRoutes);
 
   // Catch-all route handler for non-existent endpoints (404)
