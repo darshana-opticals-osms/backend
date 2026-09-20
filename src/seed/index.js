@@ -18,11 +18,21 @@ async function runCliSeed() {
 
     console.log('\n✅ Seed Execution Complete!');
     console.log('-------------------------------------------');
-    console.log(`- Branches Created:  ${summary.branchesCreated} (Total in DB: ${summary.totalBranches})`);
-    console.log(`- Admins Created:    ${summary.adminsCreated} (Total in DB: ${summary.totalAdmins})`);
-    console.log(`- Staff Created:     ${summary.staffCreated} (Total in DB: ${summary.totalStaff})`);
-    console.log(`- Customers Created: ${summary.customersCreated} (Total in DB: ${summary.totalCustomers})`);
-    console.log(`- Inventory Created: ${summary.inventoryCreated} (Total in DB: ${summary.totalInventory})`);
+    console.log(
+      `- Branches Created:  ${summary.branchesCreated} (Total in DB: ${summary.totalBranches})`
+    );
+    console.log(
+      `- Admins Created:    ${summary.adminsCreated} (Total in DB: ${summary.totalAdmins})`
+    );
+    console.log(
+      `- Staff Created:     ${summary.staffCreated} (Total in DB: ${summary.totalStaff})`
+    );
+    console.log(
+      `- Customers Created: ${summary.customersCreated} (Total in DB: ${summary.totalCustomers})`
+    );
+    console.log(
+      `- Inventory Created: ${summary.inventoryCreated} (Total in DB: ${summary.totalInventory})`
+    );
     console.log('-------------------------------------------');
     console.log(`🔑 Development Password for seeded accounts: ${DEV_DEFAULT_PASSWORD}\n`);
 

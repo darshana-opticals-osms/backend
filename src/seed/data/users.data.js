@@ -10,8 +10,7 @@ const { ROLE_VALUES } = require('../../constants/roles');
 const DEV_DEFAULT_PASSWORD = 'DevPassword123!';
 
 // Pre-computed bcrypt hash (rounds=12) for 'DevPassword123!'
-const DEV_DEFAULT_PASSWORD_HASH =
-  '$2b$12$qiMDexcrpG3TrGQgG.iK6OvLA40.VeDU8dnhdWInQoI8xUQVxHrwS';
+const DEV_DEFAULT_PASSWORD_HASH = '$2b$12$qiMDexcrpG3TrGQgG.iK6OvLA40.VeDU8dnhdWInQoI8xUQVxHrwS';
 
 const SEED_ADMINS = [
   {
