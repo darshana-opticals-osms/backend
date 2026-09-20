@@ -136,7 +136,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
   });
 
   it('should be repeatable without creating uncontrolled duplicate records on consecutive runs (AC2)', async () => {
-    const firstRun = await seedDatabase();
+    await seedDatabase();
     const countAfterFirstRun = {
       branches: await Branch.countDocuments(),
       customers: await Customer.countDocuments(),

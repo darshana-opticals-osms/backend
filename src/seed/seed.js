@@ -1,4 +1,3 @@
-const mongoose = require('mongoose');
 const { connectDatabase } = require('../config/database');
 const Branch = require('../models/branch.model');
 const Customer = require('../models/customer.model');
