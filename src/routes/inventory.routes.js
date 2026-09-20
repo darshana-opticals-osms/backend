@@ -10,6 +10,7 @@ const authenticate = require('../middleware/authenticate');
 const { authorizeRoles } = require('../middleware/authorizeRoles');
 const { validate } = require('../middleware/validate');
 const { ROLE_VALUES } = require('../constants/roles');
+const { ForbiddenError } = require('../errors/AppError');
 
 const CREATE_FIELDS = new Set(['branchId', 'itemName', 'category', 'brand', 'price', 'quantity']);
 
@@ -161,6 +162,38 @@ const updateInventoryValidation = (req) => {
   return errors;
 };
 
+const authorizeInventoryUpdateFields = (req, _res, next) => {
+  const { role } = req.auth;
+  const fields = Object.keys(req.body);
+
+  const includesPrice = fields.includes('price');
+  const includesNonPriceFields = fields.some((field) => field !== 'price');
+
+  if (role === ROLE_VALUES.INVENTORY_MANAGER) {
+    if (includesPrice) {
+      return next(
+        new ForbiddenError(
+          'Manual price changes require Branch Manager or System Administrator authorization.'
+        )
+      );
+    }
+
+    return next();
+  }
+
+  if (role === ROLE_VALUES.BRANCH_MANAGER || role === ROLE_VALUES.SYSTEM_ADMIN) {
+    if (includesNonPriceFields) {
+      return next(
+        new ForbiddenError('Only Inventory Managers may update general inventory information.')
+      );
+    }
+
+    return next();
+  }
+
+  return next(new ForbiddenError('Access forbidden'));
+};
+
 const quantityUpdateValidation = (req) => {
   const { body } = req;
   const errors = [];
@@ -288,7 +321,10 @@ router.get(
  * @openapi
  * /inventory/{id}:
  *   patch:
- *     summary: Update an inventory item
+ *     summary: Update inventory information or perform an authorized price override
+ *     description: >
+ *       Inventory Managers may update branchId, itemName, category, and brand.
+ *       Manual price changes are restricted to Branch Managers and System Administrators.
  *     tags:
  *       - Inventory
  *     security:
@@ -299,13 +335,38 @@ router.get(
  *         required: true
  *         schema:
  *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             minProperties: 1
+ *             additionalProperties: false
+ *             properties:
+ *               branchId:
+ *                 type: string
+ *                 description: Existing branch MongoDB ObjectId
+ *               itemName:
+ *                 type: string
+ *                 minLength: 1
+ *               category:
+ *                 type: string
+ *                 minLength: 1
+ *               brand:
+ *                 type: string
+ *                 minLength: 1
+ *               price:
+ *                 type: number
+ *                 minimum: 0
+ *                 description: Manual price override restricted to Branch Manager or System Administrator
  *     responses:
  *       200:
  *         description: Inventory item updated successfully
  *       401:
  *         description: Authentication required
  *       403:
- *         description: User is not authorized to manage inventory
+ *         description: User does not have permission to modify the requested inventory fields
  *       404:
  *         description: Inventory item not found
  *       422:
@@ -314,8 +375,13 @@ router.get(
 router.patch(
   '/inventory/:id',
   authenticate,
-  authorizeRoles(ROLE_VALUES.INVENTORY_MANAGER),
+  authorizeRoles(
+    ROLE_VALUES.INVENTORY_MANAGER,
+    ROLE_VALUES.BRANCH_MANAGER,
+    ROLE_VALUES.SYSTEM_ADMIN
+  ),
   validate(updateInventoryValidation),
+  authorizeInventoryUpdateFields,
   updateInventoryItem
 );
 

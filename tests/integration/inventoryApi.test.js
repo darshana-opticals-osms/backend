@@ -223,7 +223,7 @@ describe('Inventory management API', () => {
     expect(response.status).toBe(403);
   });
 
-  it('should allow an Inventory Manager to update inventory information', async () => {
+  it('should allow an Inventory Manager to update normal inventory information', async () => {
     const branch = await createBranch();
 
     const inventory = await Inventory.create(buildInventoryPayload(branch._id));
@@ -236,23 +236,22 @@ describe('Inventory management API', () => {
       .send({
         itemName: 'Updated Frame',
         brand: 'Oakley',
-        price: 15000,
       });
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
     expect(response.body.data.itemName).toBe('Updated Frame');
     expect(response.body.data.brand).toBe('Oakley');
-    expect(response.body.data.price).toBe(15000);
+    expect(response.body.data.price).toBe(12500);
 
     const storedInventory = await Inventory.findById(inventory._id);
 
     expect(storedInventory.itemName).toBe('Updated Frame');
     expect(storedInventory.brand).toBe('Oakley');
-    expect(storedInventory.price).toBe(15000);
+    expect(storedInventory.price).toBe(12500);
   });
 
-  it('should reject a Branch Manager attempting to modify inventory', async () => {
+  it('should allow a Branch Manager to perform a manual price override', async () => {
     const branch = await createBranch();
 
     const inventory = await Inventory.create(buildInventoryPayload(branch._id));
@@ -268,11 +267,86 @@ describe('Inventory management API', () => {
         price: 20000,
       });
 
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.price).toBe(20000);
+
+    const storedInventory = await Inventory.findById(inventory._id);
+
+    expect(storedInventory.price).toBe(20000);
+  });
+
+  it('should reject an Inventory Manager attempting to manually change price', async () => {
+    const branch = await createBranch();
+
+    const inventory = await Inventory.create(buildInventoryPayload(branch._id));
+
+    const token = createToken({
+      role: ROLE_VALUES.INVENTORY_MANAGER,
+    });
+
+    const response = await request(app)
+      .patch(`/api/inventory/${inventory._id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        price: 15000,
+      });
+
     expect(response.status).toBe(403);
+    expect(response.body.error.code).toBe('FORBIDDEN');
 
     const storedInventory = await Inventory.findById(inventory._id);
 
     expect(storedInventory.price).toBe(12500);
+  });
+
+  it('should allow a System Administrator to perform a manual price override', async () => {
+    const branch = await createBranch();
+
+    const inventory = await Inventory.create(buildInventoryPayload(branch._id));
+
+    const token = createToken({
+      role: ROLE_VALUES.SYSTEM_ADMIN,
+    });
+
+    const response = await request(app)
+      .patch(`/api/inventory/${inventory._id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        price: 16000,
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.price).toBe(16000);
+
+    const storedInventory = await Inventory.findById(inventory._id);
+
+    expect(storedInventory.price).toBe(16000);
+  });
+
+  it('should reject a Branch Manager attempting to update normal inventory information', async () => {
+    const branch = await createBranch();
+
+    const inventory = await Inventory.create(buildInventoryPayload(branch._id));
+
+    const token = createToken({
+      role: ROLE_VALUES.BRANCH_MANAGER,
+    });
+
+    const response = await request(app)
+      .patch(`/api/inventory/${inventory._id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        itemName: 'Manager Updated Frame',
+      });
+
+    expect(response.status).toBe(403);
+    expect(response.body.error.code).toBe('FORBIDDEN');
+
+    const storedInventory = await Inventory.findById(inventory._id);
+
+    expect(storedInventory.itemName).toBe('Classic Frame');
   });
 
   it('should update stock quantity successfully', async () => {
@@ -350,7 +424,7 @@ describe('Inventory management API', () => {
       .patch(`/api/inventory/${missingInventoryId}`)
       .set('Authorization', `Bearer ${token}`)
       .send({
-        price: 5000,
+        itemName: 'Updated Frame',
       });
 
     expect(response.status).toBe(404);
