@@ -68,6 +68,8 @@ const login = async ({ email, password }) => {
   return { token, user };
 };
 
+const hashPassword = async (password) => bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
+
 const registerCustomer = async (customerInput = {}) => {
   const { name, email, address = '', phone, password } = customerInput;
 
@@ -76,7 +78,7 @@ const registerCustomer = async (customerInput = {}) => {
     throw new ConflictError('An account with this email already exists.');
   }
 
-  const passwordHash = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
+  const passwordHash = await hashPassword(password);
 
   const customer = await Customer.create({
     name,
@@ -92,6 +94,7 @@ const registerCustomer = async (customerInput = {}) => {
 
 module.exports = {
   BCRYPT_SALT_ROUNDS,
+  hashPassword,
   checkExistingIdentity,
   registerCustomer,
   buildSafeCustomerResponse,

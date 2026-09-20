@@ -6,9 +6,14 @@ const Staff = require('../../src/models/staff.model');
 const Admin = require('../../src/models/admin.model');
 const Inventory = require('../../src/models/inventory.model');
 const Prescription = require('../../src/models/prescription.model');
+const Order = require('../../src/models/order.model');
+const OrderItem = require('../../src/models/orderItem.model');
+const Appointment = require('../../src/models/appointment.model');
+const Payment = require('../../src/models/payment.model');
 const { seedDatabase, PRODUCTION_SAFETY_ERROR } = require('../../src/seed/seed');
 const { DEV_DEFAULT_PASSWORD } = require('../../src/seed/data/users.data');
 const { ROLE_VALUES } = require('../../src/constants/roles');
+const { APPOINTMENT_STATUS_VALUES } = require('../../src/constants/appointmentStatuses');
 
 describe('Seed Data Mechanism (Integration & Validation tests)', () => {
   let originalEnv;
@@ -20,34 +25,46 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
 
     await connectDatabase();
     await Promise.all([
-      Branch.deleteMany({}),
-      Customer.deleteMany({}),
-      Staff.deleteMany({}),
-      Admin.deleteMany({}),
-      Inventory.deleteMany({}),
+      OrderItem.deleteMany({}),
+      Payment.deleteMany({}),
+      Order.deleteMany({}),
+      Appointment.deleteMany({}),
       Prescription.deleteMany({}),
+      Inventory.deleteMany({}),
+      Staff.deleteMany({}),
+      Customer.deleteMany({}),
+      Admin.deleteMany({}),
+      Branch.deleteMany({}),
     ]);
   });
 
   beforeEach(async () => {
     await Promise.all([
-      Branch.deleteMany({}),
-      Customer.deleteMany({}),
-      Staff.deleteMany({}),
-      Admin.deleteMany({}),
-      Inventory.deleteMany({}),
+      OrderItem.deleteMany({}),
+      Payment.deleteMany({}),
+      Order.deleteMany({}),
+      Appointment.deleteMany({}),
       Prescription.deleteMany({}),
+      Inventory.deleteMany({}),
+      Staff.deleteMany({}),
+      Customer.deleteMany({}),
+      Admin.deleteMany({}),
+      Branch.deleteMany({}),
     ]);
   });
 
   afterAll(async () => {
     await Promise.all([
-      Branch.deleteMany({}),
-      Customer.deleteMany({}),
-      Staff.deleteMany({}),
-      Admin.deleteMany({}),
-      Inventory.deleteMany({}),
+      OrderItem.deleteMany({}),
+      Payment.deleteMany({}),
+      Order.deleteMany({}),
+      Appointment.deleteMany({}),
       Prescription.deleteMany({}),
+      Inventory.deleteMany({}),
+      Staff.deleteMany({}),
+      Customer.deleteMany({}),
+      Admin.deleteMany({}),
+      Branch.deleteMany({}),
     ]);
     await disconnectDatabase();
     process.env.NODE_ENV = originalEnv;
@@ -197,16 +214,33 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
     expect(countAfterSecondRun).toEqual(countAfterFirstRun);
   });
 
-  it('should wipe and reseed clean data when reset option is enabled (AC2)', async () => {
+  it('should wipe dependent collections and reseed clean data when reset option is enabled (AC2)', async () => {
     await seedDatabase();
 
-    // Create an extra custom document that should be wiped on reset
-    await Branch.create({ address: 'Temporary Extra Branch', contactNumber: '+94 11 000 0000' });
-    expect(await Branch.countDocuments()).toBe(4);
+    const customer = await Customer.findOne();
+    const staff = await Staff.findOne();
+
+    // Create dependent records (Order, Appointment) to test reset cleanup
+    await Order.create({
+      customerId: customer._id,
+      orderDate: new Date(),
+      orderAmount: 15000,
+    });
+    await Appointment.create({
+      customerId: customer._id,
+      staffId: staff._id,
+      dateTime: new Date(),
+      status: APPOINTMENT_STATUS_VALUES.CONFIRMED,
+    });
+
+    expect(await Order.countDocuments()).toBe(1);
+    expect(await Appointment.countDocuments()).toBe(1);
 
     const summary = await seedDatabase({ reset: true });
 
     expect(summary.reset).toBe(true);
+    expect(await Order.countDocuments()).toBe(0);
+    expect(await Appointment.countDocuments()).toBe(0);
     expect(await Branch.countDocuments()).toBe(3);
   });
 

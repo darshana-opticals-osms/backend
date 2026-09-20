@@ -5,9 +5,19 @@ const Staff = require('../models/staff.model');
 const Admin = require('../models/admin.model');
 const Inventory = require('../models/inventory.model');
 const Prescription = require('../models/prescription.model');
+const Order = require('../models/order.model');
+const OrderItem = require('../models/orderItem.model');
+const Appointment = require('../models/appointment.model');
+const Payment = require('../models/payment.model');
 const { createInventory } = require('../services/inventory.service');
+const { hashPassword } = require('../services/auth.service');
 const { SEED_BRANCHES } = require('./data/branches.data');
-const { SEED_ADMINS, SEED_STAFF, SEED_CUSTOMERS } = require('./data/users.data');
+const {
+  SEED_ADMINS,
+  SEED_STAFF,
+  SEED_CUSTOMERS,
+  DEV_DEFAULT_PASSWORD,
+} = require('./data/users.data');
 const { SEED_INVENTORY_ITEMS } = require('./data/inventory.data');
 const { SEED_PRESCRIPTIONS } = require('./data/prescriptions.data');
 
@@ -18,7 +28,7 @@ const PRODUCTION_SAFETY_ERROR =
  * Main Seed Runner Engine (AC1, AC2, AC9, AC11)
  *
  * @param {Object} options
- * @param {boolean} [options.reset=false] - Whether to wipe existing seed collections before seeding
+ * @param {boolean} [options.reset=false] - Whether to wipe existing seed and dependent collections before seeding
  * @param {mongoose.Connection} [options.connection=null] - Optional existing database connection
  * @returns {Promise<Object>} Seed summary report
  */
@@ -33,15 +43,19 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
     dbConnection = await connectDatabase();
   }
 
-  // AC2: Repeatable Execution - Reset strategy
+  // AC2: Repeatable Execution - Reset strategy with cascading dependency cleanup
   if (reset) {
     await Promise.all([
-      Branch.deleteMany({}),
-      Customer.deleteMany({}),
-      Staff.deleteMany({}),
-      Admin.deleteMany({}),
-      Inventory.deleteMany({}),
+      OrderItem.deleteMany({}),
+      Payment.deleteMany({}),
+      Order.deleteMany({}),
+      Appointment.deleteMany({}),
       Prescription.deleteMany({}),
+      Inventory.deleteMany({}),
+      Staff.deleteMany({}),
+      Customer.deleteMany({}),
+      Admin.deleteMany({}),
+      Branch.deleteMany({}),
     ]);
   }
 
@@ -52,6 +66,9 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
   let customersCreated = 0;
   let inventoryCreated = 0;
   let prescriptionsCreated = 0;
+
+  // Compute password hash using application central auth service hashing helper
+  const devPasswordHash = await hashPassword(DEV_DEFAULT_PASSWORD);
 
   // 1. Seed Branches (AC5)
   for (const branchData of SEED_BRANCHES) {
@@ -70,7 +87,10 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
   for (const adminData of SEED_ADMINS) {
     const existing = await Admin.exists({ email: adminData.email });
     if (!existing) {
-      await Admin.create(adminData);
+      await Admin.create({
+        ...adminData,
+        passwordHash: devPasswordHash,
+      });
       adminsCreated += 1;
     }
   }
@@ -87,7 +107,7 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
         address: staffData.address,
         role: staffData.role,
         branchId,
-        passwordHash: staffData.passwordHash,
+        passwordHash: devPasswordHash,
       });
       staffCreated += 1;
     }
@@ -97,7 +117,10 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
   for (const customerData of SEED_CUSTOMERS) {
     const existing = await Customer.exists({ email: customerData.email });
     if (!existing) {
-      await Customer.create(customerData);
+      await Customer.create({
+        ...customerData,
+        passwordHash: devPasswordHash,
+      });
       customersCreated += 1;
     }
   }
