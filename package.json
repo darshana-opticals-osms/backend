@@ -6,6 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
+    "seed": "node src/seed/index.js",
+    "seed:reset": "node src/seed/index.js --reset",
     "test": "jest --runInBand",
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{js,json,md}\"",
