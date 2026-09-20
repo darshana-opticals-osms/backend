@@ -5,6 +5,7 @@ const Customer = require('../../src/models/customer.model');
 const Staff = require('../../src/models/staff.model');
 const Admin = require('../../src/models/admin.model');
 const Inventory = require('../../src/models/inventory.model');
+const Prescription = require('../../src/models/prescription.model');
 const { seedDatabase, PRODUCTION_SAFETY_ERROR } = require('../../src/seed/seed');
 const { DEV_DEFAULT_PASSWORD } = require('../../src/seed/data/users.data');
 const { ROLE_VALUES } = require('../../src/constants/roles');
@@ -24,6 +25,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
       Staff.deleteMany({}),
       Admin.deleteMany({}),
       Inventory.deleteMany({}),
+      Prescription.deleteMany({}),
     ]);
   });
 
@@ -34,6 +36,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
       Staff.deleteMany({}),
       Admin.deleteMany({}),
       Inventory.deleteMany({}),
+      Prescription.deleteMany({}),
     ]);
   });
 
@@ -44,6 +47,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
       Staff.deleteMany({}),
       Admin.deleteMany({}),
       Inventory.deleteMany({}),
+      Prescription.deleteMany({}),
     ]);
     await disconnectDatabase();
     process.env.NODE_ENV = originalEnv;
@@ -57,6 +61,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
     expect(summary.staffCreated).toBeGreaterThan(0);
     expect(summary.customersCreated).toBeGreaterThan(0);
     expect(summary.inventoryCreated).toBeGreaterThan(0);
+    expect(summary.prescriptionsCreated).toBeGreaterThan(0);
   });
 
   it('should seed representative Customer accounts with valid bcrypt hashes (AC3, AC7, AC8)', async () => {
@@ -135,6 +140,33 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
     }
   });
 
+  it('should seed Clinical Prescriptions according to ADR-001 (FR-002, FR-013)', async () => {
+    await seedDatabase();
+
+    const prescriptions = await Prescription.find().populate('customerId').populate('recordedBy');
+    expect(prescriptions.length).toBeGreaterThanOrEqual(3);
+
+    const kamalCustomer = await Customer.findOne({ email: 'kamal.customer@example.com' });
+    const kamalPrescriptions = await Prescription.find({ customerId: kamalCustomer._id }).sort({
+      recordedAt: -1,
+    });
+
+    // Tests prescription history support (FR-002)
+    expect(kamalPrescriptions.length).toBe(2);
+
+    for (const rx of prescriptions) {
+      expect(rx.customerId).toBeDefined();
+      expect(rx.recordedBy).toBeDefined();
+      expect(rx.recordedBy.role).toBe(ROLE_VALUES.OPTOMETRIST);
+      expect(rx.rightEye.distance).toBeDefined();
+      expect(rx.rightEye.reading).toBeDefined();
+      expect(rx.leftEye.distance).toBeDefined();
+      expect(rx.leftEye.reading).toBeDefined();
+      expect(typeof rx.remarks).toBe('string');
+      expect(typeof rx.isArchived).toBe('boolean');
+    }
+  });
+
   it('should be repeatable without creating uncontrolled duplicate records on consecutive runs (AC2)', async () => {
     await seedDatabase();
     const countAfterFirstRun = {
@@ -143,6 +175,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
       staff: await Staff.countDocuments(),
       admins: await Admin.countDocuments(),
       inventory: await Inventory.countDocuments(),
+      prescriptions: await Prescription.countDocuments(),
     };
 
     const secondRun = await seedDatabase();
@@ -152,6 +185,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
       staff: await Staff.countDocuments(),
       admins: await Admin.countDocuments(),
       inventory: await Inventory.countDocuments(),
+      prescriptions: await Prescription.countDocuments(),
     };
 
     expect(secondRun.branchesCreated).toBe(0);
@@ -159,6 +193,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
     expect(secondRun.staffCreated).toBe(0);
     expect(secondRun.adminsCreated).toBe(0);
     expect(secondRun.inventoryCreated).toBe(0);
+    expect(secondRun.prescriptionsCreated).toBe(0);
     expect(countAfterSecondRun).toEqual(countAfterFirstRun);
   });
 
@@ -186,18 +221,21 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
   it('should ensure all seeded documents satisfy Mongoose schema validation (AC11)', async () => {
     await seedDatabase();
 
-    const [branches, customers, staffMembers, admins, inventoryItems] = await Promise.all([
-      Branch.find(),
-      Customer.find(),
-      Staff.find(),
-      Admin.find(),
-      Inventory.find(),
-    ]);
+    const [branches, customers, staffMembers, admins, inventoryItems, prescriptions] =
+      await Promise.all([
+        Branch.find(),
+        Customer.find(),
+        Staff.find(),
+        Admin.find(),
+        Inventory.find(),
+        Prescription.find(),
+      ]);
 
     for (const b of branches) await expect(b.validate()).resolves.toBeUndefined();
     for (const c of customers) await expect(c.validate()).resolves.toBeUndefined();
     for (const s of staffMembers) await expect(s.validate()).resolves.toBeUndefined();
     for (const a of admins) await expect(a.validate()).resolves.toBeUndefined();
     for (const i of inventoryItems) await expect(i.validate()).resolves.toBeUndefined();
+    for (const p of prescriptions) await expect(p.validate()).resolves.toBeUndefined();
   });
 });

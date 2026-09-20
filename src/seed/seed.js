@@ -4,10 +4,12 @@ const Customer = require('../models/customer.model');
 const Staff = require('../models/staff.model');
 const Admin = require('../models/admin.model');
 const Inventory = require('../models/inventory.model');
+const Prescription = require('../models/prescription.model');
 const { createInventory } = require('../services/inventory.service');
 const { SEED_BRANCHES } = require('./data/branches.data');
 const { SEED_ADMINS, SEED_STAFF, SEED_CUSTOMERS } = require('./data/users.data');
 const { SEED_INVENTORY_ITEMS } = require('./data/inventory.data');
+const { SEED_PRESCRIPTIONS } = require('./data/prescriptions.data');
 
 const PRODUCTION_SAFETY_ERROR =
   'Production safety check triggered: Seeding database is prohibited in production environment.';
@@ -39,6 +41,7 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
       Staff.deleteMany({}),
       Admin.deleteMany({}),
       Inventory.deleteMany({}),
+      Prescription.deleteMany({}),
     ]);
   }
 
@@ -48,6 +51,7 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
   let staffCreated = 0;
   let customersCreated = 0;
   let inventoryCreated = 0;
+  let prescriptionsCreated = 0;
 
   // 1. Seed Branches (AC5)
   for (const branchData of SEED_BRANCHES) {
@@ -123,6 +127,33 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
     }
   }
 
+  // 6. Seed Prescriptions (ADR-001, FR-002, FR-013)
+  for (const rxData of SEED_PRESCRIPTIONS) {
+    const customer = await Customer.findOne({ email: rxData.customerEmail });
+    const staff = await Staff.findOne({ email: rxData.staffEmail });
+    if (!customer || !staff) {
+      continue;
+    }
+
+    const existing = await Prescription.exists({
+      customerId: customer._id,
+      recordedAt: rxData.recordedAt,
+    });
+
+    if (!existing) {
+      await Prescription.create({
+        customerId: customer._id,
+        recordedBy: staff._id,
+        recordedAt: rxData.recordedAt,
+        rightEye: rxData.rightEye,
+        leftEye: rxData.leftEye,
+        remarks: rxData.remarks,
+        isArchived: rxData.isArchived,
+      });
+      prescriptionsCreated += 1;
+    }
+  }
+
   return {
     reset,
     branchesCreated,
@@ -130,11 +161,13 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
     staffCreated,
     customersCreated,
     inventoryCreated,
+    prescriptionsCreated,
     totalBranches: await Branch.countDocuments({}),
     totalAdmins: await Admin.countDocuments({}),
     totalStaff: await Staff.countDocuments({}),
     totalCustomers: await Customer.countDocuments({}),
     totalInventory: await Inventory.countDocuments({}),
+    totalPrescriptions: await Prescription.countDocuments({}),
   };
 }
 
