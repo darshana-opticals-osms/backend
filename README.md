@@ -51,7 +51,7 @@ The backend includes a controlled seed-data mechanism for local development and 
 #### Seed Commands
 
 - `npm run seed` — Populates non-production development data idempotently without creating uncontrolled duplicate records.
-- `npm run seed:reset` — Destructively resets all development seed collections and dependent collections (`OrderItem`, `Payment`, `Order`, `Appointment`, `Prescription`, `Inventory`, `Staff`, `Customer`, `Admin`, `Branch`) in safe dependency order, then repopulates fresh sample data.
+- `npm run seed:reset` — Destructively clears all local development records across target and dependent collections (`OrderItem` -> `Payment` -> `Order` -> `Appointment` -> `Prescription` -> `Inventory` -> `Staff` -> `Customer` -> `Admin` -> `Branch`) sequentially in strict dependency order (removing both seeded and custom local development records), then repopulates fresh sample data.
 
 #### Development Test Accounts
 

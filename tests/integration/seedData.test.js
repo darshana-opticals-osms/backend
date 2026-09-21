@@ -14,6 +14,7 @@ const { seedDatabase, PRODUCTION_SAFETY_ERROR } = require('../../src/seed/seed')
 const { DEV_DEFAULT_PASSWORD } = require('../../src/seed/data/users.data');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 const { APPOINTMENT_STATUS_VALUES } = require('../../src/constants/appointmentStatuses');
+const { PAYMENT_STATUS, PAYMENT_METHOD } = require('../../src/constants/payment');
 
 describe('Seed Data Mechanism (Integration & Validation tests)', () => {
   let originalEnv;
@@ -214,17 +215,29 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
     expect(countAfterSecondRun).toEqual(countAfterFirstRun);
   });
 
-  it('should wipe dependent collections and reseed clean data when reset option is enabled (AC2)', async () => {
+  it('should wipe dependent collections (OrderItem, Payment, Order, Appointment) and reseed clean data when reset option is enabled (AC2)', async () => {
     await seedDatabase();
 
     const customer = await Customer.findOne();
     const staff = await Staff.findOne();
 
-    // Create dependent records (Order, Appointment) to test reset cleanup
-    await Order.create({
+    // Create dependent records (Order, OrderItem, Payment, Appointment) to test reset cleanup
+    const order = await Order.create({
       customerId: customer._id,
       orderDate: new Date(),
       orderAmount: 15000,
+    });
+    await OrderItem.create({
+      orderId: order._id,
+      itemName: 'Test Frame Item',
+      price: 15000,
+      quantity: 1,
+    });
+    await Payment.create({
+      orderId: order._id,
+      amount: 15000,
+      status: PAYMENT_STATUS.COMPLETED,
+      method: PAYMENT_METHOD.CASH,
     });
     await Appointment.create({
       customerId: customer._id,
@@ -234,11 +247,15 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
     });
 
     expect(await Order.countDocuments()).toBe(1);
+    expect(await OrderItem.countDocuments()).toBe(1);
+    expect(await Payment.countDocuments()).toBe(1);
     expect(await Appointment.countDocuments()).toBe(1);
 
     const summary = await seedDatabase({ reset: true });
 
     expect(summary.reset).toBe(true);
+    expect(await OrderItem.countDocuments()).toBe(0);
+    expect(await Payment.countDocuments()).toBe(0);
     expect(await Order.countDocuments()).toBe(0);
     expect(await Appointment.countDocuments()).toBe(0);
     expect(await Branch.countDocuments()).toBe(3);

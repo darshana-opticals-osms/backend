@@ -28,7 +28,7 @@ const PRODUCTION_SAFETY_ERROR =
  * Main Seed Runner Engine (AC1, AC2, AC9, AC11)
  *
  * @param {Object} options
- * @param {boolean} [options.reset=false] - Whether to wipe existing seed and dependent collections before seeding
+ * @param {boolean} [options.reset=false] - Whether to wipe all local development records across target and dependent collections in strict dependency order before seeding
  * @param {mongoose.Connection} [options.connection=null] - Optional existing database connection
  * @returns {Promise<Object>} Seed summary report
  */
@@ -43,20 +43,19 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
     dbConnection = await connectDatabase();
   }
 
-  // AC2: Repeatable Execution - Reset strategy with cascading dependency cleanup
+  // AC2: Repeatable Execution - Reset strategy with sequential cascading dependency cleanup
+  // Note: Reset destructively removes all local development records in these collections (both seeded and custom development records).
   if (reset) {
-    await Promise.all([
-      OrderItem.deleteMany({}),
-      Payment.deleteMany({}),
-      Order.deleteMany({}),
-      Appointment.deleteMany({}),
-      Prescription.deleteMany({}),
-      Inventory.deleteMany({}),
-      Staff.deleteMany({}),
-      Customer.deleteMany({}),
-      Admin.deleteMany({}),
-      Branch.deleteMany({}),
-    ]);
+    await OrderItem.deleteMany({});
+    await Payment.deleteMany({});
+    await Order.deleteMany({});
+    await Appointment.deleteMany({});
+    await Prescription.deleteMany({});
+    await Inventory.deleteMany({});
+    await Staff.deleteMany({});
+    await Customer.deleteMany({});
+    await Admin.deleteMany({});
+    await Branch.deleteMany({});
   }
 
   const branchMap = new Map();
