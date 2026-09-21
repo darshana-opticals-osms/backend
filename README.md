@@ -44,6 +44,40 @@ Start the backend in development mode:
 
 npm run dev
 
+### Development Seed Mechanism
+
+The backend includes a controlled seed-data mechanism for local development and automated non-production testing. Seed data contains only fictional test records and never real customer, staff, or clinical information.
+
+#### Seed Commands
+
+- `npm run seed` — Populates non-production development data idempotently without creating uncontrolled duplicate records.
+- `npm run seed:reset` — Destructively clears all local development records across target and dependent collections (`OrderItem` -> `Payment` -> `Order` -> `Appointment` -> `Prescription` -> `Inventory` -> `Staff` -> `Customer` -> `Admin` -> `Branch`) sequentially in strict dependency order (removing both seeded and custom local development records), then repopulates fresh sample data.
+
+#### Development Test Accounts
+
+All seeded development accounts use the default password: **`DevPassword123!`**
+
+- **System Admin:** `admin.dev@darshanaopticals.local` (Role: `SYSTEM_ADMIN`)
+- **Branch Manager:** `manager.colombo@darshanaopticals.local` (Role: `BRANCH_MANAGER`, Branch: Colombo)
+- **Inventory Manager:** `inventory.colombo@darshanaopticals.local` (Role: `INVENTORY_MANAGER`, Branch: Colombo)
+- **Optometrist:** `optometrist.kandy@darshanaopticals.local` (Role: `OPTOMETRIST`, Branch: Kandy)
+- **Cashier:** `sales.gampaha@darshanaopticals.local` (Role: `SALES_ASSISTANT_CASHIER`, Branch: Gampaha)
+- **Customer 1:** `kamal.customer@example.com` (Role: `CUSTOMER`)
+- **Customer 2:** `alice.customer@example.com` (Role: `CUSTOMER`)
+- **Customer 3:** `nimal.customer@example.com` (Role: `CUSTOMER`)
+
+#### Sample Branches & Product Catalog
+
+The seed script creates fictional branches (`COLOMBO_MAIN`, `KANDY_CITY`, `GAMPAHA_CENTRAL`) and populates 11 representative product inventory items across multiple categories (`Sunglasses`, `Sports`, `Men`, `Women`, `Kids`, `Contact Lenses`), brands (`Ray-Ban`, `Oakley`, `Persol`, `Oliver Peoples`, `Vogue Eyewear`, `Gucci`, `Acuvue`), and price points for testing search and filtering APIs.
+
+#### Sample Clinical Prescriptions (ADR-001)
+
+The seed script populates 3 fictional clinical prescription records adhering to ADR-001 specifications (Distance/Reading parameters for Right & Left eye, VA, Add Power, Near VA, clinical remarks, and soft-archival status). Multiple prescriptions are attached to `kamal.customer@example.com` to support testing prescription history viewing (FR-002) and optometrist traceability (FR-013).
+
+#### Production Safety
+
+Seed operations are strictly prohibited when `NODE_ENV=production`. Attempting to run seed operations in production triggers a safety error.
+
 ### MongoDB setup
 
 - Ensure MongoDB is running locally or provide a MongoDB Atlas connection string.
