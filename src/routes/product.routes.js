@@ -105,8 +105,8 @@ const productIdValidation = (req) => {
  * @openapi
  * /products:
  *   get:
- *     summary: List and filter catalog products
- *     description: Returns public product discovery data. Internal inventory fields are not exposed.
+ *     summary: List catalog products
+ *     description: Returns the public product catalogue. Internal inventory-only fields are intentionally excluded.
  *     tags:
  *       - Products
  *     parameters:
@@ -114,17 +114,20 @@ const productIdValidation = (req) => {
  *         name: search
  *         schema:
  *           type: string
- *         description: Case-insensitive partial match against item name or brand.
+ *           maxLength: 100
+ *         description: Case-insensitive partial match against the product name or brand.
  *       - in: query
  *         name: category
  *         schema:
  *           type: string
- *         description: Case-insensitive exact category filter.
+ *           maxLength: 100
+ *         description: Exact category match, case-insensitive.
  *       - in: query
  *         name: brand
  *         schema:
  *           type: string
- *         description: Case-insensitive exact brand filter.
+ *           maxLength: 100
+ *         description: Exact brand match, case-insensitive.
  *       - in: query
  *         name: minPrice
  *         schema:
@@ -140,8 +143,23 @@ const productIdValidation = (req) => {
  *     responses:
  *       200:
  *         description: Product list returned successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required:
+ *                 - success
+ *                 - data
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Product'
  *       422:
- *         description: Invalid query parameter.
+ *         $ref: '#/components/responses/ValidationError'
  */
 router.get('/products', validate(catalogQueryValidation), getProducts);
 
@@ -149,8 +167,8 @@ router.get('/products', validate(catalogQueryValidation), getProducts);
  * @openapi
  * /products/{id}:
  *   get:
- *     summary: Get one catalog product
- *     description: Returns public product discovery data for one inventory item.
+ *     summary: Get one catalog product by ID
+ *     description: Returns public product discovery data for a single item.
  *     tags:
  *       - Products
  *     parameters:
@@ -163,10 +181,23 @@ router.get('/products', validate(catalogQueryValidation), getProducts);
  *     responses:
  *       200:
  *         description: Product returned successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required:
+ *                 - success
+ *                 - data
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/Product'
  *       404:
- *         description: Product not found.
+ *         $ref: '#/components/responses/NotFound'
  *       422:
- *         description: Invalid product identifier.
+ *         $ref: '#/components/responses/ValidationError'
  */
 router.get('/products/:id', validate(productIdValidation), getProduct);
 

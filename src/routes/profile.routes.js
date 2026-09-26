@@ -80,20 +80,33 @@ const router = express.Router();
  * /profile/me:
  *   get:
  *     summary: Get the authenticated customer's own profile
- *     description: Returns the safe profile data for the authenticated customer only.
+ *     description: Returns only the safe profile data for the authenticated CUSTOMER.
  *     tags:
  *       - Profile
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Customer profile returned successfully
+ *         description: Customer profile returned successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required:
+ *                 - success
+ *                 - data
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/CustomerProfile'
  *       401:
- *         description: Authentication required or invalid token
+ *         $ref: '#/components/responses/Unauthorized'
  *       403:
- *         description: Authenticated user is not a CUSTOMER
+ *         $ref: '#/components/responses/Forbidden'
  *       404:
- *         description: Customer profile not found
+ *         $ref: '#/components/responses/NotFound'
  */
 router.get('/profile/me', authenticate, authorizeRoles(ROLE_VALUES.CUSTOMER), getProfile);
 
@@ -102,7 +115,7 @@ router.get('/profile/me', authenticate, authorizeRoles(ROLE_VALUES.CUSTOMER), ge
  * /profile/me:
  *   patch:
  *     summary: Update the authenticated customer's own profile
- *     description: Updates only the allowed customer profile fields for the authenticated customer.
+ *     description: Updates only allowed customer profile fields; the payload may be partial, but an empty patch is rejected.
  *     tags:
  *       - Profile
  *     security:
@@ -112,34 +125,33 @@ router.get('/profile/me', authenticate, authorizeRoles(ROLE_VALUES.CUSTOMER), ge
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             properties:
- *               name:
- *                 type: string
- *                 example: Alice Customer
- *               email:
- *                 type: string
- *                 format: email
- *                 example: alice.customer@example.com
- *               address:
- *                 type: string
- *                 example: 12 Main Street, Colombo
- *               phone:
- *                 type: string
- *                 example: '+94711234567'
+ *             $ref: '#/components/schemas/ProfileUpdateRequest'
  *     responses:
  *       200:
- *         description: Customer profile updated successfully
+ *         description: Customer profile was updated successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required:
+ *                 - success
+ *                 - data
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/CustomerProfile'
  *       401:
- *         description: Authentication required or invalid token
+ *         $ref: '#/components/responses/Unauthorized'
  *       403:
- *         description: Authenticated user is not a CUSTOMER
+ *         $ref: '#/components/responses/Forbidden'
  *       404:
- *         description: Customer profile not found
+ *         $ref: '#/components/responses/NotFound'
  *       409:
- *         description: Email conflicts with another account
+ *         $ref: '#/components/responses/Conflict'
  *       422:
- *         description: Validation error or prohibited field supplied
+ *         $ref: '#/components/responses/ValidationError'
  */
 router.patch(
   '/profile/me',
