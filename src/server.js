@@ -2,7 +2,6 @@ const { loadConfig } = require('./config/env');
 const { createApp } = require('./app');
 const { connectDatabase } = require('./config/database');
 
-
 async function startServer() {
   const { port } = loadConfig();
   const app = createApp();
