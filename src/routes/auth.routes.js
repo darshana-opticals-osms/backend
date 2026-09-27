@@ -117,8 +117,8 @@ const router = express.Router();
  * @openapi
  * /auth/register:
  *   post:
- *     summary: Register a new customer / patient
- *     description: Public registration endpoint for new customers.
+ *     summary: Register a new customer account
+ *     description: Public registration for a CUSTOMER account. Address is optional, privileged role fields are rejected, and duplicate conflict detection is based on email.
  *     tags:
  *       - Authentication
  *     requestBody:
@@ -126,69 +126,56 @@ const router = express.Router();
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             required:
- *               - name
- *               - email
- *               - phone
- *               - password
- *             properties:
- *               name:
- *                 type: string
- *                 example: Kamal Perera
- *               email:
- *                 type: string
- *                 format: email
- *                 example: kamal@example.com
- *               address:
- *                 type: string
- *                 example: No 12, Main Street, Kandy
- *               phone:
- *                 type: string
- *                 example: "0771234567"
- *               password:
- *                 type: string
- *                 format: password
- *                 minLength: 8
- *                 example: Password123
+ *             $ref: '#/components/schemas/RegisterRequest'
  *     responses:
  *       201:
- *         description: Customer successfully registered
+ *         description: Customer successfully registered.
  *         content:
  *           application/json:
  *             schema:
  *               type: object
+ *               required:
+ *                 - success
+ *                 - data
  *               properties:
  *                 success:
  *                   type: boolean
  *                   example: true
  *                 data:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: string
- *                       example: 6737f1a23b45c67890def123
- *                     name:
- *                       type: string
- *                       example: Kamal Perera
- *                     email:
- *                       type: string
- *                       example: kamal@example.com
- *                     address:
- *                       type: string
- *                       example: No 12, Main Street, Kandy
- *                     phone:
- *                       type: string
- *                       example: "0771234567"
- *                     role:
- *                       type: string
- *                       example: CUSTOMER
- *       400:
- *         description: Validation error or invalid input
+ *                   $ref: '#/components/schemas/CustomerProfile'
  *       409:
- *         description: Email or phone number already registered
+ *         $ref: '#/components/responses/Conflict'
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
  */
 router.post('/auth/register', validate(registerValidation), register);
+
+/**
+ * @openapi
+ * /auth/login:
+ *   post:
+ *     summary: Authenticate a customer, staff member, or admin
+ *     description: Returns a signed JWT and the safe identity record for the authenticated user.
+ *     tags:
+ *       - Authentication
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/LoginRequest'
+ *     responses:
+ *       200:
+ *         description: Login successful.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/LoginResponse'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
+ */
 router.post('/auth/login', validate(loginValidation), login);
 
 module.exports = router;

@@ -233,7 +233,8 @@ const router = express.Router();
  * @openapi
  * /inventory:
  *   post:
- *     summary: Create an inventory item
+ *     summary: Create a new inventory item
+ *     description: Inventory creation is restricted to INVENTORY_MANAGER. The request must include branchId, itemName, category, brand, price, and quantity.
  *     tags:
  *       - Inventory
  *     security:
@@ -243,38 +244,29 @@ const router = express.Router();
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             required:
- *               - branchId
- *               - itemName
- *               - category
- *               - brand
- *               - price
- *               - quantity
- *             properties:
- *               branchId:
- *                 type: string
- *               itemName:
- *                 type: string
- *               category:
- *                 type: string
- *               brand:
- *                 type: string
- *               price:
- *                 type: number
- *                 minimum: 0
- *               quantity:
- *                 type: number
- *                 minimum: 0
+ *             $ref: '#/components/schemas/InventoryCreateRequest'
  *     responses:
  *       201:
- *         description: Inventory item created successfully
+ *         description: Inventory item created successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required:
+ *                 - success
+ *                 - data
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/InventoryItem'
  *       401:
- *         description: Authentication required
+ *         $ref: '#/components/responses/Unauthorized'
  *       403:
- *         description: User is not authorized to manage inventory
+ *         $ref: '#/components/responses/Forbidden'
  *       422:
- *         description: Invalid inventory data
+ *         $ref: '#/components/responses/ValidationError'
  */
 router.post(
   '/inventory',
@@ -289,6 +281,7 @@ router.post(
  * /inventory/branch/{branchId}:
  *   get:
  *     summary: Retrieve inventory for a branch
+ *     description: Returns all inventory records for a branch. Allowed roles are INVENTORY_MANAGER, BRANCH_MANAGER, and MANAGEMENT.
  *     tags:
  *       - Inventory
  *     security:
@@ -299,15 +292,31 @@ router.post(
  *         required: true
  *         schema:
  *           type: string
+ *         description: MongoDB branch identifier.
  *     responses:
  *       200:
- *         description: Branch inventory returned successfully
+ *         description: Branch inventory returned successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required:
+ *                 - success
+ *                 - data
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/InventoryItem'
  *       401:
- *         description: Authentication required
+ *         $ref: '#/components/responses/Unauthorized'
  *       403:
- *         description: User does not have inventory viewing permission
+ *         $ref: '#/components/responses/Forbidden'
  *       422:
- *         description: Invalid branch reference
+ *         $ref: '#/components/responses/ValidationError'
  */
 router.get(
   '/inventory/branch/:branchId',
@@ -321,10 +330,8 @@ router.get(
  * @openapi
  * /inventory/{id}:
  *   patch:
- *     summary: Update inventory information or perform an authorized price override
- *     description: >
- *       Inventory Managers may update branchId, itemName, category, and brand.
- *       Manual price changes are restricted to Branch Managers and System Administrators.
+ *     summary: Update inventory metadata or apply an authorized price override
+ *     description: Roles are permission-sensitive. INVENTORY_MANAGER may update general fields only; BRANCH_MANAGER and SYSTEM_ADMIN may perform price-only override updates; they cannot update the other general inventory fields in the same request.
  *     tags:
  *       - Inventory
  *     security:
@@ -335,42 +342,37 @@ router.get(
  *         required: true
  *         schema:
  *           type: string
+ *         description: MongoDB inventory item identifier.
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             minProperties: 1
- *             additionalProperties: false
- *             properties:
- *               branchId:
- *                 type: string
- *                 description: Existing branch MongoDB ObjectId
- *               itemName:
- *                 type: string
- *                 minLength: 1
- *               category:
- *                 type: string
- *                 minLength: 1
- *               brand:
- *                 type: string
- *                 minLength: 1
- *               price:
- *                 type: number
- *                 minimum: 0
- *                 description: Manual price override restricted to Branch Manager or System Administrator
+ *             $ref: '#/components/schemas/InventoryUpdateRequest'
  *     responses:
  *       200:
- *         description: Inventory item updated successfully
+ *         description: Inventory item updated successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required:
+ *                 - success
+ *                 - data
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/InventoryItem'
  *       401:
- *         description: Authentication required
+ *         $ref: '#/components/responses/Unauthorized'
  *       403:
- *         description: User does not have permission to modify the requested inventory fields
+ *         $ref: '#/components/responses/Forbidden'
  *       404:
- *         description: Inventory item not found
+ *         $ref: '#/components/responses/NotFound'
  *       422:
- *         description: Invalid inventory data
+ *         $ref: '#/components/responses/ValidationError'
  */
 router.patch(
   '/inventory/:id',
@@ -389,7 +391,8 @@ router.patch(
  * @openapi
  * /inventory/{id}/quantity:
  *   patch:
- *     summary: Update inventory stock quantity
+ *     summary: Update inventory quantity
+ *     description: Updates stock quantity for an inventory record. Only INVENTORY_MANAGER can perform this action.
  *     tags:
  *       - Inventory
  *     security:
@@ -400,29 +403,37 @@ router.patch(
  *         required: true
  *         schema:
  *           type: string
+ *         description: MongoDB inventory item identifier.
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             required:
- *               - quantity
- *             properties:
- *               quantity:
- *                 type: number
- *                 minimum: 0
+ *             $ref: '#/components/schemas/InventoryQuantityUpdateRequest'
  *     responses:
  *       200:
- *         description: Inventory quantity updated successfully
+ *         description: Inventory quantity updated successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required:
+ *                 - success
+ *                 - data
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/InventoryItem'
  *       401:
- *         description: Authentication required
+ *         $ref: '#/components/responses/Unauthorized'
  *       403:
- *         description: User is not authorized to manage inventory
+ *         $ref: '#/components/responses/Forbidden'
  *       404:
- *         description: Inventory item not found
+ *         $ref: '#/components/responses/NotFound'
  *       422:
- *         description: Invalid quantity
+ *         $ref: '#/components/responses/ValidationError'
  */
 router.patch(
   '/inventory/:id/quantity',

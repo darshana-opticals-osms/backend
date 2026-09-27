@@ -7,17 +7,20 @@ const router = express.Router();
  * @openapi
  * /health:
  *   get:
- *     summary: System Health Check
- *     description: Returns the operational status of the OSMS backend service.
+ *     summary: System health check
+ *     description: Returns the backend service status without authentication.
  *     tags:
  *       - Health
  *     responses:
  *       200:
- *         description: System is healthy
+ *         description: Service is healthy.
  *         content:
  *           application/json:
  *             schema:
  *               type: object
+ *               required:
+ *                 - status
+ *                 - service
  *               properties:
  *                 status:
  *                   type: string
