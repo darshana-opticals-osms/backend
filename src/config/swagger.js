@@ -373,6 +373,163 @@ const options = {
             },
           },
         },
+        EyeDistance: {
+          type: 'object',
+          description: 'ADR-001 approved distance vision measurements for one eye.',
+          properties: {
+            sph: {
+              type: 'number',
+              nullable: true,
+              example: -1.25,
+              description: 'Sphere power. Numeric when supplied.',
+            },
+            cyl: {
+              type: 'number',
+              nullable: true,
+              example: -0.5,
+              description: 'Cylinder power. Numeric when supplied.',
+            },
+            axis: {
+              type: 'number',
+              nullable: true,
+              minimum: 0,
+              maximum: 180,
+              example: 90,
+              description: 'Axis value. Must be 0–180 when supplied (AC6).',
+            },
+            va: {
+              type: 'string',
+              nullable: true,
+              example: '6/6',
+              description: 'Visual acuity string when supplied.',
+            },
+          },
+        },
+        EyeReading: {
+          type: 'object',
+          description: 'ADR-001 approved reading/near vision measurements for one eye.',
+          properties: {
+            add: {
+              type: 'number',
+              nullable: true,
+              example: 1.0,
+              description: 'Addition power. Numeric when supplied.',
+            },
+            nearVa: {
+              type: 'string',
+              nullable: true,
+              example: 'N6',
+              description: 'Near visual acuity string when supplied.',
+            },
+          },
+        },
+        EyePrescription: {
+          type: 'object',
+          description: 'ADR-001 approved combined eye prescription (distance + reading).',
+          properties: {
+            distance: {
+              $ref: '#/components/schemas/EyeDistance',
+            },
+            reading: {
+              $ref: '#/components/schemas/EyeReading',
+            },
+          },
+        },
+        PrescriptionCreateRequest: {
+          type: 'object',
+          required: ['customerId'],
+          description:
+            'Clinical prescription creation payload. Restricted to OPTOMETRIST. ' +
+            'Do NOT supply recordedBy or recordedAt \u2014 these are server-controlled (AC2, AC7). ' +
+            'Do NOT supply isArchived \u2014 archive policy is out of scope (AC12). ' +
+            'Appointment linkage is not required (AC19).',
+          properties: {
+            customerId: {
+              type: 'string',
+              example: '64d4a3ff3baf9d2b8a33d1a1',
+              description:
+                'MongoDB ObjectId of the target Customer. Must reference an existing Customer (AC3).',
+            },
+            rightEye: {
+              $ref: '#/components/schemas/EyePrescription',
+            },
+            leftEye: {
+              $ref: '#/components/schemas/EyePrescription',
+            },
+            remarks: {
+              type: 'string',
+              nullable: true,
+              maxLength: 1000,
+              example: 'Patient reports mild photosensitivity.',
+              description: 'Optional clinical remarks. Max 1000 characters.',
+            },
+          },
+        },
+        RecordedByStaff: {
+          type: 'object',
+          description: 'Minimum safe Staff fields exposed on a prescription response (AC22).',
+          properties: {
+            id: {
+              type: 'string',
+              example: '64d4a3ff3baf9d2b8a33d1a2',
+            },
+            name: {
+              type: 'string',
+              example: 'Dr. Nimal Optometrist',
+            },
+          },
+        },
+        PrescriptionResponse: {
+          type: 'object',
+          description:
+            'Safe prescription response shape exposing only approved ADR-001 clinical fields (AC22). ' +
+            'History is ordered newest-first by recordedAt (AC16). ' +
+            'recordedBy exposes only minimum safe Staff fields.',
+          required: ['id', 'customerId', 'recordedBy', 'recordedAt'],
+          properties: {
+            id: {
+              type: 'string',
+              example: '64d4a3ff3baf9d2b8a33d1a3',
+            },
+            customerId: {
+              type: 'string',
+              example: '64d4a3ff3baf9d2b8a33d1a1',
+            },
+            recordedBy: {
+              $ref: '#/components/schemas/RecordedByStaff',
+            },
+            recordedAt: {
+              type: 'string',
+              format: 'date-time',
+              example: '2024-05-01T10:00:00.000Z',
+              description: 'Server-controlled authoritative recording timestamp (AC7).',
+            },
+            rightEye: {
+              $ref: '#/components/schemas/EyePrescription',
+            },
+            leftEye: {
+              $ref: '#/components/schemas/EyePrescription',
+            },
+            remarks: {
+              type: 'string',
+              example: 'Patient reports mild photosensitivity.',
+            },
+            isArchived: {
+              type: 'boolean',
+              example: false,
+            },
+            createdAt: {
+              type: 'string',
+              format: 'date-time',
+              example: '2024-05-01T10:00:00.000Z',
+            },
+            updatedAt: {
+              type: 'string',
+              format: 'date-time',
+              example: '2024-05-01T10:00:00.000Z',
+            },
+          },
+        },
       },
       responses: {
         Unauthorized: {
