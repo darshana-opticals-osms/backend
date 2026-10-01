@@ -18,7 +18,7 @@ const {
 const recordPrescription = catchAsync(async (req, res) => {
   // AC2: Pass the server-derived staff identity from the verified JWT.
   // The service ignores any recordedBy field in req.body.
-  const prescription = await createPrescription(req.auth.id, req.body);
+  const prescription = await createPrescription(req.auth.userId, req.body);
 
   return res.status(201).json({
     success: true,
@@ -39,7 +39,7 @@ const recordPrescription = catchAsync(async (req, res) => {
  */
 const getMyPrescriptions = catchAsync(async (req, res) => {
   // AC13, AC15: Use the JWT-derived customer identity — never trust a query param or body.
-  const prescriptions = await getMyPrescriptionHistory(req.auth.id);
+  const prescriptions = await getMyPrescriptionHistory(req.auth.userId);
 
   return res.status(200).json({
     success: true,
