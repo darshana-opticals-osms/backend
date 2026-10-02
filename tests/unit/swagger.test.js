@@ -13,6 +13,7 @@ describe('Swagger documentation integrity', () => {
     'GET /inventory/branch/{branchId}',
     'PATCH /inventory/{id}',
     'PATCH /inventory/{id}/quantity',
+    'GET /branches',
   ];
 
   const normalize = (value) => value.toUpperCase();
@@ -55,6 +56,7 @@ describe('Swagger documentation integrity', () => {
       '/inventory/branch/{branchId}',
       '/inventory/{id}',
       '/inventory/{id}/quantity',
+      '/branches',
     ];
 
     for (const path of publicPaths) {
@@ -80,6 +82,7 @@ describe('Swagger documentation integrity', () => {
       'LoginResponse',
       'Product',
       'InventoryItem',
+      'BranchReference',
       'LoginRequest',
       'RegisterRequest',
     ]) {

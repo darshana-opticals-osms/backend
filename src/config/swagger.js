@@ -257,6 +257,25 @@ const options = {
             },
           },
         },
+        BranchReference: {
+          type: 'object',
+          required: ['id', 'address', 'contactNumber'],
+          properties: {
+            id: {
+              type: 'string',
+              example: '64d4a3ff3baf9d2b8a33d1a1',
+              description: 'Stable MongoDB Branch identifier accepted by branch-aware APIs.',
+            },
+            address: {
+              type: 'string',
+              example: '100 Galle Road, Colombo 03',
+            },
+            contactNumber: {
+              type: 'string',
+              example: '+94 11 250 0000',
+            },
+          },
+        },
         InventoryItem: {
           type: 'object',
           required: ['_id', 'branchId', 'itemName', 'category', 'brand', 'price', 'quantity'],
