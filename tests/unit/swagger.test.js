@@ -9,6 +9,9 @@ describe('Swagger documentation integrity', () => {
     'PATCH /profile/me',
     'GET /products',
     'GET /products/{id}',
+    'POST /prescriptions',
+    'GET /prescriptions/me',
+    'GET /prescriptions/customer/{customerId}',
     'POST /inventory',
     'GET /inventory/branch/{branchId}',
     'PATCH /inventory/{id}',
@@ -55,6 +58,9 @@ describe('Swagger documentation integrity', () => {
       '/inventory/branch/{branchId}',
       '/inventory/{id}',
       '/inventory/{id}/quantity',
+      '/prescriptions',
+      '/prescriptions/me',
+      '/prescriptions/customer/{customerId}',
     ];
 
     for (const path of publicPaths) {
