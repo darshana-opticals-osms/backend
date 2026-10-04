@@ -183,6 +183,55 @@ const options = {
             },
           },
         },
+        StaffProvisioningRequest: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['name', 'email', 'phone', 'address', 'role', 'password'],
+          properties: {
+            name: { type: 'string', example: 'Jordan Staff' },
+            email: { type: 'string', format: 'email', example: 'jordan.staff@example.com' },
+            phone: { type: 'string', example: '+94711234567' },
+            address: { type: 'string', example: '12 Main Street, Colombo' },
+            role: {
+              type: 'string',
+              enum: [
+                'INVENTORY_MANAGER',
+                'BRANCH_MANAGER',
+                'OPTOMETRIST',
+                'MANAGEMENT',
+                'SALES_ASSISTANT_CASHIER',
+              ],
+            },
+            password: { type: 'string', format: 'password', minLength: 8 },
+            branchId: {
+              type: 'string',
+              pattern: '^[a-fA-F0-9]{24}$',
+              description: 'Optional existing MongoDB Branch identifier.',
+            },
+          },
+        },
+        ProvisionedStaff: {
+          type: 'object',
+          required: ['id', 'name', 'email', 'phone', 'address', 'role', 'branchId'],
+          properties: {
+            id: { type: 'string', example: '64d4a3ff3baf9d2b8a33d1a1' },
+            name: { type: 'string', example: 'Jordan Staff' },
+            email: { type: 'string', format: 'email', example: 'jordan.staff@example.com' },
+            phone: { type: 'string', example: '+94711234567' },
+            address: { type: 'string', example: '12 Main Street, Colombo' },
+            role: {
+              type: 'string',
+              enum: [
+                'INVENTORY_MANAGER',
+                'BRANCH_MANAGER',
+                'OPTOMETRIST',
+                'MANAGEMENT',
+                'SALES_ASSISTANT_CASHIER',
+              ],
+            },
+            branchId: { type: 'string', nullable: true, example: null },
+          },
+        },
         LoginResponse: {
           type: 'object',
           required: ['success', 'data'],
