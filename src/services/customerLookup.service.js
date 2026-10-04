@@ -50,19 +50,15 @@ function escapeRegex(raw) {
  */
 function validateAndNormalizeQuery(rawQuery) {
   if (typeof rawQuery !== 'string') {
-    throw new ValidationError(
-      'Lookup query `q` is required and must be a string.',
-      { field: 'q' }
-    );
+    throw new ValidationError('Lookup query `q` is required and must be a string.', { field: 'q' });
   }
 
   const trimmed = rawQuery.trim();
 
   if (trimmed.length === 0) {
-    throw new ValidationError(
-      'Lookup query `q` must not be empty or whitespace only.',
-      { field: 'q' }
-    );
+    throw new ValidationError('Lookup query `q` must not be empty or whitespace only.', {
+      field: 'q',
+    });
   }
 
   if (trimmed.length < LOOKUP_QUERY_MIN_LENGTH) {
