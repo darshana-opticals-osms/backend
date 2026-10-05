@@ -25,6 +25,11 @@ const staffProvisioningValidation = (req) => {
     return [{ field: 'body', message: 'Staff provisioning data must be an object.' }];
   }
 
+  let normalizedName;
+  let normalizedEmail;
+  let normalizedPhone;
+  let normalizedAddress;
+
   for (const field of Object.keys(body)) {
     if (!allowedFields.has(field)) {
       errors.push({ field, message: `${field} is not allowed for staff provisioning.` });
@@ -39,8 +44,19 @@ const staffProvisioningValidation = (req) => {
   }
 
   if (body.name !== undefined && body.name !== null) {
-    if (typeof body.name !== 'string' || !body.name.trim()) {
-      errors.push({ field: 'name', message: 'name must be a non-empty string.' });
+    if (typeof body.name !== 'string') {
+      errors.push({ field: 'name', message: 'name must be 2-100 alphabetic characters.' });
+    } else {
+      normalizedName = body.name.trim();
+      const nameLength = [...normalizedName].length;
+      if (
+        nameLength < 2 ||
+        nameLength > 100 ||
+        !/^[\p{L}\p{M} .'-]+$/u.test(normalizedName) ||
+        !/\p{L}/u.test(normalizedName)
+      ) {
+        errors.push({ field: 'name', message: 'name must be 2-100 alphabetic characters.' });
+      }
     }
   }
 
@@ -48,24 +64,38 @@ const staffProvisioningValidation = (req) => {
     if (typeof body.email !== 'string') {
       errors.push({ field: 'email', message: 'email must be a valid email address.' });
     } else {
-      const normalizedEmail = body.email.trim().toLowerCase();
+      normalizedEmail = body.email.trim().toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
         errors.push({ field: 'email', message: 'email must be a valid email address.' });
-      } else {
-        req.body.email = normalizedEmail;
       }
     }
   }
 
   if (body.phone !== undefined && body.phone !== null && body.phone !== '') {
-    if (typeof body.phone !== 'string' || !phonePattern.test(body.phone.trim())) {
+    if (typeof body.phone !== 'string') {
       errors.push({ field: 'phone', message: 'phone format is invalid.' });
+    } else {
+      normalizedPhone = body.phone.trim();
+      const digitCount = (normalizedPhone.match(/[0-9]/g) || []).length;
+      if (
+        !phonePattern.test(normalizedPhone) ||
+        digitCount < 10 ||
+        digitCount > 15 ||
+        !/[0-9]$/.test(normalizedPhone)
+      ) {
+        errors.push({ field: 'phone', message: 'phone format is invalid.' });
+      }
     }
   }
 
   if (body.address !== undefined && body.address !== null) {
-    if (typeof body.address !== 'string' || !body.address.trim()) {
-      errors.push({ field: 'address', message: 'address must be a non-empty string.' });
+    if (typeof body.address !== 'string') {
+      errors.push({ field: 'address', message: 'address must be at least 5 characters long.' });
+    } else {
+      normalizedAddress = body.address.trim();
+      if (normalizedAddress.length < 5) {
+        errors.push({ field: 'address', message: 'address must be at least 5 characters long.' });
+      }
     }
   }
 
@@ -74,8 +104,18 @@ const staffProvisioningValidation = (req) => {
   }
 
   if (body.password !== undefined && body.password !== null && body.password !== '') {
-    if (typeof body.password !== 'string' || body.password.length < 8) {
-      errors.push({ field: 'password', message: 'password must be at least 8 characters long.' });
+    if (
+      typeof body.password !== 'string' ||
+      body.password.length < 8 ||
+      !/[A-Z]/.test(body.password) ||
+      !/[a-z]/.test(body.password) ||
+      !/[0-9]/.test(body.password)
+    ) {
+      errors.push({
+        field: 'password',
+        message:
+          'password must be at least 8 characters and include uppercase, lowercase, and a number.',
+      });
     }
   }
 
@@ -88,6 +128,13 @@ const staffProvisioningValidation = (req) => {
     ) {
       errors.push({ field: 'branchId', message: 'branchId must be a valid branch identifier.' });
     }
+  }
+
+  if (errors.length === 0) {
+    req.body.name = normalizedName;
+    req.body.email = normalizedEmail;
+    req.body.phone = normalizedPhone;
+    req.body.address = normalizedAddress;
   }
 
   return errors;

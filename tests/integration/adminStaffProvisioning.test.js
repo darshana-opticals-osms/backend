@@ -155,6 +155,33 @@ describe('POST /api/admin/staff', () => {
     expect(loginResponse.body.data.user).not.toHaveProperty('passwordHash');
   });
 
+  it('should return 201 when provisioning valid staff data', async () => {
+    const response = await request(app)
+      .post('/api/admin/staff')
+      .set('Authorization', `Bearer ${createToken(ROLE_VALUES.SYSTEM_ADMIN)}`)
+      .send(buildPayload({ email: 'valid.staff@example.com' }));
+
+    expect(response.status).toBe(201);
+    expect(response.body.data.email).toBe('valid.staff@example.com');
+  });
+
+  it.each([
+    { phone: '0771234567', email: 'phone.local.mobile@example.com' },
+    { phone: '011 234 5678', email: 'phone.local.landline@example.com' },
+    { phone: '+94 71 123 4567', email: 'phone.international@example.com' },
+  ])(
+    'should accept a valid local or international phone format: $phone',
+    async ({ phone, email }) => {
+      const response = await request(app)
+        .post('/api/admin/staff')
+        .set('Authorization', `Bearer ${createToken(ROLE_VALUES.SYSTEM_ADMIN)}`)
+        .send(buildPayload({ email, phone }));
+
+      expect(response.status).toBe(201);
+      expect(response.body.data.phone).toBe(phone);
+    }
+  );
+
   it('should reject requests without authentication with 401', async () => {
     const response = await request(app).post('/api/admin/staff').send(buildPayload());
 
@@ -289,9 +316,17 @@ describe('POST /api/admin/staff', () => {
   it.each([
     ['email', 'not-an-email'],
     ['phone', 'not-a-phone'],
-    ['password', 'short'],
+    ['phone', '1234567'],
+    ['phone', '123456789'],
+    ['phone', '071234'],
     ['name', '   '],
-    ['address', '   '],
+    ['name', 'J'],
+    ['name', '123456'],
+    ['address', '1234'],
+    ['password', 'short'],
+    ['password', 'strongpass123'],
+    ['password', 'STRONGPASS123'],
+    ['password', 'StrongPass!'],
   ])('should reject invalid %s values with 422', async (field, value) => {
     const response = await request(app)
       .post('/api/admin/staff')
@@ -301,5 +336,33 @@ describe('POST /api/admin/staff', () => {
     expect(response.status).toBe(422);
     expect(response.body.error.code).toBe('VALIDATION_ERROR');
     expect(await Staff.countDocuments()).toBe(0);
+  });
+
+  it('should trim name, phone, and address before persistence', async () => {
+    const response = await request(app)
+      .post('/api/admin/staff')
+      .set('Authorization', `Bearer ${createToken(ROLE_VALUES.SYSTEM_ADMIN)}`)
+      .send(
+        buildPayload({
+          email: 'trim.staff@example.com',
+          name: '  Jordan Staff  ',
+          phone: '  +94 71 123 4567  ',
+          address: '  12 Main Street, Colombo  ',
+        })
+      );
+
+    expect(response.status).toBe(201);
+    expect(response.body.data).toMatchObject({
+      name: 'Jordan Staff',
+      phone: '+94 71 123 4567',
+      address: '12 Main Street, Colombo',
+    });
+
+    const staff = await Staff.findOne({ email: 'trim.staff@example.com' });
+    expect(staff).toMatchObject({
+      name: 'Jordan Staff',
+      phone: '+94 71 123 4567',
+      address: '12 Main Street, Colombo',
+    });
   });
 });
