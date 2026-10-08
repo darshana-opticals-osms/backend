@@ -48,6 +48,15 @@ const AUTH_RATE_LIMIT = {
 };
 
 /**
+ * Chatbot endpoint rate limit.
+ * Default: 10 requests per 1 minute per authenticated user (ADR-010).
+ */
+const CHATBOT_RATE_LIMIT = {
+  windowMs: Number(process.env.CHATBOT_RATE_LIMIT_WINDOW_MS) || 60 * 1000, // 1 min
+  max: Number(process.env.CHATBOT_RATE_LIMIT_MAX) || 10,
+};
+
+/**
  * Request body size limit (AC7).
  * Default: 10 kilobytes — rejects unexpectedly large payloads before
  * application processing.
@@ -58,5 +67,7 @@ module.exports = {
   CORS_CONFIG,
   GENERAL_RATE_LIMIT,
   AUTH_RATE_LIMIT,
+  CHATBOT_RATE_LIMIT,
   REQUEST_BODY_LIMIT,
 };
+

@@ -14,6 +14,8 @@ function loadConfig(overrides = {}) {
     MONGODB_URI: process.env.MONGODB_URI || '',
     JWT_SECRET: process.env.JWT_SECRET || '',
     JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '24h',
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
+    CHATBOT_TIMEOUT_MS: process.env.CHATBOT_TIMEOUT_MS || '6000',
   };
 
   Object.assign(env, overrides);
@@ -51,6 +53,8 @@ function loadConfig(overrides = {}) {
     mongoUri: env.MONGODB_URI || undefined,
     jwtSecret: env.JWT_SECRET || undefined,
     jwtExpiresIn: env.JWT_EXPIRES_IN,
+    geminiApiKey: env.GEMINI_API_KEY || undefined,
+    chatbotTimeoutMs: Number(env.CHATBOT_TIMEOUT_MS) || 6000,
   };
 }
 
