@@ -4,12 +4,11 @@ const KnowledgeRetrievalService = require('./knowledgeRetrieval.service');
 const GeminiChatbotAdapter = require('./adapters/GeminiChatbotAdapter');
 const MockChatbotAdapter = require('./adapters/MockChatbotAdapter');
 const {
-
   INQUIRY_TYPES,
   RESPONSE_STATUSES,
   CHATBOT_DEFAULTS,
 } = require('../constants/chatbot.constants');
-const { AppError, BadRequestError } = require('../errors/AppError');
+const { AppError } = require('../errors/AppError');
 
 /**
  * Chatbot Service (ADR-010 Sections 9, 10 & 11)
@@ -159,8 +158,7 @@ ${groundedContextText}`;
     // 5. Construct Grounded Prompt & Context
     const groundedContextText = retrievedArticles
       .map(
-        (art, idx) =>
-          `[Article ${idx + 1}] Title: ${art.contentTitle}\nContent: ${art.contentBody}`
+        (art, idx) => `[Article ${idx + 1}] Title: ${art.contentTitle}\nContent: ${art.contentBody}`
       )
       .join('\n\n');
 
@@ -184,7 +182,6 @@ ${groundedContextText}`;
         ? new MockChatbotAdapter()
         : new GeminiChatbotAdapter());
 
-
     // 6. Invoke Provider Adapter with Error Recovery
     let responseStatus = RESPONSE_STATUSES.ANSWERED;
     let responseText = '';
@@ -197,7 +194,7 @@ ${groundedContextText}`;
       });
 
       responseText = providerResult.text;
-    } catch (_err) {
+    } catch {
       // Return safe provider failure fallback
       responseStatus = RESPONSE_STATUSES.FAILED;
       responseText = CHATBOT_DEFAULTS.FAILURE_FALLBACK_TEXT;

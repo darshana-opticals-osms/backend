@@ -33,9 +33,9 @@ describe('AI Chatbot Adapters (Unit tests)', () => {
         failError: new Error('Simulated Timeout'),
       });
 
-      await expect(
-        mockAdapter.generateResponse({ prompt: 'Hello' })
-      ).rejects.toThrow('Simulated Timeout');
+      await expect(mockAdapter.generateResponse({ prompt: 'Hello' })).rejects.toThrow(
+        'Simulated Timeout'
+      );
     });
   });
 

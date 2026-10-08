@@ -18,7 +18,8 @@ class GeminiChatbotAdapter extends IChatbotAdapter {
     super();
     this.apiKey = config.apiKey || process.env.GEMINI_API_KEY || '';
     this.timeoutMs = config.timeoutMs || CHATBOT_DEFAULTS.TIMEOUT_MS;
-    this.maxRetries = config.maxRetries !== undefined ? config.maxRetries : CHATBOT_DEFAULTS.MAX_RETRIES;
+    this.maxRetries =
+      config.maxRetries !== undefined ? config.maxRetries : CHATBOT_DEFAULTS.MAX_RETRIES;
   }
 
   /**
@@ -105,7 +106,6 @@ class GeminiChatbotAdapter extends IChatbotAdapter {
     throw lastError;
   }
 
-
   async generateResponse({ prompt, systemInstruction, history = [] }) {
     const contents = this._formatContents(prompt, history);
 
@@ -126,8 +126,7 @@ class GeminiChatbotAdapter extends IChatbotAdapter {
     while (attempt <= this.maxRetries) {
       try {
         const data = await this._executeApiCall(payload);
-        const candidateText =
-          data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
         if (!candidateText) {
           throw new Error('Empty response payload from Gemini API.');

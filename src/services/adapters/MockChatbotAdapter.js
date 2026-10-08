@@ -57,6 +57,4 @@ class MockChatbotAdapter extends IChatbotAdapter {
   }
 }
 
-
-
 module.exports = MockChatbotAdapter;

@@ -21,7 +21,6 @@ describe('Swagger documentation integrity', () => {
     'POST /v1/chatbot/query',
   ];
 
-
   const normalize = (value) => value.toUpperCase();
 
   it('should define OpenAPI 3.0 and represent the real backend API surface', () => {
@@ -69,7 +68,6 @@ describe('Swagger documentation integrity', () => {
       '/branches',
       '/v1/chatbot/query',
     ];
-
 
     for (const path of publicPaths) {
       for (const method of Object.keys(swaggerSpec.paths[path] || {})) {

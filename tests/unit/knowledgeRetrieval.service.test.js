@@ -25,7 +25,8 @@ describe('KnowledgeRetrievalService (Unit tests)', () => {
         articleId: 'KA-STORE-001',
         category: 'STORE_INFO',
         contentTitle: 'Store Opening Hours',
-        contentBody: 'Darshana Opticals stores are open Monday to Saturday from 9:00 AM to 7:00 PM.',
+        contentBody:
+          'Darshana Opticals stores are open Monday to Saturday from 9:00 AM to 7:00 PM.',
         keywords: ['hours', 'opening', 'time', 'colombo'],
         isActive: true,
       },

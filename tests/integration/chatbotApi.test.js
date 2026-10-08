@@ -6,7 +6,11 @@ const KnowledgeArea = require('../../src/models/knowledgeArea.model');
 const Chatbot = require('../../src/models/chatbot.model');
 const Customer = require('../../src/models/customer.model');
 const { ROLE_VALUES } = require('../../src/constants/roles');
-const { INQUIRY_TYPES, RESPONSE_STATUSES, CHATBOT_DEFAULTS } = require('../../src/constants/chatbot.constants');
+const {
+  INQUIRY_TYPES,
+  RESPONSE_STATUSES,
+  CHATBOT_DEFAULTS,
+} = require('../../src/constants/chatbot.constants');
 
 const JWT_SECRET = 'chatbot-integration-test-secret';
 const JWT_EXPIRES_IN = '1h';
@@ -35,13 +39,21 @@ describe('AI Chatbot REST API Endpoints (Integration tests)', () => {
   });
 
   afterAll(async () => {
-    await Promise.all([KnowledgeArea.deleteMany({}), Chatbot.deleteMany({}), Customer.deleteMany({})]);
+    await Promise.all([
+      KnowledgeArea.deleteMany({}),
+      Chatbot.deleteMany({}),
+      Customer.deleteMany({}),
+    ]);
     await disconnectDatabase();
     process.env = originalEnv;
   });
 
   beforeEach(async () => {
-    await Promise.all([KnowledgeArea.deleteMany({}), Chatbot.deleteMany({}), Customer.deleteMany({})]);
+    await Promise.all([
+      KnowledgeArea.deleteMany({}),
+      Chatbot.deleteMany({}),
+      Customer.deleteMany({}),
+    ]);
 
     testCustomer = await Customer.create({
       name: 'Chatbot Customer',

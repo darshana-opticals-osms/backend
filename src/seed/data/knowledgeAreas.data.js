@@ -28,7 +28,15 @@ const SEED_KNOWLEDGE_AREAS = [
     contentTitle: 'Eye Examination and Optometrist Services',
     contentBody:
       'Darshana Opticals provides comprehensive eye health examinations, vision testing, and frame fitting by qualified optometrists. Customers can book eye testing appointments online through the OSMS portal or by calling our store directly at 077 776 2494.',
-    keywords: ['eye test', 'examination', 'optometrist', 'appointment', 'booking', 'checkup', 'services'],
+    keywords: [
+      'eye test',
+      'examination',
+      'optometrist',
+      'appointment',
+      'booking',
+      'checkup',
+      'services',
+    ],
     isActive: true,
   },
   {

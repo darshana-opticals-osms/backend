@@ -23,7 +23,6 @@ const { SEED_INVENTORY_ITEMS } = require('./data/inventory.data');
 const { SEED_PRESCRIPTIONS } = require('./data/prescriptions.data');
 const { SEED_KNOWLEDGE_AREAS } = require('./data/knowledgeAreas.data');
 
-
 const PRODUCTION_SAFETY_ERROR =
   'Production safety check triggered: Seeding database is prohibited in production environment.';
 
@@ -70,7 +69,6 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
   let inventoryCreated = 0;
   let prescriptionsCreated = 0;
   let knowledgeAreasCreated = 0;
-
 
   // Compute password hash using application central auth service hashing helper
   const devPasswordHash = await hashPassword(DEV_DEFAULT_PASSWORD);
@@ -214,4 +212,3 @@ module.exports = {
   PRODUCTION_SAFETY_ERROR,
   seedDatabase,
 };
-
