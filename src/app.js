@@ -13,7 +13,9 @@ const productRoutes = require('./routes/product.routes');
 const inventoryRoutes = require('./routes/inventory.routes');
 const prescriptionRoutes = require('./routes/prescription.routes');
 const branchRoutes = require('./routes/branch.routes');
+const chatbotRoutes = require('./routes/chatbot.routes');
 const notFound = require('./middleware/notFound');
+
 const errorHandler = require('./middleware/errorHandler');
 const { sanitizeInput } = require('./utils/sanitizer');
 
@@ -52,8 +54,10 @@ function createApp() {
   app.use('/api', inventoryRoutes);
   app.use('/api', prescriptionRoutes);
   app.use('/api', branchRoutes);
+  app.use('/api', chatbotRoutes);
 
   // Catch-all route handler for non-existent endpoints (404)
+
   app.use(notFound);
 
   // Centralized Error Handling Middleware (AC12: no stack traces in production)

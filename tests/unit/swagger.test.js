@@ -18,7 +18,9 @@ describe('Swagger documentation integrity', () => {
     'PATCH /inventory/{id}',
     'PATCH /inventory/{id}/quantity',
     'GET /branches',
+    'POST /v1/chatbot/query',
   ];
+
 
   const normalize = (value) => value.toUpperCase();
 
@@ -65,7 +67,9 @@ describe('Swagger documentation integrity', () => {
       '/prescriptions/me',
       '/prescriptions/customer/{customerId}',
       '/branches',
+      '/v1/chatbot/query',
     ];
+
 
     for (const path of publicPaths) {
       for (const method of Object.keys(swaggerSpec.paths[path] || {})) {
