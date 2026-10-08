@@ -7,6 +7,7 @@ const { CORS_CONFIG, REQUEST_BODY_LIMIT } = require('./config/security');
 const { generalLimiter, authLimiter } = require('./middleware/rateLimiter');
 const healthRoutes = require('./routes/health.routes');
 const authRoutes = require('./routes/auth.routes');
+const adminRoutes = require('./routes/admin.routes');
 const profileRoutes = require('./routes/profile.routes');
 const productRoutes = require('./routes/product.routes');
 const inventoryRoutes = require('./routes/inventory.routes');
@@ -45,6 +46,7 @@ function createApp() {
   // --- Routes ---
   app.use('/api', healthRoutes);
   app.use('/api', authRoutes);
+  app.use('/api', adminRoutes);
   app.use('/api', profileRoutes);
   app.use('/api', productRoutes);
   app.use('/api', inventoryRoutes);
