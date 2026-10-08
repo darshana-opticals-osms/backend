@@ -32,11 +32,20 @@ class MockChatbotAdapter extends IChatbotAdapter {
       return { text: this.defaultResponse, rawProviderStatus: 'MOCK_OK' };
     }
 
+    // Dynamic mock response from grounded context if available
+    if (systemInstruction && systemInstruction.includes('Content: ')) {
+      const match = systemInstruction.match(/Content:\s*([^\n]+)/);
+      if (match && match[1]) {
+        return { text: match[1].trim(), rawProviderStatus: 'MOCK_OK' };
+      }
+    }
+
     return {
       text: 'Darshana Opticals is open Monday to Saturday from 9:00 AM to 7:00 PM.',
       rawProviderStatus: 'MOCK_OK',
     };
   }
 }
+
 
 module.exports = MockChatbotAdapter;
