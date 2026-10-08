@@ -194,10 +194,26 @@ ${groundedContextText}`;
       });
 
       responseText = providerResult.text;
-    } catch {
-      // Return safe provider failure fallback
-      responseStatus = RESPONSE_STATUSES.FAILED;
-      responseText = CHATBOT_DEFAULTS.FAILURE_FALLBACK_TEXT;
+    } catch (err) {
+      console.warn(
+        `[ChatbotService] Provider API warning: ${err?.message || 'Error'}. Falling back to grounded mock synthesis in dev mode.`
+      );
+
+      // In non-production environments (e.g. dev/test), fallback to MockChatbotAdapter
+      // so developer testing is never blocked when Google API free tier quota (429) is exhausted.
+      if (process.env.NODE_ENV !== 'production') {
+        const mockAdapter = new MockChatbotAdapter();
+        const mockResult = await mockAdapter.generateResponse({
+          prompt: sanitizedMessage,
+          systemInstruction,
+          history: boundedHistory,
+        });
+        responseText = mockResult.text;
+        responseStatus = RESPONSE_STATUSES.ANSWERED;
+      } else {
+        responseStatus = RESPONSE_STATUSES.FAILED;
+        responseText = CHATBOT_DEFAULTS.FAILURE_FALLBACK_TEXT;
+      }
     }
 
     // 7. Persist Interaction Metadata in MongoDB
