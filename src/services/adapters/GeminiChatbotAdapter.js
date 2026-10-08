@@ -53,41 +53,58 @@ class GeminiChatbotAdapter extends IChatbotAdapter {
       throw new Error('GEMINI_API_KEY is not configured on backend.');
     }
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.apiKey}`;
+    const modelsToTry = [
+      process.env.GEMINI_MODEL || 'gemini-flash-latest',
+      'gemini-2.5-flash-lite',
+      'gemini-pro-latest',
+    ];
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
+    let lastError = null;
 
-    try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
+    for (const model of modelsToTry) {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
 
-      clearTimeout(timeoutId);
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        const err = new Error(`Gemini API error (HTTP ${response.status})`);
-        err.status = response.status;
-        err.rawDetails = errorText;
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          const err = new Error(`Gemini API error (${model} HTTP ${response.status})`);
+          err.status = response.status;
+          err.rawDetails = errorText;
+          throw err;
+        }
+
+        const data = await response.json();
+        return data;
+      } catch (err) {
+        clearTimeout(timeoutId);
+        lastError = err;
+        // If 503/502 server high-demand error, attempt fallback model
+        if (err.status === 503 || err.status === 502) {
+          continue;
+        }
+        if (err.name === 'AbortError') {
+          const timeoutErr = new Error(`AI Provider call timed out after ${this.timeoutMs}ms.`);
+          timeoutErr.isTimeout = true;
+          throw timeoutErr;
+        }
         throw err;
       }
-
-      const data = await response.json();
-      return data;
-    } catch (err) {
-      clearTimeout(timeoutId);
-      if (err.name === 'AbortError') {
-        const timeoutErr = new Error(`AI Provider call timed out after ${this.timeoutMs}ms.`);
-        timeoutErr.isTimeout = true;
-        throw timeoutErr;
-      }
-      throw err;
     }
+
+    throw lastError;
   }
+
 
   async generateResponse({ prompt, systemInstruction, history = [] }) {
     const contents = this._formatContents(prompt, history);

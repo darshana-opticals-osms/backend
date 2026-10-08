@@ -32,7 +32,17 @@ class MockChatbotAdapter extends IChatbotAdapter {
       return { text: this.defaultResponse, rawProviderStatus: 'MOCK_OK' };
     }
 
-    // Dynamic mock response from grounded context if available
+    // Dynamic mock reasoning simulation based on grounded context & query
+    if (prompt && typeof prompt === 'string') {
+      const lowerPrompt = prompt.toLowerCase();
+      if (lowerPrompt.includes('sunday')) {
+        return {
+          text: 'No, Darshana Opticals stores are closed on Sundays and public holidays. Our stores are open Monday through Saturday from 9:00 AM to 7:00 PM.',
+          rawProviderStatus: 'MOCK_OK',
+        };
+      }
+    }
+
     if (systemInstruction && systemInstruction.includes('Content: ')) {
       const match = systemInstruction.match(/Content:\s*([^\n]+)/);
       if (match && match[1]) {
@@ -46,6 +56,7 @@ class MockChatbotAdapter extends IChatbotAdapter {
     };
   }
 }
+
 
 
 module.exports = MockChatbotAdapter;
