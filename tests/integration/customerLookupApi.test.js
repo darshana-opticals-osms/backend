@@ -3,6 +3,8 @@ const request = require('supertest');
 const { createApp } = require('../../src/app');
 const { connectDatabase, disconnectDatabase } = require('../../src/config/database');
 const Customer = require('../../src/models/customer.model');
+const Staff = require('../../src/models/staff.model');
+const Prescription = require('../../src/models/prescription.model');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 
 const JWT_SECRET = 'customer-lookup-integration-test-secret';
@@ -48,11 +50,11 @@ describe('Customer Lookup API (GET /api/customers/lookup)', () => {
   });
 
   beforeEach(async () => {
-    await Customer.deleteMany({});
+    await Promise.all([Customer.deleteMany({}), Staff.deleteMany({}), Prescription.deleteMany({})]);
   });
 
   afterAll(async () => {
-    await Customer.deleteMany({});
+    await Promise.all([Customer.deleteMany({}), Staff.deleteMany({}), Prescription.deleteMany({})]);
     await disconnectDatabase();
     process.env = originalEnv;
   });
@@ -332,4 +334,81 @@ describe('Customer Lookup API (GET /api/customers/lookup)', () => {
       expect(names).toEqual(sortedNames);
     });
   });
+
+  describe('DDP-050 Compatibility Integration (Customer Lookup -> Prescription Creation)', () => {
+    it('should perform Customer lookup as an OPTOMETRIST, use returned customer id in POST /api/prescriptions, and verify association', async () => {
+      // 1. Arrange: Create Optometrist staff and Customer in DB
+      const optometristStaff = await Staff.create({
+        name: 'Dr. Nirmal Senaratne',
+        email: 'dr.nirmal@optical.lk',
+        phone: '+94771122334',
+        address: 'Colombo Eye Clinic',
+        role: ROLE_VALUES.OPTOMETRIST,
+        passwordHash: TEST_BCRYPT_HASH,
+      });
+
+      const customerDoc = await Customer.create({
+        name: 'Saman Kumara',
+        email: 'saman.k@example.com',
+        phone: '0779988776',
+        address: '45 Lake Road, Maharagama',
+        role: ROLE_VALUES.CUSTOMER,
+        passwordHash: TEST_BCRYPT_HASH,
+      });
+
+      const optometristToken = jwt.sign(
+        { userId: optometristStaff._id.toString(), role: ROLE_VALUES.OPTOMETRIST },
+        JWT_SECRET,
+        { algorithm: 'HS256', expiresIn: JWT_EXPIRES_IN }
+      );
+
+      // 2. Act Step 1: Perform Customer lookup as OPTOMETRIST
+      const lookupResponse = await request(app)
+        .get('/api/customers/lookup?q=Saman')
+        .set('Authorization', `Bearer ${optometristToken}`);
+
+      expect(lookupResponse.status).toBe(200);
+      expect(lookupResponse.body.success).toBe(true);
+      expect(lookupResponse.body.data).toHaveLength(1);
+
+      const foundCustomer = lookupResponse.body.data[0];
+      expect(foundCustomer.id).toBe(customerDoc._id.toString());
+      expect(foundCustomer.name).toBe('Saman Kumara');
+
+      // 3. Act Step 2: Use returned customer id in POST /api/prescriptions
+      const prescriptionPayload = {
+        customerId: foundCustomer.id,
+        rightEye: {
+          distance: { sph: -2.25, cyl: -0.5, axis: 90, va: '6/6' },
+          reading: { add: 1.25, nearVa: 'N6' },
+        },
+        leftEye: {
+          distance: { sph: -2.0, cyl: -0.75, axis: 85, va: '6/6' },
+          reading: { add: 1.25, nearVa: 'N6' },
+        },
+        remarks: 'DDP-050 Integration test prescription.',
+      };
+
+      const prescriptionResponse = await request(app)
+        .post('/api/prescriptions')
+        .set('Authorization', `Bearer ${optometristToken}`)
+        .send(prescriptionPayload);
+
+      // 4. Assert: Prescription creation succeeds and references the looked-up Customer id
+      expect(prescriptionResponse.status).toBe(201);
+      expect(prescriptionResponse.body.success).toBe(true);
+      expect(prescriptionResponse.body.data).toHaveProperty('id');
+      expect(prescriptionResponse.body.data.customerId).toBe(foundCustomer.id);
+      expect(prescriptionResponse.body.data.recordedBy.id).toBe(optometristStaff._id.toString());
+
+      // 5. Verify database persistence and association
+      const savedPrescription = await Prescription.findOne({ customerId: foundCustomer.id });
+      expect(savedPrescription).not.toBeNull();
+      expect(savedPrescription.customerId.toString()).toBe(foundCustomer.id);
+      expect(savedPrescription.recordedBy.toString()).toBe(optometristStaff._id.toString());
+      expect(savedPrescription.rightEye.distance.sph).toBe(-2.25);
+      expect(savedPrescription.remarks).toBe('DDP-050 Integration test prescription.');
+    });
+  });
 });
+
