@@ -800,6 +800,49 @@ describe('Prescription API', () => {
       const response = await request(app).get(`/api/prescriptions/customer/${someId}`);
       expect(response.status).toBe(401);
     });
+
+    // ── AC18 Negative RBAC: All non-Optometrist staff roles must be rejected ──
+    //
+    // Reviewer comment (AC18): The endpoint authorizes only by OPTOMETRIST role
+    // and returns any customer's prescription history. Global Optometrist access
+    // is the approved clinical workflow per FR-002 / FR-013 (DDP-050): an
+    // Optometrist must be able to view any patient's prescription history to
+    // provide continuity of care across branches. No additional patient-consent
+    // or per-branch scope restriction is defined in the current requirements.
+    //
+    // These tests confirm that every OTHER staff role and unauthenticated
+    // requests are denied (403/401), proving access is not unrestricted.
+
+    it.each([
+      [ROLE_VALUES.CUSTOMER],
+      [ROLE_VALUES.SALES_ASSISTANT_CASHIER],
+      [ROLE_VALUES.BRANCH_MANAGER],
+      [ROLE_VALUES.INVENTORY_MANAGER],
+      [ROLE_VALUES.MANAGEMENT],
+      [ROLE_VALUES.SYSTEM_ADMIN],
+    ])(
+      'should return 403 FORBIDDEN for role %s — not authorized to read customer prescription history (AC18)',
+      async (forbiddenRole) => {
+        // Arrange
+        const customer = await createCustomer();
+        // Mint a token for the forbidden role (userId does not need to resolve to a real document
+        // — RBAC fires before any DB lookup).
+        const token = createToken({
+          userId: new mongoose.Types.ObjectId().toString(),
+          role: forbiddenRole,
+        });
+
+        // Act
+        const response = await request(app)
+          .get(`/api/prescriptions/customer/${customer._id}`)
+          .set('Authorization', `Bearer ${token}`);
+
+        // Assert
+        expect(response.status).toBe(403);
+        expect(response.body.success).toBe(false);
+        expect(response.body.error.code).toBe('FORBIDDEN');
+      }
+    );
   });
 
   // ── Error Response Safety ─────────────────────────────────────────────────────
@@ -917,6 +960,128 @@ describe('Prescription API', () => {
       expect(data).toHaveProperty('recordedAt');
       expect(data.rightEye).toHaveProperty('distance');
       expect(data.rightEye).toHaveProperty('reading');
+    });
+  });
+
+  // ── Logging Safety (AC23 / Issue #51) ────────────────────────────────────────
+  //
+  // Issue #51 requires that clinical prescription data (eye measurements,
+  // remarks, customerId) is NEVER written to application logs during normal
+  // request processing, validation failures, or error handling.
+  //
+  // The errorHandler only logs to console.error for 5xx unexpected errors;
+  // 4xx operational errors are intentionally silent. These tests spy on
+  // console.error to verify that sensitive clinical values do not appear
+  // in any log output triggered by the prescription endpoints.
+
+  describe('Logging safety — clinical data must not be written to logs (AC23, Issue #51)', () => {
+    let consoleSpy;
+
+    beforeEach(() => {
+      consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      consoleSpy.mockRestore();
+    });
+
+    it('should not log clinical remarks to console.error when a validation error is triggered (AC23)', async () => {
+      // Arrange — send a request with valid clinical remarks but an invalid axis,
+      // which triggers a route-layer ValidationError (422 operational error).
+      // Operational errors (4xx) must NOT be written to console.error at all.
+      const optometrist = await createStaff(ROLE_VALUES.OPTOMETRIST);
+      const customer = await createCustomer();
+      const token = createToken({
+        userId: optometrist._id.toString(),
+        role: ROLE_VALUES.OPTOMETRIST,
+      });
+
+      const sensitiveRemarks = 'CONFIDENTIAL_CLINICAL_REMARKS_LOG_TEST_7a9f';
+
+      // Act — invalid axis will cause a 422 validation error
+      const response = await request(app)
+        .post('/api/prescriptions')
+        .set('Authorization', `Bearer ${token}`)
+        .send(
+          buildPrescriptionPayload(customer._id, {
+            remarks: sensitiveRemarks,
+            rightEye: { distance: { axis: 999 } },
+          })
+        );
+
+      // Assert HTTP response is correct error
+      expect(response.status).toBe(422);
+
+      // Assert no clinical data was logged — join all console.error call args
+      const allLoggedText = consoleSpy.mock.calls
+        .map((args) => args.map(String).join(' '))
+        .join('\n');
+
+      expect(allLoggedText).not.toContain(sensitiveRemarks);
+      expect(allLoggedText).not.toContain(customer._id.toString());
+    });
+
+    it('should not log clinical eye measurements to console.error during validation failure (AC23)', async () => {
+      // Arrange — remarks contains a recognizable sentinel value
+      const optometrist = await createStaff(ROLE_VALUES.OPTOMETRIST);
+      const customer = await createCustomer();
+      const token = createToken({
+        userId: optometrist._id.toString(),
+        role: ROLE_VALUES.OPTOMETRIST,
+      });
+
+      const sentinelRemarks = 'SENTINEL_EYE_MEAS_LOG_SAFETY_TEST_3c8e';
+
+      // Act — send completely invalid body fields to trigger multiple validation errors
+      const response = await request(app)
+        .post('/api/prescriptions')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          customerId: customer._id.toString(),
+          remarks: sentinelRemarks,
+          rightEye: { distance: { sph: 'not-a-number', axis: -999 } },
+          unknownField: 'should-be-rejected',
+        });
+
+      // Assert HTTP error returned
+      expect(response.status).toBe(422);
+
+      // Assert clinical data not logged
+      const allLoggedText = consoleSpy.mock.calls
+        .map((args) => args.map(String).join(' '))
+        .join('\n');
+
+      expect(allLoggedText).not.toContain(sentinelRemarks);
+      expect(allLoggedText).not.toContain('SENTINEL_EYE_MEAS');
+    });
+
+    it('should not log clinical remarks to console.error when optometrist lookup fails (AC23)', async () => {
+      // Arrange — authenticated optometrist userId does not exist in the Staff collection,
+      // so the service-layer validateStaffExists throws a 404 NotFoundError (still operational).
+      const customer = await createCustomer();
+      const phantomStaffId = new mongoose.Types.ObjectId();
+      const token = createToken({
+        userId: phantomStaffId.toString(),
+        role: ROLE_VALUES.OPTOMETRIST,
+      });
+
+      const sensitiveRemarks = 'PHANTOM_STAFF_CLINICAL_LOG_SAFETY_b2d1';
+
+      // Act
+      const response = await request(app)
+        .post('/api/prescriptions')
+        .set('Authorization', `Bearer ${token}`)
+        .send(buildPrescriptionPayload(customer._id, { remarks: sensitiveRemarks }));
+
+      // Assert HTTP response is a 404 Not Found (operational)
+      expect(response.status).toBe(404);
+
+      // Assert sensitive data was not logged
+      const allLoggedText = consoleSpy.mock.calls
+        .map((args) => args.map(String).join(' '))
+        .join('\n');
+
+      expect(allLoggedText).not.toContain(sensitiveRemarks);
     });
   });
 });
