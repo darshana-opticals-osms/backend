@@ -173,11 +173,17 @@ ${groundedContextText}`;
       ? history.slice(-CHATBOT_DEFAULTS.MAX_CONTEXT_MESSAGES)
       : [];
 
+    const hasValidGeminiKey =
+      process.env.GEMINI_API_KEY &&
+      process.env.GEMINI_API_KEY !== 'your-gemini-api-key-here' &&
+      !process.env.GEMINI_API_KEY.includes('replace-with');
+
     const activeAdapter =
       adapter ||
-      (process.env.NODE_ENV === 'test'
+      (process.env.NODE_ENV === 'test' || !hasValidGeminiKey
         ? new MockChatbotAdapter()
         : new GeminiChatbotAdapter());
+
 
     // 6. Invoke Provider Adapter with Error Recovery
     let responseStatus = RESPONSE_STATUSES.ANSWERED;
