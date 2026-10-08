@@ -32,39 +32,6 @@ class MockChatbotAdapter extends IChatbotAdapter {
       return { text: this.defaultResponse, rawProviderStatus: 'MOCK_OK' };
     }
 
-    // Dynamic mock reasoning simulation based on grounded context & query
-    if (prompt && typeof prompt === 'string') {
-      const lowerPrompt = prompt.toLowerCase();
-
-      if (lowerPrompt.includes('kandy')) {
-        return {
-          text: 'Yes, we have a branch in Kandy located at 45 Temple Road, Kandy.',
-          rawProviderStatus: 'MOCK_OK',
-        };
-      }
-
-      if (lowerPrompt.includes('colombo')) {
-        return {
-          text: 'Yes, our primary branch is located at 123 Main Street, Colombo.',
-          rawProviderStatus: 'MOCK_OK',
-        };
-      }
-
-      if (lowerPrompt.includes('sunday')) {
-        return {
-          text: 'No, Darshana Opticals stores are closed on Sundays and public holidays. Our stores are open Monday through Saturday from 9:00 AM to 7:00 PM.',
-          rawProviderStatus: 'MOCK_OK',
-        };
-      }
-
-      if (lowerPrompt.includes('eye test') || lowerPrompt.includes('optometrist')) {
-        return {
-          text: 'Yes, we provide comprehensive eye health examinations, vision testing, and frame fitting by qualified optometrists.',
-          rawProviderStatus: 'MOCK_OK',
-        };
-      }
-    }
-
     if (systemInstruction && systemInstruction.includes('Content: ')) {
       const match = systemInstruction.match(/Content:\s*([^\n]+)/);
       if (match && match[1]) {

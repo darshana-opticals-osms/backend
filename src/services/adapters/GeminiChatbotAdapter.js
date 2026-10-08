@@ -55,8 +55,10 @@ class GeminiChatbotAdapter extends IChatbotAdapter {
     }
 
     const modelsToTry = [
-      process.env.GEMINI_MODEL || 'gemini-flash-latest',
-      'gemini-2.5-flash-lite',
+      process.env.GEMINI_MODEL || 'gemini-flash-lite-latest',
+      'gemini-3.5-flash-lite',
+      'gemini-3.5-flash',
+      'gemini-flash-latest',
       'gemini-pro-latest',
     ];
 
@@ -90,8 +92,8 @@ class GeminiChatbotAdapter extends IChatbotAdapter {
       } catch (err) {
         clearTimeout(timeoutId);
         lastError = err;
-        // If 503/502 server high-demand error, attempt fallback model
-        if (err.status === 503 || err.status === 502) {
+        // If quota limit (429), model missing (404), or server demand (502/503), attempt next model in chain
+        if (err.status === 429 || err.status === 404 || err.status === 503 || err.status === 502) {
           continue;
         }
         if (err.name === 'AbortError') {

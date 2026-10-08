@@ -171,18 +171,11 @@ ${groundedContextText}`;
       ? history.slice(-CHATBOT_DEFAULTS.MAX_CONTEXT_MESSAGES)
       : [];
 
-    const hasValidGeminiKey =
-      process.env.GEMINI_API_KEY &&
-      process.env.GEMINI_API_KEY !== 'your-gemini-api-key-here' &&
-      !process.env.GEMINI_API_KEY.includes('replace-with');
-
     const activeAdapter =
       adapter ||
-      (process.env.NODE_ENV === 'test' || !hasValidGeminiKey
-        ? new MockChatbotAdapter()
-        : new GeminiChatbotAdapter());
+      (process.env.NODE_ENV === 'test' ? new MockChatbotAdapter() : new GeminiChatbotAdapter());
 
-    // 6. Invoke Provider Adapter with Error Recovery
+    // 6. Invoke Provider Adapter
     let responseStatus = RESPONSE_STATUSES.ANSWERED;
     let responseText = '';
 
@@ -196,24 +189,10 @@ ${groundedContextText}`;
       responseText = providerResult.text;
     } catch (err) {
       console.warn(
-        `[ChatbotService] Provider API warning: ${err?.message || 'Error'}. Falling back to grounded mock synthesis in dev mode.`
+        `[ChatbotService] Provider API error (${err?.status || 'Unknown'}): ${err?.message || err}`
       );
-
-      // In non-production environments (e.g. dev/test), fallback to MockChatbotAdapter
-      // so developer testing is never blocked when Google API free tier quota (429) is exhausted.
-      if (process.env.NODE_ENV !== 'production') {
-        const mockAdapter = new MockChatbotAdapter();
-        const mockResult = await mockAdapter.generateResponse({
-          prompt: sanitizedMessage,
-          systemInstruction,
-          history: boundedHistory,
-        });
-        responseText = mockResult.text;
-        responseStatus = RESPONSE_STATUSES.ANSWERED;
-      } else {
-        responseStatus = RESPONSE_STATUSES.FAILED;
-        responseText = CHATBOT_DEFAULTS.FAILURE_FALLBACK_TEXT;
-      }
+      responseStatus = RESPONSE_STATUSES.FAILED;
+      responseText = CHATBOT_DEFAULTS.FAILURE_FALLBACK_TEXT;
     }
 
     // 7. Persist Interaction Metadata in MongoDB
