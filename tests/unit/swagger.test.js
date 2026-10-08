@@ -5,10 +5,14 @@ describe('Swagger documentation integrity', () => {
     'GET /health',
     'POST /auth/register',
     'POST /auth/login',
+    'POST /admin/staff',
     'GET /profile/me',
     'PATCH /profile/me',
     'GET /products',
     'GET /products/{id}',
+    'POST /prescriptions',
+    'GET /prescriptions/me',
+    'GET /prescriptions/customer/{customerId}',
     'POST /inventory',
     'GET /inventory/branch/{branchId}',
     'PATCH /inventory/{id}',
@@ -53,10 +57,14 @@ describe('Swagger documentation integrity', () => {
     const publicPaths = ['/health', '/auth/register', '/auth/login', '/products', '/products/{id}'];
     const protectedPaths = [
       '/profile/me',
+      '/admin/staff',
       '/inventory',
       '/inventory/branch/{branchId}',
       '/inventory/{id}',
       '/inventory/{id}/quantity',
+      '/prescriptions',
+      '/prescriptions/me',
+      '/prescriptions/customer/{customerId}',
       '/branches',
       '/customers/lookup',
     ];
@@ -88,6 +96,8 @@ describe('Swagger documentation integrity', () => {
       'BranchReference',
       'LoginRequest',
       'RegisterRequest',
+      'StaffProvisioningRequest',
+      'ProvisionedStaff',
     ]) {
       expect(swaggerSpec.components.schemas[schemaName]).toBeDefined();
     }
@@ -109,5 +119,37 @@ describe('Swagger documentation integrity', () => {
     expect(registerDoc.responses['422']).toBeDefined();
     expect(registerDoc.responses['400']).toBeUndefined();
     expect(registerDoc.description).toMatch(/email/i);
+  });
+
+  it('should document staff provisioning as SYSTEM_ADMIN-only with a safe response', () => {
+    const operation = swaggerSpec.paths['/admin/staff'].post;
+    const requestSchema = swaggerSpec.components.schemas.StaffProvisioningRequest;
+    const responseSchema = swaggerSpec.components.schemas.ProvisionedStaff;
+
+    expect(operation.description).toMatch(/SYSTEM_ADMIN only/);
+    expect(operation.security).toEqual([{ bearerAuth: [] }]);
+    expect(operation.responses).toEqual(
+      expect.objectContaining({
+        201: expect.any(Object),
+        401: expect.any(Object),
+        403: expect.any(Object),
+        409: expect.any(Object),
+        422: expect.any(Object),
+        500: expect.any(Object),
+      })
+    );
+    expect(requestSchema.additionalProperties).toBe(false);
+    expect(requestSchema.required).toEqual([
+      'name',
+      'email',
+      'phone',
+      'address',
+      'role',
+      'password',
+    ]);
+    expect(requestSchema.properties.branchId).toBeDefined();
+    expect(responseSchema.properties).not.toHaveProperty('password');
+    expect(responseSchema.properties).not.toHaveProperty('passwordHash');
+    expect(responseSchema.properties).not.toHaveProperty('token');
   });
 });
