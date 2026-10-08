@@ -63,10 +63,13 @@ const chatbotLimiter = rateLimit({
   max: CHATBOT_RATE_LIMIT.max,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => (req.user && (req.user.id || req.user.userId)) || req.ip,
+  keyGenerator: (req) => (req.auth?.userId || req.auth?.id || req.user?.id || req.ip),
+  validate: false,
   handler: rateLimitHandler,
   skipSuccessfulRequests: false,
 });
+
+
 
 module.exports = { generalLimiter, authLimiter, chatbotLimiter };
 

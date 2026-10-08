@@ -2,7 +2,9 @@ const crypto = require('crypto');
 const Chatbot = require('../models/chatbot.model');
 const KnowledgeRetrievalService = require('./knowledgeRetrieval.service');
 const GeminiChatbotAdapter = require('./adapters/GeminiChatbotAdapter');
+const MockChatbotAdapter = require('./adapters/MockChatbotAdapter');
 const {
+
   INQUIRY_TYPES,
   RESPONSE_STATUSES,
   CHATBOT_DEFAULTS,
@@ -171,7 +173,11 @@ ${groundedContextText}`;
       ? history.slice(-CHATBOT_DEFAULTS.MAX_CONTEXT_MESSAGES)
       : [];
 
-    const activeAdapter = adapter || new GeminiChatbotAdapter();
+    const activeAdapter =
+      adapter ||
+      (process.env.NODE_ENV === 'test'
+        ? new MockChatbotAdapter()
+        : new GeminiChatbotAdapter());
 
     // 6. Invoke Provider Adapter with Error Recovery
     let responseStatus = RESPONSE_STATUSES.ANSWERED;
