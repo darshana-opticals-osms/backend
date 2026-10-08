@@ -11,6 +11,7 @@ const adminRoutes = require('./routes/admin.routes');
 const profileRoutes = require('./routes/profile.routes');
 const productRoutes = require('./routes/product.routes');
 const inventoryRoutes = require('./routes/inventory.routes');
+const prescriptionRoutes = require('./routes/prescription.routes');
 const branchRoutes = require('./routes/branch.routes');
 const notFound = require('./middleware/notFound');
 const errorHandler = require('./middleware/errorHandler');
@@ -49,6 +50,7 @@ function createApp() {
   app.use('/api', profileRoutes);
   app.use('/api', productRoutes);
   app.use('/api', inventoryRoutes);
+  app.use('/api', prescriptionRoutes);
   app.use('/api', branchRoutes);
 
   // Catch-all route handler for non-existent endpoints (404)
