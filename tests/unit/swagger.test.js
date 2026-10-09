@@ -18,6 +18,7 @@ describe('Swagger documentation integrity', () => {
     'PATCH /inventory/{id}',
     'PATCH /inventory/{id}/quantity',
     'GET /branches',
+    'GET /customers/lookup',
   ];
 
   const normalize = (value) => value.toUpperCase();
@@ -65,6 +66,7 @@ describe('Swagger documentation integrity', () => {
       '/prescriptions/me',
       '/prescriptions/customer/{customerId}',
       '/branches',
+      '/customers/lookup',
     ];
 
     for (const path of publicPaths) {
@@ -86,6 +88,7 @@ describe('Swagger documentation integrity', () => {
       'ErrorResponse',
       'ValidationErrorResponse',
       'CustomerProfile',
+      'CustomerLookupResult',
       'AuthenticatedUser',
       'LoginResponse',
       'Product',
@@ -116,6 +119,12 @@ describe('Swagger documentation integrity', () => {
     expect(registerDoc.responses['422']).toBeDefined();
     expect(registerDoc.responses['400']).toBeUndefined();
     expect(registerDoc.description).toMatch(/email/i);
+  });
+
+  it('should document customer lookup validation errors as 422 and not 400', () => {
+    const lookupDoc = swaggerSpec.paths['/customers/lookup'].get;
+    expect(lookupDoc.responses['422']).toBeDefined();
+    expect(lookupDoc.responses['400']).toBeUndefined();
   });
 
   it('should document staff provisioning as SYSTEM_ADMIN-only with a safe response', () => {
