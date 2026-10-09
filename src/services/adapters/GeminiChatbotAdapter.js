@@ -1,23 +1,41 @@
 const IChatbotAdapter = require('./IChatbotAdapter');
 const { CHATBOT_DEFAULTS } = require('../../constants/chatbot.constants');
+const { loadConfig } = require('../../config/env');
 
 /**
  * GeminiChatbotAdapter (ADR-010 Section 9.1 & 11.3)
  *
- * Confirmed default provider adapter connecting to Google Gemini API (gemini-1.5-flash).
- * Implements 6,000ms timeout and max 1 retry on transient network errors.
+ * Confirmed default provider adapter connecting to Google Gemini API.
+ * Implements 6,000ms timeout and max 1 retry on transient server errors (HTTP 502, 503, 504).
+ * Fails fast without retries on client 4xx errors as required by ADR-010.
  */
 class GeminiChatbotAdapter extends IChatbotAdapter {
   /**
    * @param {Object} [config]
    * @param {string} [config.apiKey] - Google Gemini API Key
+   * @param {string} [config.model] - Gemini Model name
    * @param {number} [config.timeoutMs] - Timeout in milliseconds (default: 6000)
    * @param {number} [config.maxRetries] - Max retry count (default: 1)
    */
   constructor(config = {}) {
     super();
-    this.apiKey = config.apiKey || process.env.GEMINI_API_KEY || '';
-    this.timeoutMs = config.timeoutMs || CHATBOT_DEFAULTS.TIMEOUT_MS;
+    let sysConfig = {};
+    try {
+      sysConfig = loadConfig();
+    } catch {
+      // Fallback for uninitialized test environments
+    }
+
+    this.apiKey =
+      config.apiKey !== undefined
+        ? config.apiKey
+        : sysConfig.geminiApiKey || process.env.GEMINI_API_KEY || '';
+    this.model =
+      config.model ||
+      sysConfig.geminiModel ||
+      process.env.GEMINI_MODEL ||
+      'gemini-flash-lite-latest';
+    this.timeoutMs = config.timeoutMs || sysConfig.chatbotTimeoutMs || CHATBOT_DEFAULTS.TIMEOUT_MS;
     this.maxRetries =
       config.maxRetries !== undefined ? config.maxRetries : CHATBOT_DEFAULTS.MAX_RETRIES;
   }
@@ -54,58 +72,39 @@ class GeminiChatbotAdapter extends IChatbotAdapter {
       throw new Error('GEMINI_API_KEY is not configured on backend.');
     }
 
-    const modelsToTry = [
-      process.env.GEMINI_MODEL || 'gemini-flash-lite-latest',
-      'gemini-3.5-flash-lite',
-      'gemini-3.5-flash',
-      'gemini-flash-latest',
-      'gemini-pro-latest',
-    ];
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
 
-    let lastError = null;
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
 
-    for (const model of modelsToTry) {
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
+      clearTimeout(timeoutId);
 
-      try {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          const err = new Error(`Gemini API error (${model} HTTP ${response.status})`);
-          err.status = response.status;
-          err.rawDetails = errorText;
-          throw err;
-        }
-
-        const data = await response.json();
-        return data;
-      } catch (err) {
-        clearTimeout(timeoutId);
-        lastError = err;
-        // If quota limit (429), model missing (404), or server demand (502/503), attempt next model in chain
-        if (err.status === 429 || err.status === 404 || err.status === 503 || err.status === 502) {
-          continue;
-        }
-        if (err.name === 'AbortError') {
-          const timeoutErr = new Error(`AI Provider call timed out after ${this.timeoutMs}ms.`);
-          timeoutErr.isTimeout = true;
-          throw timeoutErr;
-        }
+      if (!response.ok) {
+        const errorText = await response.text();
+        const err = new Error(`Gemini API error (${this.model} HTTP ${response.status})`);
+        err.status = response.status;
+        err.rawDetails = errorText;
         throw err;
       }
-    }
 
-    throw lastError;
+      const data = await response.json();
+      return data;
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        const timeoutErr = new Error(`AI Provider call timed out after ${this.timeoutMs}ms.`);
+        timeoutErr.isTimeout = true;
+        throw timeoutErr;
+      }
+      throw err;
+    }
   }
 
   async generateResponse({ prompt, systemInstruction, history = [] }) {
@@ -140,8 +139,8 @@ class GeminiChatbotAdapter extends IChatbotAdapter {
         };
       } catch (err) {
         lastError = err;
-        // Retry only on transient errors (timeout or HTTP 5xx) if retries left
-        const isTransient = err.isTimeout || (err.status >= 500 && err.status <= 599);
+        // ADR-010 Section 11.3: Retry max 1 time only on transient server errors (timeout or HTTP 502/503/504)
+        const isTransient = err.isTimeout || (err.status >= 502 && err.status <= 504);
         if (attempt < this.maxRetries && isTransient) {
           attempt++;
           continue;
