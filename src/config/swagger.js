@@ -104,6 +104,40 @@ const options = {
             },
           },
         },
+        CustomerLookupResult: {
+          type: 'object',
+          description:
+            'Minimum safe Customer identification fields returned by the Optometrist ' +
+            'clinical Customer lookup endpoint (DDP-073 / Issue #73). ' +
+            'Contains only the information required to identify and select the correct ' +
+            'Customer for Prescription recording. ' +
+            'Does not expose passwordHash, address, Prescriptions, Orders, Payments, or Loyalty data.',
+          required: ['id', 'name', 'email', 'phone'],
+          properties: {
+            id: {
+              type: 'string',
+              description:
+                'Authoritative Customer identifier accepted by the Prescription creation endpoint (DDP-050).',
+              example: '64b1f2e3a4c5d60001234567',
+            },
+            name: {
+              type: 'string',
+              description: 'Customer display name.',
+              example: 'Kamal Perera',
+            },
+            email: {
+              type: 'string',
+              format: 'email',
+              description: 'Customer email address (stored in lowercase).',
+              example: 'kamal.customer@example.com',
+            },
+            phone: {
+              type: 'string',
+              description: 'Customer phone number in stored representation.',
+              example: '+94 71 200 0001',
+            },
+          },
+        },
         AuthenticatedUser: {
           type: 'object',
           required: ['id', 'name', 'email', 'role'],
