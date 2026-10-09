@@ -157,7 +157,7 @@ const lookupQueryValidation = (req) => {
  *                 value:
  *                   success: true
  *                   data: []
- *       400:
+ *       422:
  *         $ref: '#/components/responses/ValidationError'
  *       401:
  *         $ref: '#/components/responses/Unauthorized'

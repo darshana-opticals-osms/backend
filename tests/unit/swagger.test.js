@@ -121,6 +121,12 @@ describe('Swagger documentation integrity', () => {
     expect(registerDoc.description).toMatch(/email/i);
   });
 
+  it('should document customer lookup validation errors as 422 and not 400', () => {
+    const lookupDoc = swaggerSpec.paths['/customers/lookup'].get;
+    expect(lookupDoc.responses['422']).toBeDefined();
+    expect(lookupDoc.responses['400']).toBeUndefined();
+  });
+
   it('should document staff provisioning as SYSTEM_ADMIN-only with a safe response', () => {
     const operation = swaggerSpec.paths['/admin/staff'].post;
     const requestSchema = swaggerSpec.components.schemas.StaffProvisioningRequest;
