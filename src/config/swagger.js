@@ -475,6 +475,52 @@ const options = {
             },
           },
         },
+        CartAddItemRequest: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['inventoryId', 'quantity'],
+          properties: {
+            inventoryId: {
+              type: 'string',
+              pattern: '^[a-fA-F0-9]{24}$',
+              example: '507f1f77bcf86cd799439011',
+            },
+            quantity: { type: 'integer', minimum: 1, example: 2 },
+          },
+        },
+        CartQuantityRequest: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['quantity'],
+          properties: {
+            quantity: { type: 'integer', minimum: 1, example: 3 },
+          },
+        },
+        CartResponse: {
+          type: 'object',
+          required: ['success', 'data'],
+          properties: {
+            success: { type: 'boolean', example: true },
+            data: {
+              type: 'object',
+              required: ['items'],
+              properties: {
+                items: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    required: ['inventoryId', 'quantity'],
+                    properties: {
+                      inventoryId: { type: 'string', example: '507f1f77bcf86cd799439011' },
+                      quantity: { type: 'integer', minimum: 1, example: 3 },
+                    },
+                  },
+                  example: [],
+                },
+              },
+            },
+          },
+        },
         EyeDistance: {
           type: 'object',
           description: 'ADR-001 approved distance vision measurements for one eye.',
