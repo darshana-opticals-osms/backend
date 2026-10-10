@@ -152,7 +152,7 @@ describe('AI Chatbot Adapters (Unit tests)', () => {
         expect(global.fetch).toHaveBeenCalledTimes(1);
       });
 
-      it('should handle request timeout gracefully', async () => {
+      it('should handle request timeout gracefully without retrying per ADR-010', async () => {
         const abortError = new Error('The operation was aborted');
         abortError.name = 'AbortError';
 
@@ -163,8 +163,8 @@ describe('AI Chatbot Adapters (Unit tests)', () => {
           adapter.generateResponse({ prompt: 'Timeout test', systemInstruction: 'Context' })
         ).rejects.toThrow('AI Provider call timed out after 6000ms.');
 
-        // Timeout is transient, so it retries up to maxRetries (total 2 attempts)
-        expect(global.fetch).toHaveBeenCalledTimes(2);
+        // ADR-010: Retries permitted only for HTTP 502/503/504
+        expect(global.fetch).toHaveBeenCalledTimes(1);
       });
     });
   });

@@ -71,8 +71,8 @@ const router = express.Router();
  *                     responseText:
  *                       type: string
  *                       example: Darshana Opticals is open Monday to Saturday from 9:00 AM to 7:00 PM.
- *       400:
- *         description: Bad Request — empty message or length exceeded.
+ *       422:
+ *         description: Unprocessable Entity — validation error (empty message, length exceeded, or invalid history).
  *       401:
  *         description: Unauthorized — valid customer JWT authentication required.
  *       403:

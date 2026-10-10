@@ -26,15 +26,8 @@ class GeminiChatbotAdapter extends IChatbotAdapter {
       // Fallback for uninitialized test environments
     }
 
-    this.apiKey =
-      config.apiKey !== undefined
-        ? config.apiKey
-        : sysConfig.geminiApiKey || process.env.GEMINI_API_KEY || '';
-    this.model =
-      config.model ||
-      sysConfig.geminiModel ||
-      process.env.GEMINI_MODEL ||
-      'gemini-flash-lite-latest';
+    this.apiKey = config.apiKey !== undefined ? config.apiKey : sysConfig.geminiApiKey || '';
+    this.model = config.model || sysConfig.geminiModel || 'gemini-flash-lite-latest';
     this.timeoutMs = config.timeoutMs || sysConfig.chatbotTimeoutMs || CHATBOT_DEFAULTS.TIMEOUT_MS;
     this.maxRetries =
       config.maxRetries !== undefined ? config.maxRetries : CHATBOT_DEFAULTS.MAX_RETRIES;
@@ -139,8 +132,8 @@ class GeminiChatbotAdapter extends IChatbotAdapter {
         };
       } catch (err) {
         lastError = err;
-        // ADR-010 Section 11.3: Retry max 1 time only on transient server errors (timeout or HTTP 502/503/504)
-        const isTransient = err.isTimeout || (err.status >= 502 && err.status <= 504);
+        // ADR-010 Section 11.3: Retry max 1 time ONLY on transient server errors (HTTP 502/503/504)
+        const isTransient = err.status >= 502 && err.status <= 504;
         if (attempt < this.maxRetries && isTransient) {
           attempt++;
           continue;
