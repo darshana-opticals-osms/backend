@@ -1,7 +1,7 @@
 const { validate } = require('../middleware/validate');
 const { CHATBOT_DEFAULTS } = require('../constants/chatbot.constants');
 
-const ALLOWED_ROLES = ['user', 'assistant', 'model'];
+const ALLOWED_ROLES = ['user', 'assistant'];
 
 /**
  * Validation schema function for Chatbot Query API (POST /api/v1/chatbot/query)

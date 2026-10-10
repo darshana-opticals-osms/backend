@@ -136,6 +136,79 @@ describe('AI Chatbot Adapters (Unit tests)', () => {
         expect(global.fetch).toHaveBeenCalledTimes(2);
       });
 
+      it('should retry max 1 time on transient HTTP 502 error and succeed', async () => {
+        global.fetch = jest
+          .fn()
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 502,
+            text: async () => 'Bad Gateway',
+          })
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              candidates: [{ content: { parts: [{ text: 'Dynamic answer after 502 retry' }] } }],
+            }),
+          });
+
+        const adapter = new GeminiChatbotAdapter({ apiKey: 'test-key', maxRetries: 1 });
+        const result = await adapter.generateResponse({
+          prompt: 'Store location?',
+          systemInstruction: 'Context',
+        });
+
+        expect(result.text).toBe('Dynamic answer after 502 retry');
+        expect(global.fetch).toHaveBeenCalledTimes(2);
+      });
+
+      it('should retry max 1 time on transient HTTP 504 error and succeed', async () => {
+        global.fetch = jest
+          .fn()
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 504,
+            text: async () => 'Gateway Timeout',
+          })
+          .mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+              candidates: [{ content: { parts: [{ text: 'Dynamic answer after 504 retry' }] } }],
+            }),
+          });
+
+        const adapter = new GeminiChatbotAdapter({ apiKey: 'test-key', maxRetries: 1 });
+        const result = await adapter.generateResponse({
+          prompt: 'Store location?',
+          systemInstruction: 'Context',
+        });
+
+        expect(result.text).toBe('Dynamic answer after 504 retry');
+        expect(global.fetch).toHaveBeenCalledTimes(2);
+      });
+
+      it('should fail with error after single approved retry if transient failure persists', async () => {
+        global.fetch = jest
+          .fn()
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 503,
+            text: async () => 'Service Unavailable Attempt 1',
+          })
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 503,
+            text: async () => 'Service Unavailable Attempt 2',
+          });
+
+        const adapter = new GeminiChatbotAdapter({ apiKey: 'test-key', maxRetries: 1 });
+        await expect(
+          adapter.generateResponse({ prompt: 'Store location?', systemInstruction: 'Context' })
+        ).rejects.toThrow('Gemini API error (gemini-flash-lite-latest HTTP 503)');
+
+        // Exactly 2 attempts made: initial request + 1 approved retry
+        expect(global.fetch).toHaveBeenCalledTimes(2);
+      });
+
       it('should fail fast without retrying on HTTP 4xx client errors (429, 404)', async () => {
         global.fetch = jest.fn().mockResolvedValue({
           ok: false,
