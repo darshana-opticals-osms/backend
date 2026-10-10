@@ -1,5 +1,5 @@
 const rateLimit = require('express-rate-limit');
-const { GENERAL_RATE_LIMIT, AUTH_RATE_LIMIT } = require('../config/security');
+const { GENERAL_RATE_LIMIT, AUTH_RATE_LIMIT, CHATBOT_RATE_LIMIT } = require('../config/security');
 
 /**
  * Standard rate-limit exceeded handler.
@@ -52,4 +52,21 @@ const authLimiter = rateLimit({
   skipSuccessfulRequests: false,
 });
 
-module.exports = { generalLimiter, authLimiter };
+/**
+ * Chatbot endpoint rate limiter (ADR-010 Section 11.2).
+ *
+ * Applied per authenticated customer ID (or IP).
+ * Default: 10 requests per 1 minute.
+ */
+const chatbotLimiter = rateLimit({
+  windowMs: CHATBOT_RATE_LIMIT.windowMs,
+  max: CHATBOT_RATE_LIMIT.max,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.auth?.userId || req.auth?.id || req.user?.id || req.ip,
+  validate: false,
+  handler: rateLimitHandler,
+  skipSuccessfulRequests: false,
+});
+
+module.exports = { generalLimiter, authLimiter, chatbotLimiter };

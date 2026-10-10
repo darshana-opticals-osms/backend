@@ -9,6 +9,7 @@ const Order = require('../models/order.model');
 const OrderItem = require('../models/orderItem.model');
 const Appointment = require('../models/appointment.model');
 const Payment = require('../models/payment.model');
+const KnowledgeArea = require('../models/knowledgeArea.model');
 const { createInventory } = require('../services/inventory.service');
 const { hashPassword } = require('../services/auth.service');
 const { SEED_BRANCHES } = require('./data/branches.data');
@@ -20,6 +21,7 @@ const {
 } = require('./data/users.data');
 const { SEED_INVENTORY_ITEMS } = require('./data/inventory.data');
 const { SEED_PRESCRIPTIONS } = require('./data/prescriptions.data');
+const { SEED_KNOWLEDGE_AREAS } = require('./data/knowledgeAreas.data');
 
 const PRODUCTION_SAFETY_ERROR =
   'Production safety check triggered: Seeding database is prohibited in production environment.';
@@ -46,6 +48,7 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
   // AC2: Repeatable Execution - Reset strategy with sequential cascading dependency cleanup
   // Note: Reset destructively removes all local development records in these collections (both seeded and custom development records).
   if (reset) {
+    await KnowledgeArea.deleteMany({});
     await OrderItem.deleteMany({});
     await Payment.deleteMany({});
     await Order.deleteMany({});
@@ -65,6 +68,7 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
   let customersCreated = 0;
   let inventoryCreated = 0;
   let prescriptionsCreated = 0;
+  let knowledgeAreasCreated = 0;
 
   // Compute password hash using application central auth service hashing helper
   const devPasswordHash = await hashPassword(DEV_DEFAULT_PASSWORD);
@@ -176,6 +180,15 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
     }
   }
 
+  // 7. Seed Knowledge Areas (ADR-010, FR-011)
+  for (const kaData of SEED_KNOWLEDGE_AREAS) {
+    const existing = await KnowledgeArea.exists({ articleId: kaData.articleId });
+    if (!existing) {
+      await KnowledgeArea.create(kaData);
+      knowledgeAreasCreated += 1;
+    }
+  }
+
   return {
     reset,
     branchesCreated,
@@ -184,12 +197,14 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
     customersCreated,
     inventoryCreated,
     prescriptionsCreated,
+    knowledgeAreasCreated,
     totalBranches: await Branch.countDocuments({}),
     totalAdmins: await Admin.countDocuments({}),
     totalStaff: await Staff.countDocuments({}),
     totalCustomers: await Customer.countDocuments({}),
     totalInventory: await Inventory.countDocuments({}),
     totalPrescriptions: await Prescription.countDocuments({}),
+    totalKnowledgeAreas: await KnowledgeArea.countDocuments({}),
   };
 }
 

@@ -18,6 +18,7 @@ describe('Swagger documentation integrity', () => {
     'PATCH /inventory/{id}',
     'PATCH /inventory/{id}/quantity',
     'GET /branches',
+    'POST /v1/chatbot/query',
     'GET /customers/lookup',
   ];
 
@@ -66,6 +67,7 @@ describe('Swagger documentation integrity', () => {
       '/prescriptions/me',
       '/prescriptions/customer/{customerId}',
       '/branches',
+      '/v1/chatbot/query',
       '/customers/lookup',
     ];
 
