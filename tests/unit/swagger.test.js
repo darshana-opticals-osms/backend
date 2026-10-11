@@ -25,6 +25,8 @@ describe('Swagger documentation integrity', () => {
     'PATCH /cart/items/{inventoryId}',
     'DELETE /cart/items/{inventoryId}',
     'POST /checkout',
+    'GET /orders',
+    'GET /orders/{id}',
   ];
 
   const normalize = (value) => value.toUpperCase();

@@ -572,6 +572,166 @@ const options = {
             },
           },
         },
+        OrderStatusHistoryEntry: {
+          type: 'object',
+          description:
+            'A single status-history entry embedded in an Order document. ' +
+            'Represents one canonical lifecycle transition (ADR-004 §15, §16).',
+          required: ['status', 'changedAt', 'changedBy'],
+          properties: {
+            status: {
+              type: 'string',
+              enum: [
+                'ORDER_CREATED',
+                'PROCESSING',
+                'READY_FOR_PICKUP',
+                'PICKED_UP',
+                'COMPLETED',
+                'CANCELLED',
+              ],
+              description: 'Canonical ADR-004 status value recorded at this transition.',
+              example: 'ORDER_CREATED',
+            },
+            changedAt: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Server-controlled timestamp of the status change.',
+              example: '2024-05-01T10:00:00.000Z',
+            },
+            changedBy: {
+              type: 'string',
+              description: 'MongoDB ObjectId of the user who triggered the transition (server-controlled).',
+              example: '507f1f77bcf86cd799439011',
+            },
+          },
+        },
+        OrderItem: {
+          type: 'object',
+          description: 'A single line item belonging to an Order (AC9 — approved customer-facing fields only).',
+          required: ['id', 'itemName', 'price', 'quantity'],
+          properties: {
+            id: {
+              type: 'string',
+              description: 'MongoDB ObjectId of the OrderItem.',
+              example: '507f1f77bcf86cd799439031',
+            },
+            itemName: {
+              type: 'string',
+              description: 'Name of the inventory item at time of checkout.',
+              example: 'Optical Frame',
+            },
+            price: {
+              type: 'number',
+              minimum: 0,
+              description: 'Unit price at time of checkout.',
+              example: 12000,
+            },
+            quantity: {
+              type: 'integer',
+              minimum: 1,
+              description: 'Quantity purchased.',
+              example: 2,
+            },
+          },
+        },
+        OrderSummary: {
+          type: 'object',
+          description:
+            'Safe customer-facing Order summary. Returned in order-history list responses. ' +
+            'Uses canonical ADR-004 status values (AC7). ' +
+            'Includes embedded status history (AC8 — Option B). ' +
+            'Does not expose password hashes, secrets, stack traces, or internal fields (AC18).',
+          required: [
+            'id',
+            'customerId',
+            'orderDate',
+            'orderAmount',
+            'status',
+            'statusUpdatedAt',
+            'statusHistory',
+            'createdAt',
+            'updatedAt',
+          ],
+          properties: {
+            id: {
+              type: 'string',
+              description: 'MongoDB ObjectId of the Order.',
+              example: '507f1f77bcf86cd799439021',
+            },
+            customerId: {
+              type: 'string',
+              description: 'MongoDB ObjectId of the owning Customer.',
+              example: '507f1f77bcf86cd799439011',
+            },
+            orderDate: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Date and time the Order was placed.',
+              example: '2024-05-01T10:00:00.000Z',
+            },
+            orderAmount: {
+              type: 'number',
+              minimum: 0,
+              description: 'Total order amount in the system currency.',
+              example: 26500.5,
+            },
+            status: {
+              type: 'string',
+              enum: [
+                'ORDER_CREATED',
+                'PROCESSING',
+                'READY_FOR_PICKUP',
+                'PICKED_UP',
+                'COMPLETED',
+                'CANCELLED',
+              ],
+              description: 'Current canonical ADR-004 Order status (AC7).',
+              example: 'PROCESSING',
+            },
+            statusUpdatedAt: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Server-controlled timestamp of the most recent status change.',
+              example: '2024-05-01T11:00:00.000Z',
+            },
+            statusHistory: {
+              type: 'array',
+              description: 'Embedded ordered status-history (ADR-004 Option B, AC8).',
+              items: {
+                $ref: '#/components/schemas/OrderStatusHistoryEntry',
+              },
+            },
+            createdAt: {
+              type: 'string',
+              format: 'date-time',
+              example: '2024-05-01T10:00:00.000Z',
+            },
+            updatedAt: {
+              type: 'string',
+              format: 'date-time',
+              example: '2024-05-01T11:00:00.000Z',
+            },
+          },
+        },
+        OrderDetail: {
+          allOf: [
+            { $ref: '#/components/schemas/OrderSummary' },
+            {
+              type: 'object',
+              description: 'Full Order detail including associated OrderItems (AC9).',
+              required: ['items'],
+              properties: {
+                items: {
+                  type: 'array',
+                  description: 'OrderItems belonging to this Order. Approved customer-facing fields only (AC9).',
+                  items: {
+                    $ref: '#/components/schemas/OrderItem',
+                  },
+                },
+              },
+            },
+          ],
+        },
         EyeDistance: {
           type: 'object',
           description: 'ADR-001 approved distance vision measurements for one eye.',
