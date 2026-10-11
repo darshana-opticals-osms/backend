@@ -18,6 +18,8 @@
 
 const mongoose = require('mongoose');
 const {
+  getOrders,
+  getOrderById,
   getCustomerOrders,
   getCustomerOrderById,
   updateOrderStatus,
@@ -27,6 +29,7 @@ const {
 } = require('../../src/services/order.service');
 const { NotFoundError, ValidationError } = require('../../src/errors/AppError');
 const { ORDER_STATUS_VALUES } = require('../../src/constants/orderStatuses');
+const { ROLE_VALUES } = require('../../src/constants/roles');
 
 // ─── Mock Mongoose Models ─────────────────────────────────────────────────────
 
@@ -602,6 +605,106 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
       expect(order.status).toBe(ORDER_STATUS_VALUES.CANCELLED);
       expect(order.save).toHaveBeenCalledTimes(1);
       expect(result.status).toBe(ORDER_STATUS_VALUES.CANCELLED);
+    });
+  });
+});
+
+describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
+  const STAFF_ID = new mongoose.Types.ObjectId();
+  const STAFF_ID_STR = STAFF_ID.toString();
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  describe('getOrders with staff roles', () => {
+    it('retrieves all orders without customerId filter for INVENTORY_MANAGER', async () => {
+      const mockOrders = [makeOrder()];
+      Order.find.mockReturnValue({
+        sort: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(mockOrders) }),
+      });
+
+      const results = await getOrders({
+        userId: STAFF_ID_STR,
+        role: ROLE_VALUES.INVENTORY_MANAGER,
+      });
+
+      expect(Order.find).toHaveBeenCalledWith({});
+      expect(results).toHaveLength(1);
+      expect(results[0].id).toBe(ORDER_ID_STR);
+    });
+
+    it('retrieves all orders for BRANCH_MANAGER', async () => {
+      Order.find.mockReturnValue({
+        sort: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }),
+      });
+
+      const results = await getOrders({
+        userId: STAFF_ID_STR,
+        role: ROLE_VALUES.BRANCH_MANAGER,
+      });
+
+      expect(Order.find).toHaveBeenCalledWith({});
+      expect(results).toEqual([]);
+    });
+
+    it('rejects unauthorized roles with ValidationError', async () => {
+      await expect(
+        getOrders({ userId: STAFF_ID_STR, role: ROLE_VALUES.OPTOMETRIST })
+      ).rejects.toThrow(ValidationError);
+    });
+  });
+
+  describe('getOrderById with staff roles', () => {
+    it('retrieves any order by ID for INVENTORY_MANAGER', async () => {
+      Order.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(makeOrder()) });
+      OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([makeItem()]) });
+
+      const result = await getOrderById({
+        orderId: ORDER_ID_STR,
+        userId: STAFF_ID_STR,
+        role: ROLE_VALUES.INVENTORY_MANAGER,
+      });
+
+      expect(Order.findById).toHaveBeenCalledWith(ORDER_ID_STR);
+      expect(result.id).toBe(ORDER_ID_STR);
+      expect(result.items).toHaveLength(1);
+    });
+
+    it('retrieves any order by ID for BRANCH_MANAGER', async () => {
+      Order.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(makeOrder()) });
+      OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) });
+
+      const result = await getOrderById({
+        orderId: ORDER_ID_STR,
+        userId: STAFF_ID_STR,
+        role: ROLE_VALUES.BRANCH_MANAGER,
+      });
+
+      expect(Order.findById).toHaveBeenCalledWith(ORDER_ID_STR);
+      expect(result.id).toBe(ORDER_ID_STR);
+    });
+
+    it('throws NotFoundError if order does not exist', async () => {
+      Order.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
+
+      await expect(
+        getOrderById({
+          orderId: ORDER_ID_STR,
+          userId: STAFF_ID_STR,
+          role: ROLE_VALUES.SYSTEM_ADMIN,
+        })
+      ).rejects.toThrow(NotFoundError);
+    });
+
+    it('rejects unauthorized roles with ValidationError', async () => {
+      await expect(
+        getOrderById({
+          orderId: ORDER_ID_STR,
+          userId: STAFF_ID_STR,
+          role: ROLE_VALUES.OPTOMETRIST,
+        })
+      ).rejects.toThrow(ValidationError);
     });
   });
 });

@@ -2,9 +2,11 @@ const mongoose = require('mongoose');
 const Order = require('../models/order.model');
 const OrderItem = require('../models/orderItem.model');
 const Customer = require('../models/customer.model');
+const { ROLE_VALUES } = require('../constants/roles');
 const {
   ORDER_STATUSES,
   ORDER_STATUS_VALUES,
+  ORDER_TRACKING_VIEW_ROLES,
   isValidOrderStatus,
   isValidStatusTransition,
   isTerminalStatus,
@@ -98,51 +100,63 @@ function shapeOrderDetail(order, items) {
 // ─── Service Functions ────────────────────────────────────────────────────────
 
 /**
- * Returns all Orders owned by the authenticated Customer, ordered newest-first.
+ * Retrieves orders based on caller role.
  *
- * Customer identity is derived entirely from the authenticated backend context
- * (JWT). A client-supplied customerId is never trusted.
+ * - CUSTOMER: Returns orders owned by that customer (scoped to customerId).
+ * - Authorized Staff (INVENTORY_MANAGER, BRANCH_MANAGER, MANAGEMENT, SYSTEM_ADMIN):
+ *   Returns all orders in reverse chronological order for tracking and fulfillment.
  *
- * AC1 – Customer Order History Endpoint.
- * AC2 – Customer with No Orders returns empty array (not an error).
+ * AC1, AC2, AC6, ADR-004 §12, §13.
  *
- * @param {string} authenticatedCustomerId - Customer._id from req.auth (JWT-derived)
- * @returns {object[]} Array of safe order summary objects (may be empty)
+ * @param {object} params
+ * @param {string} params.userId - Authenticated user's ID
+ * @param {string} params.role   - Authenticated user's canonical role
+ * @returns {Promise<object[]>} Safe shaped order summaries
  */
-async function getCustomerOrders(authenticatedCustomerId) {
-  if (!mongoose.isValidObjectId(authenticatedCustomerId)) {
-    throw new ValidationError('Authenticated customer identity is invalid.');
+async function getOrders({ userId, role }) {
+  if (role === ROLE_VALUES.CUSTOMER) {
+    if (!mongoose.isValidObjectId(userId)) {
+      throw new ValidationError('Authenticated customer identity is invalid.');
+    }
+    const orders = await Order.find({ customerId: userId }).sort({ createdAt: -1 }).lean();
+    return orders.map(shapeOrderSummary);
   }
 
-  // AC1: scope retrieval strictly to the authenticated customer's ID.
-  // AC2: empty array is a valid result — not an error.
-  const orders = await Order.find({ customerId: authenticatedCustomerId })
-    .sort({ createdAt: -1 })
-    .lean();
+  if (ORDER_TRACKING_VIEW_ROLES.includes(role)) {
+    const orders = await Order.find({}).sort({ createdAt: -1 }).lean();
+    return orders.map(shapeOrderSummary);
+  }
 
-  return orders.map(shapeOrderSummary);
+  throw new ValidationError('Role not authorized for order tracking retrieval.');
 }
 
 /**
- * Returns a single Order with its OrderItems, enforcing customer ownership.
- *
- * The ownership check is performed in the database query by scoping the lookup
- * to both orderId AND authenticatedCustomerId. This prevents IDOR: a customer
- * cannot retrieve another customer's Order by guessing or supplying a different
- * Order ID.
- *
- * AC3  – Retrieve Single Customer Order.
- * AC4  – Prevent Cross-Customer Access.
- * AC5  – Invalid Order Identifier returns validation error.
- * AC6  – Non-Existent Order returns not-found without leaking information.
- * AC9  – Include Order Items Safely.
+ * Returns all Orders owned by the authenticated Customer, ordered newest-first.
+ * Backwards-compatible convenience wrapper for getOrders.
  *
  * @param {string} authenticatedCustomerId - Customer._id from req.auth (JWT-derived)
- * @param {string} orderId                 - Order ID from the URL path parameter
- * @returns {object} Safe shaped order-detail response with items
+ * @returns {Promise<object[]>} Array of safe order summary objects (may be empty)
  */
-async function getCustomerOrderById(authenticatedCustomerId, orderId) {
-  // AC5: validate the ID format before touching the database.
+async function getCustomerOrders(authenticatedCustomerId) {
+  return getOrders({ userId: authenticatedCustomerId, role: ROLE_VALUES.CUSTOMER });
+}
+
+/**
+ * Retrieves a single Order with its OrderItems based on caller role.
+ *
+ * - CUSTOMER: Enforces ownership (scopes query to _id AND customerId) to prevent IDOR.
+ * - Authorized Staff (INVENTORY_MANAGER, BRANCH_MANAGER, MANAGEMENT, SYSTEM_ADMIN):
+ *   Retrieves any order to inspect tracking status and fulfillment details.
+ *
+ * AC3, AC4, AC5, AC6, AC9, ADR-004 §12, §13.
+ *
+ * @param {object} params
+ * @param {string} params.orderId - Target Order ObjectId
+ * @param {string} params.userId  - Authenticated user's ID
+ * @param {string} params.role    - Authenticated user's canonical role
+ * @returns {Promise<object>} Safe shaped order-detail response with items
+ */
+async function getOrderById({ orderId, userId, role }) {
   if (!mongoose.isValidObjectId(orderId)) {
     throw new ValidationError(
       'Order ID must be a valid identifier.',
@@ -151,21 +165,21 @@ async function getCustomerOrderById(authenticatedCustomerId, orderId) {
     );
   }
 
-  if (!mongoose.isValidObjectId(authenticatedCustomerId)) {
-    throw new ValidationError('Authenticated customer identity is invalid.');
+  let order;
+  if (role === ROLE_VALUES.CUSTOMER) {
+    if (!mongoose.isValidObjectId(userId)) {
+      throw new ValidationError('Authenticated customer identity is invalid.');
+    }
+    order = await Order.findOne({
+      _id: orderId,
+      customerId: userId,
+    }).lean();
+  } else if (ORDER_TRACKING_VIEW_ROLES.includes(role)) {
+    order = await Order.findById(orderId).lean();
+  } else {
+    throw new ValidationError('Role not authorized for order tracking retrieval.');
   }
 
-  // AC4: scope retrieval to BOTH orderId AND the authenticated customer's ID.
-  // If Customer B tries to access Customer A's Order, this query returns null
-  // because the customerId will not match. The response is indistinguishable
-  // from a genuinely non-existent order — no information leakage.
-  const order = await Order.findOne({
-    _id: orderId,
-    customerId: authenticatedCustomerId,
-  }).lean();
-
-  // AC6: unified not-found response — does not reveal whether the Order exists
-  // for a different customer.
   if (!order) {
     throw new NotFoundError('Order not found.', null, ORDER_NOT_FOUND);
   }
@@ -174,6 +188,22 @@ async function getCustomerOrderById(authenticatedCustomerId, orderId) {
   const items = await OrderItem.find({ orderId: order._id }).lean();
 
   return shapeOrderDetail(order, items);
+}
+
+/**
+ * Returns a single Order with its OrderItems, enforcing customer ownership.
+ * Backwards-compatible convenience wrapper for getOrderById.
+ *
+ * @param {string} authenticatedCustomerId - Customer._id from req.auth (JWT-derived)
+ * @param {string} orderId                 - Order ID from URL path parameter
+ * @returns {Promise<object>} Safe shaped order-detail response with items
+ */
+async function getCustomerOrderById(authenticatedCustomerId, orderId) {
+  return getOrderById({
+    orderId,
+    userId: authenticatedCustomerId,
+    role: ROLE_VALUES.CUSTOMER,
+  });
 }
 
 /**
@@ -289,6 +319,8 @@ async function updateOrderStatus(orderId, requestedStatus, staffUserId) {
 }
 
 module.exports = {
+  getOrders,
+  getOrderById,
   getCustomerOrders,
   getCustomerOrderById,
   updateOrderStatus,

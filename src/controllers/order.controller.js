@@ -1,40 +1,44 @@
 const catchAsync = require('../utils/catchAsync');
 const {
-  getCustomerOrders,
-  getCustomerOrderById,
+  getOrders: getOrdersService,
+  getOrderById: getOrderByIdService,
   updateOrderStatus: updateOrderStatusService,
 } = require('../services/order.service');
 
 /**
  * GET /api/orders
  *
- * Returns all Orders owned by the authenticated CUSTOMER.
- * Customer identity is derived from the JWT (req.auth.userId) — never from a
- * client-supplied parameter.
+ * Returns Orders accessible to caller:
+ * - CUSTOMER: Returns only orders owned by the authenticated customer.
+ * - Staff (INVENTORY_MANAGER, BRANCH_MANAGER, MANAGEMENT, SYSTEM_ADMIN):
+ *   Returns all orders in reverse chronological order for tracking and fulfillment.
  *
- * AC1 – Customer Order History Endpoint.
- * AC2 – Empty history is a valid result (returns []).
+ * AC1, AC2, AC6, ADR-004 §12, §13.
  */
-const getMyOrders = catchAsync(async (req, res) => {
-  const orders = await getCustomerOrders(req.auth.userId);
+const getOrders = catchAsync(async (req, res) => {
+  const orders = await getOrdersService({
+    userId: req.auth.userId,
+    role: req.auth.role,
+  });
   return res.status(200).json({ success: true, data: orders });
 });
 
 /**
  * GET /api/orders/:id
  *
- * Returns a single Order with its OrderItems, enforcing customer ownership.
- * Customer identity is derived from the JWT (req.auth.userId).
- * The orderId comes from the validated URL path parameter.
+ * Returns a single Order with its OrderItems:
+ * - CUSTOMER: Enforces customer ownership (scoped lookup to prevent IDOR).
+ * - Staff (INVENTORY_MANAGER, BRANCH_MANAGER, MANAGEMENT, SYSTEM_ADMIN):
+ *   Returns tracking information and line items for the requested order.
  *
- * AC3  – Retrieve Single Customer Order.
- * AC4  – Prevent Cross-Customer Access (ownership enforced in service).
- * AC5  – Invalid Order Identifier returns a validation error.
- * AC6  – Non-Existent Order returns not-found (no information leakage).
- * AC9  – OrderItems returned safely.
+ * AC3, AC4, AC5, AC6, AC9, ADR-004 §12, §13.
  */
-const getMyOrderById = catchAsync(async (req, res) => {
-  const order = await getCustomerOrderById(req.auth.userId, req.params.id);
+const getOrderById = catchAsync(async (req, res) => {
+  const order = await getOrderByIdService({
+    orderId: req.params.id,
+    userId: req.auth.userId,
+    role: req.auth.role,
+  });
   return res.status(200).json({ success: true, data: order });
 });
 
@@ -57,7 +61,9 @@ const updateOrderStatus = catchAsync(async (req, res) => {
 });
 
 module.exports = {
-  getMyOrders,
-  getMyOrderById,
+  getOrders,
+  getOrderById,
+  getMyOrders: getOrders,
+  getMyOrderById: getOrderById,
   updateOrderStatus,
 };

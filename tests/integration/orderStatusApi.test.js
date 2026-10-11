@@ -285,4 +285,106 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       expect(nextRes.body.error.message).toContain('terminal');
     });
   });
+
+  describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
+    it('allows INVENTORY_MANAGER to view all orders and Customer to view only own orders', async () => {
+      const customerA = await createCustomer('customera@example.com');
+      const customerB = await createCustomer('customerb@example.com');
+
+      await Order.create({
+        customerId: customerA._id,
+        orderDate: new Date(),
+        orderAmount: 10000,
+        status: ORDER_STATUS_VALUES.ORDER_CREATED,
+        statusUpdatedAt: new Date(),
+      });
+
+      await Order.create({
+        customerId: customerB._id,
+        orderDate: new Date(),
+        orderAmount: 20000,
+        status: ORDER_STATUS_VALUES.ORDER_CREATED,
+        statusUpdatedAt: new Date(),
+      });
+
+      // Customer A query -> only 1 order
+      const customerToken = createToken({
+        userId: customerA._id.toString(),
+        role: ROLE_VALUES.CUSTOMER,
+      });
+      const custRes = await request(app)
+        .get('/api/orders')
+        .set('Authorization', `Bearer ${customerToken}`);
+
+      expect(custRes.status).toBe(200);
+      expect(custRes.body.data).toHaveLength(1);
+      expect(custRes.body.data[0].customerId).toBe(customerA._id.toString());
+
+      // Staff query -> all 2 orders
+      const staffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.INVENTORY_MANAGER,
+      });
+      const staffRes = await request(app)
+        .get('/api/orders')
+        .set('Authorization', `Bearer ${staffToken}`);
+
+      expect(staffRes.status).toBe(200);
+      expect(staffRes.body.data).toHaveLength(2);
+    });
+
+    it('allows authorized staff to view single order and blocks unauthorized roles', async () => {
+      const customer = await createCustomer('singleordertest@example.com');
+      const order = await Order.create({
+        customerId: customer._id,
+        orderDate: new Date(),
+        orderAmount: 15000,
+        status: ORDER_STATUS_VALUES.PROCESSING,
+        statusUpdatedAt: new Date(),
+      });
+
+      await OrderItem.create({
+        orderId: order._id,
+        itemName: 'Progressive Lens',
+        price: 15000,
+        quantity: 1,
+      });
+
+      // Staff view -> 200
+      const staffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+      });
+      const staffRes = await request(app)
+        .get(`/api/orders/${order._id}`)
+        .set('Authorization', `Bearer ${staffToken}`);
+
+      expect(staffRes.status).toBe(200);
+      expect(staffRes.body.data.id).toBe(order._id.toString());
+      expect(staffRes.body.data.items).toHaveLength(1);
+
+      // Customer B (different customer) -> 404 (IDOR prevented)
+      const otherCust = await createCustomer('other@example.com');
+      const otherCustToken = createToken({
+        userId: otherCust._id.toString(),
+        role: ROLE_VALUES.CUSTOMER,
+      });
+      const otherRes = await request(app)
+        .get(`/api/orders/${order._id}`)
+        .set('Authorization', `Bearer ${otherCustToken}`);
+
+      expect(otherRes.status).toBe(404);
+
+      // Optometrist -> 403 Forbidden
+      const optToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.OPTOMETRIST,
+      });
+      const optRes = await request(app)
+        .get(`/api/orders/${order._id}`)
+        .set('Authorization', `Bearer ${optToken}`);
+
+      expect(optRes.status).toBe(403);
+    });
+  });
 });

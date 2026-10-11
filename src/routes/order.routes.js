@@ -6,14 +6,13 @@ const { validate } = require('../middleware/validate');
 const { ROLE_VALUES } = require('../constants/roles');
 const {
   ORDER_STATUS_UPDATE_ROLES,
+  ORDER_TRACKING_VIEW_ROLES,
   ORDER_STATUSES,
   isValidOrderStatus,
 } = require('../constants/orderStatuses');
-const {
-  getMyOrders,
-  getMyOrderById,
-  updateOrderStatus,
-} = require('../controllers/order.controller');
+const { getOrders, getOrderById, updateOrderStatus } = require('../controllers/order.controller');
+
+const ALL_ORDER_VIEW_ROLES = [ROLE_VALUES.CUSTOMER, ...ORDER_TRACKING_VIEW_ROLES];
 
 // ─── Request Validators ───────────────────────────────────────────────────────
 
@@ -81,12 +80,18 @@ const router = express.Router();
  * @openapi
  * /orders:
  *   get:
- *     summary: Retrieve the authenticated customer's order history
+ *     summary: Retrieve order history or fulfillment orders
  *     description: >
- *       CUSTOMER-only. Returns all Orders owned by the authenticated Customer,
- *       ordered newest-first. Customer identity is derived from the JWT — a
- *       client-supplied customerId is never accepted (AC1, AC17).
+ *       Accessible to CUSTOMER and authorized staff (INVENTORY_MANAGER,
+ *       BRANCH_MANAGER, MANAGEMENT, SYSTEM_ADMIN) per ADR-004 §12, §13.
+ *
+ *       For CUSTOMER: Returns only Orders owned by the authenticated Customer,
+ *       ordered newest-first. Customer identity is derived from the JWT (AC1, AC17).
  *       Returns an empty array when no Orders exist — not an error (AC2).
+ *
+ *       For authorized staff: Returns all Orders in reverse chronological order
+ *       for operational tracking, inspection, and fulfillment (AC6, ADR-004 §13).
+ *
  *       Responses do not expose password hashes, JWT secrets, stack traces, or
  *       unrelated PII (AC18).
  *     tags: [Orders]
@@ -94,7 +99,7 @@ const router = express.Router();
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Customer's order history (may be empty).
+ *         description: Accessible orders returned.
  *         content:
  *           application/json:
  *             schema:
@@ -115,30 +120,31 @@ const router = express.Router();
  *       500:
  *         $ref: '#/components/responses/InternalServerError'
  */
-router.get('/orders', authenticate, authorizeRoles(ROLE_VALUES.CUSTOMER), getMyOrders);
+router.get('/orders', authenticate, authorizeRoles(...ALL_ORDER_VIEW_ROLES), getOrders);
 
 /**
  * @openapi
  * /orders/{id}:
  *   get:
- *     summary: Retrieve a single Order owned by the authenticated customer
+ *     summary: Retrieve a single Order and its tracking details
  *     description: >
- *       CUSTOMER-only. Returns the specified Order and its OrderItems only if
- *       the Order is owned by the authenticated Customer.
+ *       Accessible to CUSTOMER and authorized staff (INVENTORY_MANAGER,
+ *       BRANCH_MANAGER, MANAGEMENT, SYSTEM_ADMIN) per ADR-004 §12, §13.
  *
- *       Ownership is enforced server-side by scoping the database query to
- *       both the Order ID and the authenticated customer's ID (AC4 — IDOR
- *       prevention). A customer cannot retrieve another customer's Order by
- *       manipulating the ID.
+ *       For CUSTOMER: Returns the specified Order and its OrderItems only if
+ *       the Order is owned by the authenticated Customer. Ownership is enforced
+ *       server-side to prevent IDOR (AC4).
+ *
+ *       For authorized staff: Returns tracking information, audit history, and
+ *       line items for the requested order to facilitate customer care and fulfillment.
  *
  *       A malformed Order ID returns a 422 Validation Error (AC5).
  *       A valid but inaccessible or non-existent Order returns a 404 response
  *       that does not leak whether the Order exists for a different customer (AC6).
  *
- *       The response includes the canonical ADR-004 Order status and embedded
- *       status history (AC7, AC8). OrderItems expose only approved
- *       customer-facing fields (AC9). Sensitive internal fields are not
- *       exposed (AC18).
+ *       The response includes canonical ADR-004 Order status and embedded
+ *       status history (AC7, AC8). OrderItems expose only approved fields (AC9).
+ *       Sensitive internal fields are not exposed (AC18).
  *     tags: [Orders]
  *     security:
  *       - bearerAuth: []
@@ -179,9 +185,9 @@ router.get('/orders', authenticate, authorizeRoles(ROLE_VALUES.CUSTOMER), getMyO
 router.get(
   '/orders/:id',
   authenticate,
-  authorizeRoles(ROLE_VALUES.CUSTOMER),
+  authorizeRoles(...ALL_ORDER_VIEW_ROLES),
   validate(validateOrderId),
-  getMyOrderById
+  getOrderById
 );
 
 /**
