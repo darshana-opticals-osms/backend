@@ -1,7 +1,9 @@
 const mongoose = require('mongoose');
 const Branch = require('../models/branch.model');
 const Inventory = require('../models/inventory.model');
-const { NotFoundError, ValidationError } = require('../errors/AppError');
+const { NotFoundError, ValidationError, ConflictError } = require('../errors/AppError');
+
+const reorderAlertService = require('./reorderAlert.service');
 
 const INVALID_BRANCH_REFERENCE = 'INVALID_BRANCH_REFERENCE';
 const INVALID_INVENTORY_REFERENCE = 'INVALID_INVENTORY_REFERENCE';
@@ -43,7 +45,10 @@ async function createInventory(inventoryInput = {}) {
 
   await validateBranch(branchId);
 
-  return Inventory.create(inventoryInput);
+  const createdInventory = await Inventory.create(inventoryInput);
+  await reorderAlertService.evaluateReorderAlert(createdInventory);
+
+  return createdInventory;
 }
 
 async function getBranchInventory(branchId) {
@@ -116,7 +121,48 @@ async function updateInventoryQuantity(inventoryId, quantity) {
     throw new NotFoundError('Inventory item not found.');
   }
 
+  await reorderAlertService.evaluateReorderAlert(updatedInventory);
+
   return updatedInventory;
+}
+
+/**
+ * Authoritative stock deduction helper used by checkout and orders.
+ * Safely decrements stock preventing negative quantities and triggers reorder evaluation.
+ * @param {Array<{ inventoryId: string|mongoose.Types.ObjectId, quantity: number }>} items
+ * @param {import('mongoose').ClientSession|null} [session=null]
+ * @returns {Promise<Array<object>>} Updated inventory records
+ */
+async function deductInventoryStock(items, session = null) {
+  const updatedRecords = [];
+
+  for (const item of items) {
+    const { inventoryId, quantity } = item;
+    validateInventoryId(inventoryId);
+
+    if (typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity <= 0) {
+      throw new ValidationError('Deduction quantity must be a positive number.');
+    }
+
+    const updated = await Inventory.findOneAndUpdate(
+      { _id: inventoryId, quantity: { $gte: quantity } },
+      { $inc: { quantity: -quantity } },
+      { new: true, session }
+    );
+
+    if (!updated) {
+      const exists = await Inventory.findById(inventoryId).session(session);
+      if (!exists) {
+        throw new NotFoundError('Inventory item not found.');
+      }
+      throw new ConflictError('Insufficient Inventory stock.');
+    }
+
+    await reorderAlertService.evaluateReorderAlert(updated, null, session);
+    updatedRecords.push(updated);
+  }
+
+  return updatedRecords;
 }
 
 module.exports = {
@@ -127,4 +173,6 @@ module.exports = {
   getBranchInventory,
   updateInventory,
   updateInventoryQuantity,
+  deductInventoryStock,
 };
+
