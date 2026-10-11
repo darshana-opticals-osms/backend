@@ -521,6 +521,57 @@ const options = {
             },
           },
         },
+        CheckoutResult: {
+          type: 'object',
+          required: ['order', 'items'],
+          properties: {
+            order: {
+              type: 'object',
+              required: [
+                'id',
+                'customerId',
+                'orderDate',
+                'orderAmount',
+                'status',
+                'statusUpdatedAt',
+                'statusHistory',
+              ],
+              properties: {
+                id: { type: 'string', example: '507f1f77bcf86cd799439021' },
+                customerId: { type: 'string', example: '507f1f77bcf86cd799439011' },
+                orderDate: { type: 'string', format: 'date-time' },
+                orderAmount: { type: 'number', minimum: 0, example: 26500.5 },
+                status: { type: 'string', enum: ['ORDER_CREATED'], example: 'ORDER_CREATED' },
+                statusUpdatedAt: { type: 'string', format: 'date-time' },
+                statusHistory: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    required: ['status', 'changedAt', 'changedBy'],
+                    properties: {
+                      status: { type: 'string', enum: ['ORDER_CREATED'] },
+                      changedAt: { type: 'string', format: 'date-time' },
+                      changedBy: { type: 'string', example: '507f1f77bcf86cd799439011' },
+                    },
+                  },
+                },
+              },
+            },
+            items: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['id', 'itemName', 'price', 'quantity'],
+                properties: {
+                  id: { type: 'string', example: '507f1f77bcf86cd799439031' },
+                  itemName: { type: 'string', example: 'Optical Frame' },
+                  price: { type: 'number', minimum: 0, example: 12000 },
+                  quantity: { type: 'integer', minimum: 1, example: 2 },
+                },
+              },
+            },
+          },
+        },
         EyeDistance: {
           type: 'object',
           description: 'ADR-001 approved distance vision measurements for one eye.',

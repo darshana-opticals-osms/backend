@@ -16,6 +16,8 @@ const branchRoutes = require('./routes/branch.routes');
 const chatbotRoutes = require('./routes/chatbot.routes');
 const customerLookupRoutes = require('./routes/customerLookup.routes');
 const cartRoutes = require('./routes/cart.routes');
+const checkoutRoutes = require('./routes/checkout.routes');
+const captureCheckoutRequest = require('./middleware/captureCheckoutRequest');
 const notFound = require('./middleware/notFound');
 
 const errorHandler = require('./middleware/errorHandler');
@@ -34,6 +36,8 @@ function createApp() {
 
   // AC7: Reject oversized request bodies before application processing
   app.use(express.json({ limit: REQUEST_BODY_LIMIT }));
+
+  app.use('/api/checkout', captureCheckoutRequest);
 
   // AC8: Input Sanitization (trims whitespace, strips script tags, prevents Mongo injection)
   app.use(sanitizeInput);
@@ -59,6 +63,7 @@ function createApp() {
   app.use('/api', branchRoutes);
   app.use('/api', chatbotRoutes);
   app.use('/api', cartRoutes);
+  app.use('/api', checkoutRoutes);
 
   // Catch-all route handler for non-existent endpoints (404)
 

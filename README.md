@@ -80,8 +80,14 @@ Seed operations are strictly prohibited when `NODE_ENV=production`. Attempting t
 
 ### MongoDB setup
 
-- Ensure MongoDB is running locally or provide a MongoDB Atlas connection string.
-- Copy `.env.example` to `.env` and set `MONGODB_URI` for your environment.
+- Checkout uses MongoDB multi-document transactions. Development and deployed MongoDB
+  configurations must therefore support transactions through a replica set or sharded cluster.
+- For a local MongoDB server, configure the replica set name `osms-dev-rs`, start `mongod`
+  with `--replSet osms-dev-rs`, then initialize it once with
+  `mongosh --eval "rs.initiate({_id:'osms-dev-rs',members:[{_id:0,host:'127.0.0.1:27017'}]})"`.
+- Copy `.env.example` to `.env` and set `MONGODB_URI` to your replica-set URI. For production,
+  use the provider's replica-set/sharded-cluster connection URI and provide credentials only
+  through deployment secrets; do not commit credentials.
 - In test mode, the application starts an in-memory MongoDB instance automatically when `MONGODB_URI` is not set.
 
 ## Production-style start

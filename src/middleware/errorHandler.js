@@ -50,6 +50,10 @@ const sanitizeLogMessage = (message) => {
 
   return message
     .replace(/mongodb(?:\+srv)?:\/\/[^\s]+/gi, 'mongodb://[REDACTED]')
+    .replace(/\b[A-Za-z]:\\[^,;)}\r\n]*?\.[A-Za-z0-9]{1,12}(?=$|[\s,;)}])/g, '[PATH REDACTED]')
+    .replace(/(?<![:/])\/[^,;)}\r\n]*?\.[A-Za-z0-9]{1,12}(?=$|[\s,;)}])/g, '[PATH REDACTED]')
+    .replace(/\b[A-Za-z]:\\[^\s,;)}]+/g, '[PATH REDACTED]')
+    .replace(/(?<![:/])\/[^\s,;)}]+/g, '[PATH REDACTED]')
     .replace(
       /(password|passwd|pwd|secret|token|bearer|key|api_key|authorization|auth|passwordHash)=([^\s&,{}]+)/gi,
       '$1=[REDACTED]'

@@ -373,7 +373,7 @@ describe('Security Hardening Integration Tests (#18)', () => {
       const prodApp = express();
       prodApp.get('/test-sensitive-crash', () => {
         throw new Error(
-          'Database crash: mongodb://admin:s3cr3t@localhost:27017/db password=supersecretpassword token=abc123secret bearer eyJhbGciOiJIUzI1NiJ9'
+          'Database crash: mongodb://admin:s3cr3t@localhost:27017/db password=supersecretpassword token=abc123secret bearer eyJhbGciOiJIUzI1NiJ9 C:\\private\\db /var/lib/osms E:\\Darshana opticals\\backend\\config.json /var/lib/Darshana opticals/config.json'
         );
       });
       prodApp.use(errorHandler);
@@ -392,6 +392,9 @@ describe('Security Hardening Integration Tests (#18)', () => {
       expect(loggedOutput).not.toMatch(/supersecretpassword/i);
       expect(loggedOutput).not.toMatch(/abc123secret/i);
       expect(loggedOutput).not.toMatch(/s3cr3t/i);
+      expect(loggedOutput).not.toMatch(/C:\\private|\/var\/lib\/osms/i);
+      expect(loggedOutput).not.toMatch(/Darshana opticals\\backend\\config\.json/i);
+      expect(loggedOutput).not.toMatch(/Darshana opticals\/config\.json/i);
       expect(loggedOutput).not.toMatch(/at Layer\.handle/i); // no raw stack trace log
       expect(loggedOutput).toMatch(/password=\[REDACTED\]/i);
       expect(loggedOutput).toMatch(/token=\[REDACTED\]/i);
