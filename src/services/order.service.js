@@ -1,6 +1,15 @@
 const mongoose = require('mongoose');
 const Order = require('../models/order.model');
 const OrderItem = require('../models/orderItem.model');
+const Customer = require('../models/customer.model');
+const {
+  ORDER_STATUSES,
+  ORDER_STATUS_VALUES,
+  isValidOrderStatus,
+  isValidStatusTransition,
+  isTerminalStatus,
+} = require('../constants/orderStatuses');
+const { sendOrderCancellationNotification } = require('./notification.service');
 const { NotFoundError, ValidationError } = require('../errors/AppError');
 
 const ORDER_NOT_FOUND = 'ORDER_NOT_FOUND';
@@ -167,9 +176,122 @@ async function getCustomerOrderById(authenticatedCustomerId, orderId) {
   return shapeOrderDetail(order, items);
 }
 
+/**
+ * Updates an Order's canonical tracking status by authorized staff.
+ *
+ * Implements ADR-004 §9, §10, §11, §15, §16, §17:
+ * - Validates requested status against canonical values.
+ * - Prevents updates on terminal states (COMPLETED, CANCELLED).
+ * - Enforces allowed transition matrix (ALLOWED_STATUS_TRANSITIONS).
+ * - Appends audit entry into embedded statusHistory array with timestamp and staff identity.
+ * - Dispatches automated cancellation notification to customer when status changes to CANCELLED.
+ *
+ * @param {string} orderId         - Target Order ObjectId
+ * @param {string} requestedStatus - New canonical status requested
+ * @param {string} staffUserId     - Authenticated staff user ID from JWT context
+ * @returns {Promise<object>} Safe shaped order detail with items
+ */
+async function updateOrderStatus(orderId, requestedStatus, staffUserId) {
+  if (!mongoose.isValidObjectId(orderId)) {
+    throw new ValidationError(
+      'Order ID must be a valid identifier.',
+      [{ field: 'id', message: 'Order ID must be a valid MongoDB ObjectId.' }],
+      'INVALID_ORDER_ID'
+    );
+  }
+
+  if (!requestedStatus || typeof requestedStatus !== 'string') {
+    throw new ValidationError(
+      'Order status is required.',
+      [{ field: 'status', message: 'Order status must be provided as a non-empty string.' }],
+      'MISSING_STATUS'
+    );
+  }
+
+  const trimmedStatus = requestedStatus.trim();
+  if (!isValidOrderStatus(trimmedStatus)) {
+    throw new ValidationError(
+      `Invalid order status '${trimmedStatus}'.`,
+      [{ field: 'status', message: `Status must be one of: ${ORDER_STATUSES.join(', ')}.` }],
+      'INVALID_STATUS'
+    );
+  }
+
+  const order = await Order.findById(orderId);
+  if (!order) {
+    throw new NotFoundError('Order not found.', null, ORDER_NOT_FOUND);
+  }
+
+  // ADR-004 §9: Terminal states must not undergo any further transition
+  if (isTerminalStatus(order.status)) {
+    throw new ValidationError(
+      `Cannot update status of an order in terminal state '${order.status}'.`,
+      [
+        {
+          field: 'status',
+          message: `Order is already in terminal state '${order.status}' and cannot transition further.`,
+        },
+      ],
+      'TERMINAL_STATUS'
+    );
+  }
+
+  // ADR-004 §9: Verify requested transition is legal in transition matrix
+  if (!isValidStatusTransition(order.status, trimmedStatus)) {
+    throw new ValidationError(
+      `Transition from '${order.status}' to '${trimmedStatus}' is not allowed.`,
+      [
+        {
+          field: 'status',
+          message: `Invalid status transition from '${order.status}' to '${trimmedStatus}'.`,
+        },
+      ],
+      'INVALID_STATUS_TRANSITION'
+    );
+  }
+
+  const now = new Date();
+  order.status = trimmedStatus;
+  order.statusUpdatedAt = now;
+
+  // ADR-004 §15 & §16: Append to embedded status history
+  order.statusHistory.push({
+    status: trimmedStatus,
+    changedAt: now,
+    changedBy: staffUserId,
+  });
+
+  await order.save();
+
+  // ADR-004 §17: Automated cancellation notification to customer
+  if (trimmedStatus === ORDER_STATUS_VALUES.CANCELLED) {
+    try {
+      const customer = await Customer.findById(order.customerId).lean();
+      if (customer && customer.email) {
+        await sendOrderCancellationNotification({
+          customerEmail: customer.email,
+          customerName: customer.name,
+          orderId: order._id.toString(),
+          orderAmount: order.orderAmount,
+        });
+      }
+    } catch (notifyErr) {
+      // Non-blocking: status update transaction is not broken if notification fails
+      console.warn(
+        `[OrderService] Non-blocking notification dispatch failure for order ${order._id}:`,
+        notifyErr.message
+      );
+    }
+  }
+
+  const items = await OrderItem.find({ orderId: order._id }).lean();
+  return shapeOrderDetail(order, items);
+}
+
 module.exports = {
   getCustomerOrders,
   getCustomerOrderById,
+  updateOrderStatus,
   // Exported for unit testing of shaping logic
   shapeOrderSummary,
   shapeOrderDetail,

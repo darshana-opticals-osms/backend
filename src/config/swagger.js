@@ -600,14 +600,16 @@ const options = {
             },
             changedBy: {
               type: 'string',
-              description: 'MongoDB ObjectId of the user who triggered the transition (server-controlled).',
+              description:
+                'MongoDB ObjectId of the user who triggered the transition (server-controlled).',
               example: '507f1f77bcf86cd799439011',
             },
           },
         },
         OrderItem: {
           type: 'object',
-          description: 'A single line item belonging to an Order (AC9 — approved customer-facing fields only).',
+          description:
+            'A single line item belonging to an Order (AC9 — approved customer-facing fields only).',
           required: ['id', 'itemName', 'price', 'quantity'],
           properties: {
             id: {
@@ -723,7 +725,8 @@ const options = {
               properties: {
                 items: {
                   type: 'array',
-                  description: 'OrderItems belonging to this Order. Approved customer-facing fields only (AC9).',
+                  description:
+                    'OrderItems belonging to this Order. Approved customer-facing fields only (AC9).',
                   items: {
                     $ref: '#/components/schemas/OrderItem',
                   },
@@ -731,6 +734,26 @@ const options = {
               },
             },
           ],
+        },
+        UpdateOrderStatusRequest: {
+          type: 'object',
+          description: 'Request payload to update an Order tracking status (ADR-004).',
+          required: ['status'],
+          properties: {
+            status: {
+              type: 'string',
+              enum: [
+                'ORDER_CREATED',
+                'PROCESSING',
+                'READY_FOR_PICKUP',
+                'PICKED_UP',
+                'COMPLETED',
+                'CANCELLED',
+              ],
+              description: 'Requested canonical ADR-004 status value.',
+              example: 'PROCESSING',
+            },
+          },
         },
         EyeDistance: {
           type: 'object',

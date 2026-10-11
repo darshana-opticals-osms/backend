@@ -20,6 +20,7 @@ const mongoose = require('mongoose');
 const {
   getCustomerOrders,
   getCustomerOrderById,
+  updateOrderStatus,
   shapeOrderItem,
   shapeOrderSummary,
   shapeHistoryEntry,
@@ -32,13 +33,22 @@ const { ORDER_STATUS_VALUES } = require('../../src/constants/orderStatuses');
 jest.mock('../../src/models/order.model', () => ({
   find: jest.fn(),
   findOne: jest.fn(),
+  findById: jest.fn(),
 }));
 jest.mock('../../src/models/orderItem.model', () => ({
   find: jest.fn(),
 }));
+jest.mock('../../src/models/customer.model', () => ({
+  findById: jest.fn(),
+}));
+jest.mock('../../src/services/notification.service', () => ({
+  sendOrderCancellationNotification: jest.fn().mockResolvedValue({ delivered: true }),
+}));
 
 const Order = require('../../src/models/order.model');
 const OrderItem = require('../../src/models/orderItem.model');
+const Customer = require('../../src/models/customer.model');
+const { sendOrderCancellationNotification } = require('../../src/services/notification.service');
 
 // ─── Test Fixtures ─────────────────────────────────────────────────────────────
 
@@ -277,15 +287,15 @@ describe('getCustomerOrderById()', () => {
   });
 
   it('throws ValidationError for an invalid Order ID format (AC5)', async () => {
-    await expect(
-      getCustomerOrderById(CUSTOMER_ID_STR, 'not-valid')
-    ).rejects.toBeInstanceOf(ValidationError);
+    await expect(getCustomerOrderById(CUSTOMER_ID_STR, 'not-valid')).rejects.toBeInstanceOf(
+      ValidationError
+    );
   });
 
   it('does not call the database when the Order ID is invalid (AC5)', async () => {
-    await expect(
-      getCustomerOrderById(CUSTOMER_ID_STR, 'bad-id')
-    ).rejects.toBeInstanceOf(ValidationError);
+    await expect(getCustomerOrderById(CUSTOMER_ID_STR, 'bad-id')).rejects.toBeInstanceOf(
+      ValidationError
+    );
 
     expect(Order.findOne).not.toHaveBeenCalled();
   });
@@ -340,5 +350,258 @@ describe('getCustomerOrderById()', () => {
     expect(item).not.toHaveProperty('orderId');
     expect(item).not.toHaveProperty('__v');
     expect(item._id).toBeUndefined();
+  });
+});
+
+describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => {
+  const STAFF_ID = new mongoose.Types.ObjectId();
+  const STAFF_ID_STR = STAFF_ID.toString();
+
+  const makeMockOrderDoc = (status, overrides = {}) => {
+    const doc = {
+      _id: ORDER_ID,
+      customerId: CUSTOMER_ID,
+      orderDate: now,
+      orderAmount: 26500.5,
+      status,
+      statusUpdatedAt: now,
+      statusHistory: [
+        {
+          status: ORDER_STATUS_VALUES.ORDER_CREATED,
+          changedAt: now,
+          changedBy: CUSTOMER_ID,
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+      save: jest.fn().mockImplementation(function () {
+        return Promise.resolve(this);
+      }),
+      ...overrides,
+    };
+    return doc;
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  describe('Validation & Error Handling', () => {
+    it('throws ValidationError for invalid orderId ObjectId format', async () => {
+      await expect(
+        updateOrderStatus('invalid-id', ORDER_STATUS_VALUES.PROCESSING, STAFF_ID_STR)
+      ).rejects.toThrow(ValidationError);
+    });
+
+    it('throws ValidationError when status is missing or not a string', async () => {
+      await expect(updateOrderStatus(ORDER_ID_STR, null, STAFF_ID_STR)).rejects.toThrow(
+        ValidationError
+      );
+
+      await expect(updateOrderStatus(ORDER_ID_STR, 123, STAFF_ID_STR)).rejects.toThrow(
+        ValidationError
+      );
+    });
+
+    it('throws ValidationError when status is not a canonical ADR-004 value', async () => {
+      await expect(updateOrderStatus(ORDER_ID_STR, 'SHIPPED', STAFF_ID_STR)).rejects.toThrow(
+        ValidationError
+      );
+
+      await expect(updateOrderStatus(ORDER_ID_STR, 'DELIVERED', STAFF_ID_STR)).rejects.toThrow(
+        ValidationError
+      );
+    });
+
+    it('throws NotFoundError when order does not exist', async () => {
+      Order.findById.mockResolvedValue(null);
+
+      await expect(
+        updateOrderStatus(ORDER_ID_STR, ORDER_STATUS_VALUES.PROCESSING, STAFF_ID_STR)
+      ).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('Terminal State Locks (ADR-004 §9)', () => {
+    it('rejects status change when current status is COMPLETED', async () => {
+      const order = makeMockOrderDoc(ORDER_STATUS_VALUES.COMPLETED);
+      Order.findById.mockResolvedValue(order);
+
+      await expect(
+        updateOrderStatus(ORDER_ID_STR, ORDER_STATUS_VALUES.PROCESSING, STAFF_ID_STR)
+      ).rejects.toThrow(ValidationError);
+
+      expect(order.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects status change when current status is CANCELLED', async () => {
+      const order = makeMockOrderDoc(ORDER_STATUS_VALUES.CANCELLED);
+      Order.findById.mockResolvedValue(order);
+
+      await expect(
+        updateOrderStatus(ORDER_ID_STR, ORDER_STATUS_VALUES.PROCESSING, STAFF_ID_STR)
+      ).rejects.toThrow(ValidationError);
+
+      expect(order.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Invalid Lifecycle Transitions (ADR-004 §9, §10)', () => {
+    it('rejects skipping from ORDER_CREATED directly to COMPLETED', async () => {
+      const order = makeMockOrderDoc(ORDER_STATUS_VALUES.ORDER_CREATED);
+      Order.findById.mockResolvedValue(order);
+
+      await expect(
+        updateOrderStatus(ORDER_ID_STR, ORDER_STATUS_VALUES.COMPLETED, STAFF_ID_STR)
+      ).rejects.toThrow(ValidationError);
+
+      expect(order.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects skipping from PROCESSING directly to PICKED_UP', async () => {
+      const order = makeMockOrderDoc(ORDER_STATUS_VALUES.PROCESSING);
+      Order.findById.mockResolvedValue(order);
+
+      await expect(
+        updateOrderStatus(ORDER_ID_STR, ORDER_STATUS_VALUES.PICKED_UP, STAFF_ID_STR)
+      ).rejects.toThrow(ValidationError);
+
+      expect(order.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects cancellation once order is READY_FOR_PICKUP', async () => {
+      const order = makeMockOrderDoc(ORDER_STATUS_VALUES.READY_FOR_PICKUP);
+      Order.findById.mockResolvedValue(order);
+
+      await expect(
+        updateOrderStatus(ORDER_ID_STR, ORDER_STATUS_VALUES.CANCELLED, STAFF_ID_STR)
+      ).rejects.toThrow(ValidationError);
+
+      expect(order.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Valid Lifecycle Transitions (ADR-004 §9, §15, §16)', () => {
+    it('successfully transitions ORDER_CREATED -> PROCESSING and updates history', async () => {
+      const order = makeMockOrderDoc(ORDER_STATUS_VALUES.ORDER_CREATED);
+      Order.findById.mockResolvedValue(order);
+      OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) });
+
+      const result = await updateOrderStatus(
+        ORDER_ID_STR,
+        ORDER_STATUS_VALUES.PROCESSING,
+        STAFF_ID_STR
+      );
+
+      expect(order.status).toBe(ORDER_STATUS_VALUES.PROCESSING);
+      expect(order.statusHistory).toHaveLength(2);
+      expect(order.statusHistory[1].status).toBe(ORDER_STATUS_VALUES.PROCESSING);
+      expect(order.statusHistory[1].changedBy).toBe(STAFF_ID_STR);
+      expect(order.save).toHaveBeenCalledTimes(1);
+      expect(sendOrderCancellationNotification).not.toHaveBeenCalled();
+      expect(result.status).toBe(ORDER_STATUS_VALUES.PROCESSING);
+    });
+
+    it('successfully transitions PROCESSING -> READY_FOR_PICKUP', async () => {
+      const order = makeMockOrderDoc(ORDER_STATUS_VALUES.PROCESSING);
+      Order.findById.mockResolvedValue(order);
+      OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) });
+
+      const result = await updateOrderStatus(
+        ORDER_ID_STR,
+        ORDER_STATUS_VALUES.READY_FOR_PICKUP,
+        STAFF_ID_STR
+      );
+
+      expect(order.status).toBe(ORDER_STATUS_VALUES.READY_FOR_PICKUP);
+      expect(order.save).toHaveBeenCalledTimes(1);
+      expect(result.status).toBe(ORDER_STATUS_VALUES.READY_FOR_PICKUP);
+    });
+
+    it('successfully transitions READY_FOR_PICKUP -> PICKED_UP', async () => {
+      const order = makeMockOrderDoc(ORDER_STATUS_VALUES.READY_FOR_PICKUP);
+      Order.findById.mockResolvedValue(order);
+      OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) });
+
+      const result = await updateOrderStatus(
+        ORDER_ID_STR,
+        ORDER_STATUS_VALUES.PICKED_UP,
+        STAFF_ID_STR
+      );
+
+      expect(order.status).toBe(ORDER_STATUS_VALUES.PICKED_UP);
+      expect(result.status).toBe(ORDER_STATUS_VALUES.PICKED_UP);
+    });
+
+    it('successfully transitions PICKED_UP -> COMPLETED', async () => {
+      const order = makeMockOrderDoc(ORDER_STATUS_VALUES.PICKED_UP);
+      Order.findById.mockResolvedValue(order);
+      OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) });
+
+      const result = await updateOrderStatus(
+        ORDER_ID_STR,
+        ORDER_STATUS_VALUES.COMPLETED,
+        STAFF_ID_STR
+      );
+
+      expect(order.status).toBe(ORDER_STATUS_VALUES.COMPLETED);
+      expect(result.status).toBe(ORDER_STATUS_VALUES.COMPLETED);
+    });
+  });
+
+  describe('Cancellation Notification Integration (ADR-004 §17)', () => {
+    it('dispatches cancellation email when transition is CANCELLED', async () => {
+      const order = makeMockOrderDoc(ORDER_STATUS_VALUES.ORDER_CREATED);
+      Order.findById.mockResolvedValue(order);
+      Customer.findById.mockReturnValue({
+        lean: jest.fn().mockResolvedValue({
+          _id: CUSTOMER_ID,
+          name: 'Kamal Silva',
+          email: 'kamal@example.com',
+        }),
+      });
+      OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) });
+
+      const result = await updateOrderStatus(
+        ORDER_ID_STR,
+        ORDER_STATUS_VALUES.CANCELLED,
+        STAFF_ID_STR
+      );
+
+      expect(order.status).toBe(ORDER_STATUS_VALUES.CANCELLED);
+      expect(order.save).toHaveBeenCalledTimes(1);
+      expect(sendOrderCancellationNotification).toHaveBeenCalledTimes(1);
+      expect(sendOrderCancellationNotification).toHaveBeenCalledWith({
+        customerEmail: 'kamal@example.com',
+        customerName: 'Kamal Silva',
+        orderId: ORDER_ID_STR,
+        orderAmount: order.orderAmount,
+      });
+      expect(result.status).toBe(ORDER_STATUS_VALUES.CANCELLED);
+    });
+
+    it('does not fail status update if notification service throws', async () => {
+      const order = makeMockOrderDoc(ORDER_STATUS_VALUES.PROCESSING);
+      Order.findById.mockResolvedValue(order);
+      Customer.findById.mockReturnValue({
+        lean: jest.fn().mockResolvedValue({
+          _id: CUSTOMER_ID,
+          name: 'Kamal Silva',
+          email: 'kamal@example.com',
+        }),
+      });
+      sendOrderCancellationNotification.mockRejectedValueOnce(new Error('SMTP Network Offline'));
+      OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) });
+
+      const result = await updateOrderStatus(
+        ORDER_ID_STR,
+        ORDER_STATUS_VALUES.CANCELLED,
+        STAFF_ID_STR
+      );
+
+      expect(order.status).toBe(ORDER_STATUS_VALUES.CANCELLED);
+      expect(order.save).toHaveBeenCalledTimes(1);
+      expect(result.status).toBe(ORDER_STATUS_VALUES.CANCELLED);
+    });
   });
 });

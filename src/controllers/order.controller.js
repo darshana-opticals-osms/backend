@@ -1,5 +1,9 @@
 const catchAsync = require('../utils/catchAsync');
-const { getCustomerOrders, getCustomerOrderById } = require('../services/order.service');
+const {
+  getCustomerOrders,
+  getCustomerOrderById,
+  updateOrderStatus: updateOrderStatusService,
+} = require('../services/order.service');
 
 /**
  * GET /api/orders
@@ -34,7 +38,26 @@ const getMyOrderById = catchAsync(async (req, res) => {
   return res.status(200).json({ success: true, data: order });
 });
 
+/**
+ * PATCH /api/orders/:id/status
+ *
+ * Updates an Order's canonical tracking status by authorized staff.
+ * Caller identity is derived from the JWT (req.auth.userId).
+ * Staff role authorization is enforced at route level via middleware.
+ *
+ * ADR-004 §9, §10, §11, §15, §16, §17.
+ */
+const updateOrderStatus = catchAsync(async (req, res) => {
+  const updatedOrder = await updateOrderStatusService(
+    req.params.id,
+    req.body.status,
+    req.auth.userId
+  );
+  return res.status(200).json({ success: true, data: updatedOrder });
+});
+
 module.exports = {
   getMyOrders,
   getMyOrderById,
+  updateOrderStatus,
 };

@@ -4,7 +4,16 @@ const authenticate = require('../middleware/authenticate');
 const { authorizeRoles } = require('../middleware/authorizeRoles');
 const { validate } = require('../middleware/validate');
 const { ROLE_VALUES } = require('../constants/roles');
-const { getMyOrders, getMyOrderById } = require('../controllers/order.controller');
+const {
+  ORDER_STATUS_UPDATE_ROLES,
+  ORDER_STATUSES,
+  isValidOrderStatus,
+} = require('../constants/orderStatuses');
+const {
+  getMyOrders,
+  getMyOrderById,
+  updateOrderStatus,
+} = require('../controllers/order.controller');
 
 // ─── Request Validators ───────────────────────────────────────────────────────
 
@@ -24,6 +33,40 @@ const validateOrderId = (req) => {
     errors.push({
       field: 'id',
       message: 'Order ID must be a valid MongoDB ObjectId.',
+    });
+  }
+
+  return errors;
+};
+
+/**
+ * Validates path parameters and request body for order status update requests.
+ *
+ * ADR-004 §9, §10, §11.
+ *
+ * @param {import('express').Request} req
+ * @returns {Array<{field: string, message: string}>}
+ */
+const validateUpdateOrderStatus = (req) => {
+  const errors = [];
+
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    errors.push({
+      field: 'id',
+      message: 'Order ID must be a valid MongoDB ObjectId.',
+    });
+  }
+
+  const { status } = req.body || {};
+  if (!status || typeof status !== 'string' || status.trim() === '') {
+    errors.push({
+      field: 'status',
+      message: 'Status is required and must be a non-empty string.',
+    });
+  } else if (!isValidOrderStatus(status.trim())) {
+    errors.push({
+      field: 'status',
+      message: `Invalid order status '${status}'. Must be one of: ${ORDER_STATUSES.join(', ')}.`,
     });
   }
 
@@ -72,12 +115,7 @@ const router = express.Router();
  *       500:
  *         $ref: '#/components/responses/InternalServerError'
  */
-router.get(
-  '/orders',
-  authenticate,
-  authorizeRoles(ROLE_VALUES.CUSTOMER),
-  getMyOrders
-);
+router.get('/orders', authenticate, authorizeRoles(ROLE_VALUES.CUSTOMER), getMyOrders);
 
 /**
  * @openapi
@@ -144,6 +182,71 @@ router.get(
   authorizeRoles(ROLE_VALUES.CUSTOMER),
   validate(validateOrderId),
   getMyOrderById
+);
+
+/**
+ * @openapi
+ * /orders/{id}/status:
+ *   patch:
+ *     summary: Update an Order's canonical tracking status
+ *     description: >
+ *       Authorized staff only (INVENTORY_MANAGER, BRANCH_MANAGER, SYSTEM_ADMIN).
+ *       Validates canonical status value, ensures transition is permitted by
+ *       the authoritative ADR-004 lifecycle matrix, and rejects changes to
+ *       terminal states (COMPLETED, CANCELLED).
+ *
+ *       On successful transition, updates status, records timestamp, and appends
+ *       audit entry to embedded statusHistory. When transitioning to CANCELLED,
+ *       dispatches an automated notification to the customer with branch refund guidance.
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           pattern: '^[a-fA-F0-9]{24}$'
+ *         description: MongoDB ObjectId of the Order.
+ *         example: '507f1f77bcf86cd799439021'
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/UpdateOrderStatusRequest'
+ *     responses:
+ *       200:
+ *         description: Order status successfully updated.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [success, data]
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/OrderDetail'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
+ */
+router.patch(
+  '/orders/:id/status',
+  authenticate,
+  authorizeRoles(...ORDER_STATUS_UPDATE_ROLES),
+  validate(validateUpdateOrderStatus),
+  updateOrderStatus
 );
 
 module.exports = router;

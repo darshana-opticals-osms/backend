@@ -79,10 +79,7 @@ describe('ALLOWED_STATUS_TRANSITIONS', () => {
   it('allows PROCESSING → READY_FOR_PICKUP and PROCESSING → CANCELLED only', () => {
     const allowed = ALLOWED_STATUS_TRANSITIONS[ORDER_STATUS_VALUES.PROCESSING];
     expect(allowed).toEqual(
-      expect.arrayContaining([
-        ORDER_STATUS_VALUES.READY_FOR_PICKUP,
-        ORDER_STATUS_VALUES.CANCELLED,
-      ])
+      expect.arrayContaining([ORDER_STATUS_VALUES.READY_FOR_PICKUP, ORDER_STATUS_VALUES.CANCELLED])
     );
     expect(allowed).toHaveLength(2);
   });
@@ -227,10 +224,7 @@ describe('isValidStatusTransition()', () => {
 
   it('permits READY_FOR_PICKUP → PICKED_UP', () => {
     expect(
-      isValidStatusTransition(
-        ORDER_STATUS_VALUES.READY_FOR_PICKUP,
-        ORDER_STATUS_VALUES.PICKED_UP
-      )
+      isValidStatusTransition(ORDER_STATUS_VALUES.READY_FOR_PICKUP, ORDER_STATUS_VALUES.PICKED_UP)
     ).toBe(true);
   });
 
@@ -277,19 +271,13 @@ describe('isValidStatusTransition()', () => {
 
   it('rejects READY_FOR_PICKUP → CANCELLED (not an allowed transition)', () => {
     expect(
-      isValidStatusTransition(
-        ORDER_STATUS_VALUES.READY_FOR_PICKUP,
-        ORDER_STATUS_VALUES.CANCELLED
-      )
+      isValidStatusTransition(ORDER_STATUS_VALUES.READY_FOR_PICKUP, ORDER_STATUS_VALUES.CANCELLED)
     ).toBe(false);
   });
 
   it('rejects READY_FOR_PICKUP → COMPLETED (lifecycle skip)', () => {
     expect(
-      isValidStatusTransition(
-        ORDER_STATUS_VALUES.READY_FOR_PICKUP,
-        ORDER_STATUS_VALUES.COMPLETED
-      )
+      isValidStatusTransition(ORDER_STATUS_VALUES.READY_FOR_PICKUP, ORDER_STATUS_VALUES.COMPLETED)
     ).toBe(false);
   });
 
