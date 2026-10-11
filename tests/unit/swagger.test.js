@@ -20,6 +20,10 @@ describe('Swagger documentation integrity', () => {
     'GET /branches',
     'POST /v1/chatbot/query',
     'GET /customers/lookup',
+    'GET /cart',
+    'POST /cart/items',
+    'PATCH /cart/items/{inventoryId}',
+    'DELETE /cart/items/{inventoryId}',
   ];
 
   const normalize = (value) => value.toUpperCase();
@@ -69,6 +73,9 @@ describe('Swagger documentation integrity', () => {
       '/branches',
       '/v1/chatbot/query',
       '/customers/lookup',
+      '/cart',
+      '/cart/items',
+      '/cart/items/{inventoryId}',
     ];
 
     for (const path of publicPaths) {
@@ -100,6 +107,9 @@ describe('Swagger documentation integrity', () => {
       'RegisterRequest',
       'StaffProvisioningRequest',
       'ProvisionedStaff',
+      'CartAddItemRequest',
+      'CartQuantityRequest',
+      'CartResponse',
     ]) {
       expect(swaggerSpec.components.schemas[schemaName]).toBeDefined();
     }
@@ -127,6 +137,15 @@ describe('Swagger documentation integrity', () => {
     const lookupDoc = swaggerSpec.paths['/customers/lookup'].get;
     expect(lookupDoc.responses['422']).toBeDefined();
     expect(lookupDoc.responses['400']).toBeUndefined();
+  });
+
+  it('should document Cart query validation and concurrent add conflicts', () => {
+    expect(swaggerSpec.paths['/cart'].get.responses['422']).toEqual({
+      $ref: '#/components/responses/ValidationError',
+    });
+    expect(swaggerSpec.paths['/cart/items'].post.responses['409']).toEqual({
+      $ref: '#/components/responses/Conflict',
+    });
   });
 
   it('should document staff provisioning as SYSTEM_ADMIN-only with a safe response', () => {
