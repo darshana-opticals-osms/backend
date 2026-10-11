@@ -69,6 +69,16 @@ describe('NotificationService (ADR-004 §17)', () => {
       expect(content.html).toMatch(/refunds are not processed automatically/i);
     });
 
+    it('escapes customer name in HTML to prevent HTML injection (Comment 3)', () => {
+      const content = buildCancellationEmailContent({
+        customerName: '<script>alert("xss")</script>',
+        orderId: '60d5ec49f1b2c8b1f8e4e1a1',
+      });
+
+      expect(content.html).not.toContain('<script>');
+      expect(content.html).toContain('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;');
+    });
+
     it('falls back to default customer name when not supplied', () => {
       const content = buildCancellationEmailContent({
         orderId: '60d5ec49f1b2c8b1f8e4e1a1',
@@ -91,7 +101,8 @@ describe('NotificationService (ADR-004 §17)', () => {
       expect(result.reason).toBe('MISSING_EMAIL');
     });
 
-    it('simulates notification gracefully when SMTP is not configured', async () => {
+    it('simulates notification gracefully when SMTP is not configured in development (Comment 2)', async () => {
+      process.env.NODE_ENV = 'development';
       delete process.env.SMTP_HOST;
       delete process.env.SMTP_USER;
       delete process.env.SMTP_PASS;
@@ -103,8 +114,26 @@ describe('NotificationService (ADR-004 §17)', () => {
         orderAmount: 5000,
       });
 
-      expect(result.delivered).toBe(true);
+      expect(result.delivered).toBe(false);
       expect(result.simulated).toBe(true);
+      expect(result.reason).toBe('SMTP_UNCONFIGURED');
+    });
+
+    it('returns delivered: false and simulated: false in production when SMTP is unconfigured (Comment 2)', async () => {
+      process.env.NODE_ENV = 'production';
+      delete process.env.SMTP_HOST;
+      delete process.env.SMTP_USER;
+      delete process.env.SMTP_PASS;
+
+      const result = await sendOrderCancellationNotification({
+        customerEmail: 'customer@example.com',
+        customerName: 'Sunil',
+        orderId: '60d5ec49f1b2c8b1f8e4e1a1',
+      });
+
+      expect(result.delivered).toBe(false);
+      expect(result.simulated).toBe(false);
+      expect(result.reason).toBe('SMTP_UNCONFIGURED');
     });
 
     it('sends email using injected transporter when provided', async () => {

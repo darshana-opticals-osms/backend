@@ -577,7 +577,7 @@ const options = {
           description:
             'A single status-history entry embedded in an Order document. ' +
             'Represents one canonical lifecycle transition (ADR-004 §15, §16).',
-          required: ['status', 'changedAt', 'changedBy'],
+          required: ['status', 'changedAt'],
           properties: {
             status: {
               type: 'string',
@@ -601,7 +601,7 @@ const options = {
             changedBy: {
               type: 'string',
               description:
-                'MongoDB ObjectId of the user who triggered the transition (server-controlled).',
+                'MongoDB ObjectId of the staff member who triggered the transition (omitted in customer responses for ID protection).',
               example: '507f1f77bcf86cd799439011',
             },
           },

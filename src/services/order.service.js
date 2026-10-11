@@ -43,16 +43,27 @@ function shapeOrderItem(item) {
  *
  * AC8 – Return Tracking History According to ADR-004 (embedded history).
  * AC18 – Safe API Responses.
+ * Review Comment 3 – changedBy internal identifier is omitted for customer views
+ * to avoid leaking internal staff ObjectIds. Included only for authorized staff.
  *
  * @param {object} entry
+ * @param {object} [options]
+ * @param {boolean} [options.isStaff=false] - Whether the caller has authorized staff role
  * @returns {object}
  */
-function shapeHistoryEntry(entry) {
-  return {
+function shapeHistoryEntry(entry, options = {}) {
+  const isStaff = options.isStaff || false;
+  const shaped = {
     status: entry.status,
     changedAt: entry.changedAt,
-    changedBy: entry.changedBy.toString(),
   };
+
+  // Only expose internal staff identifier to authorized staff callers; omit for customer views
+  if (isStaff && entry.changedBy) {
+    shaped.changedBy = entry.changedBy.toString();
+  }
+
+  return shaped;
 }
 
 /**
@@ -64,9 +75,11 @@ function shapeHistoryEntry(entry) {
  * AC1, AC7, AC8, AC18.
  *
  * @param {object} order - Mongoose Order document or plain object
+ * @param {object} [options]
+ * @param {boolean} [options.isStaff=false]
  * @returns {object}
  */
-function shapeOrderSummary(order) {
+function shapeOrderSummary(order, options = {}) {
   return {
     id: order._id.toString(),
     customerId: order.customerId.toString(),
@@ -74,7 +87,7 @@ function shapeOrderSummary(order) {
     orderAmount: order.orderAmount,
     status: order.status,
     statusUpdatedAt: order.statusUpdatedAt,
-    statusHistory: (order.statusHistory || []).map(shapeHistoryEntry),
+    statusHistory: (order.statusHistory || []).map((entry) => shapeHistoryEntry(entry, options)),
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
   };
@@ -82,17 +95,19 @@ function shapeOrderSummary(order) {
 
 /**
  * Shapes a single Order document together with its OrderItems into the safe
- * customer-facing single-order response.
+ * single-order response.
  *
  * AC3, AC7, AC8, AC9, AC18.
  *
  * @param {object} order      - Mongoose Order document or plain object
  * @param {object[]} items    - Array of OrderItem documents
+ * @param {object} [options]
+ * @param {boolean} [options.isStaff=false]
  * @returns {object}
  */
-function shapeOrderDetail(order, items) {
+function shapeOrderDetail(order, items, options = {}) {
   return {
-    ...shapeOrderSummary(order),
+    ...shapeOrderSummary(order, options),
     items: items.map(shapeOrderItem),
   };
 }
@@ -119,12 +134,12 @@ async function getOrders({ userId, role }) {
       throw new ValidationError('Authenticated customer identity is invalid.');
     }
     const orders = await Order.find({ customerId: userId }).sort({ createdAt: -1 }).lean();
-    return orders.map(shapeOrderSummary);
+    return orders.map((order) => shapeOrderSummary(order, { isStaff: false }));
   }
 
   if (ORDER_TRACKING_VIEW_ROLES.includes(role)) {
     const orders = await Order.find({}).sort({ createdAt: -1 }).lean();
-    return orders.map(shapeOrderSummary);
+    return orders.map((order) => shapeOrderSummary(order, { isStaff: true }));
   }
 
   throw new ValidationError('Role not authorized for order tracking retrieval.');
@@ -165,6 +180,7 @@ async function getOrderById({ orderId, userId, role }) {
     );
   }
 
+  const isStaff = ORDER_TRACKING_VIEW_ROLES.includes(role);
   let order;
   if (role === ROLE_VALUES.CUSTOMER) {
     if (!mongoose.isValidObjectId(userId)) {
@@ -174,7 +190,7 @@ async function getOrderById({ orderId, userId, role }) {
       _id: orderId,
       customerId: userId,
     }).lean();
-  } else if (ORDER_TRACKING_VIEW_ROLES.includes(role)) {
+  } else if (isStaff) {
     order = await Order.findById(orderId).lean();
   } else {
     throw new ValidationError('Role not authorized for order tracking retrieval.');
@@ -187,7 +203,7 @@ async function getOrderById({ orderId, userId, role }) {
   // Retrieve associated OrderItems for this Order.
   const items = await OrderItem.find({ orderId: order._id }).lean();
 
-  return shapeOrderDetail(order, items);
+  return shapeOrderDetail(order, items, { isStaff });
 }
 
 /**
@@ -213,8 +229,9 @@ async function getCustomerOrderById(authenticatedCustomerId, orderId) {
  * - Validates requested status against canonical values.
  * - Prevents updates on terminal states (COMPLETED, CANCELLED).
  * - Enforces allowed transition matrix (ALLOWED_STATUS_TRANSITIONS).
+ * - Atomic conditional update: prevents race conditions and stale writes during concurrent updates (Comment 1).
  * - Appends audit entry into embedded statusHistory array with timestamp and staff identity.
- * - Dispatches automated cancellation notification to customer when status changes to CANCELLED.
+ * - Dispatches automated cancellation notification to customer when status changes to CANCELLED (Comment 2 & 3).
  *
  * @param {string} orderId         - Target Order ObjectId
  * @param {string} requestedStatus - New canonical status requested
@@ -280,42 +297,70 @@ async function updateOrderStatus(orderId, requestedStatus, staffUserId) {
     );
   }
 
+  const previousStatus = order.status;
   const now = new Date();
-  order.status = trimmedStatus;
-  order.statusUpdatedAt = now;
 
-  // ADR-004 §15 & §16: Append to embedded status history
-  order.statusHistory.push({
-    status: trimmedStatus,
-    changedAt: now,
-    changedBy: staffUserId,
-  });
+  // Atomic conditional update to protect against concurrent updates (Comment 1)
+  const updatedOrder = await Order.findOneAndUpdate(
+    {
+      _id: orderId,
+      status: previousStatus,
+    },
+    {
+      $set: {
+        status: trimmedStatus,
+        statusUpdatedAt: now,
+      },
+      $push: {
+        statusHistory: {
+          status: trimmedStatus,
+          changedAt: now,
+          changedBy: staffUserId,
+        },
+      },
+    },
+    {
+      new: true,
+      runValidators: true,
+    }
+  );
 
-  await order.save();
+  if (!updatedOrder) {
+    throw new ValidationError(
+      'Order status was updated concurrently by another request. Please refresh and try again.',
+      [
+        {
+          field: 'status',
+          message: 'Concurrent update conflict detected. Current order status has changed.',
+        },
+      ],
+      'CONCURRENT_STATUS_UPDATE'
+    );
+  }
 
   // ADR-004 §17: Automated cancellation notification to customer
   if (trimmedStatus === ORDER_STATUS_VALUES.CANCELLED) {
     try {
-      const customer = await Customer.findById(order.customerId).lean();
+      const customer = await Customer.findById(updatedOrder.customerId).lean();
       if (customer && customer.email) {
         await sendOrderCancellationNotification({
           customerEmail: customer.email,
           customerName: customer.name,
-          orderId: order._id.toString(),
-          orderAmount: order.orderAmount,
+          orderId: updatedOrder._id.toString(),
+          orderAmount: updatedOrder.orderAmount,
         });
       }
     } catch (notifyErr) {
       // Non-blocking: status update transaction is not broken if notification fails
       console.warn(
-        `[OrderService] Non-blocking notification dispatch failure for order ${order._id}:`,
+        `[OrderService] Non-blocking notification dispatch failure for order ${updatedOrder._id}:`,
         notifyErr.message
       );
     }
   }
 
-  const items = await OrderItem.find({ orderId: order._id }).lean();
-  return shapeOrderDetail(order, items);
+  const items = await OrderItem.find({ orderId: updatedOrder._id }).lean();
+  return shapeOrderDetail(updatedOrder, items, { isStaff: true });
 }
 
 module.exports = {

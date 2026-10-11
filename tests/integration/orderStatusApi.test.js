@@ -386,5 +386,111 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
 
       expect(optRes.status).toBe(403);
     });
+
+    it('omits changedBy from statusHistory for customer view, but includes it for staff (Comment 3 Security)', async () => {
+      const customer = await createCustomer('changedbytest@example.com');
+      const staffId = new mongoose.Types.ObjectId();
+      const order = await Order.create({
+        customerId: customer._id,
+        orderDate: new Date(),
+        orderAmount: 12000,
+        status: ORDER_STATUS_VALUES.PROCESSING,
+        statusUpdatedAt: new Date(),
+        statusHistory: [
+          {
+            status: ORDER_STATUS_VALUES.ORDER_CREATED,
+            changedAt: new Date(),
+            changedBy: customer._id,
+          },
+          {
+            status: ORDER_STATUS_VALUES.PROCESSING,
+            changedAt: new Date(),
+            changedBy: staffId,
+          },
+        ],
+      });
+
+      // Customer view -> changedBy must be undefined in history entries
+      const customerToken = createToken({
+        userId: customer._id.toString(),
+        role: ROLE_VALUES.CUSTOMER,
+      });
+      const custRes = await request(app)
+        .get(`/api/orders/${order._id}`)
+        .set('Authorization', `Bearer ${customerToken}`);
+
+      expect(custRes.status).toBe(200);
+      expect(custRes.body.data.statusHistory[0].changedBy).toBeUndefined();
+      expect(custRes.body.data.statusHistory[1].changedBy).toBeUndefined();
+
+      // Staff view -> changedBy must be included
+      const staffToken = createToken({
+        userId: staffId.toString(),
+        role: ROLE_VALUES.INVENTORY_MANAGER,
+      });
+      const staffRes = await request(app)
+        .get(`/api/orders/${order._id}`)
+        .set('Authorization', `Bearer ${staffToken}`);
+
+      expect(staffRes.status).toBe(200);
+      expect(staffRes.body.data.statusHistory[1].changedBy).toBe(staffId.toString());
+    });
+  });
+
+  describe('Concurrent Status Update Protection (Comment 1)', () => {
+    it('handles concurrent status updates atomically and rejects conflicting requests with 422', async () => {
+      const customer = await createCustomer('concurrent@example.com');
+      const order = await Order.create({
+        customerId: customer._id,
+        orderDate: new Date(),
+        orderAmount: 18000,
+        status: ORDER_STATUS_VALUES.ORDER_CREATED,
+        statusUpdatedAt: new Date(),
+        statusHistory: [
+          {
+            status: ORDER_STATUS_VALUES.ORDER_CREATED,
+            changedAt: new Date(),
+            changedBy: customer._id,
+          },
+        ],
+      });
+
+      const staffToken1 = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.INVENTORY_MANAGER,
+      });
+      const staffToken2 = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+      });
+
+      // Dispatch two concurrent status update requests from ORDER_CREATED
+      const [res1, res2] = await Promise.all([
+        request(app)
+          .patch(`/api/orders/${order._id}/status`)
+          .set('Authorization', `Bearer ${staffToken1}`)
+          .send({ status: ORDER_STATUS_VALUES.PROCESSING }),
+        request(app)
+          .patch(`/api/orders/${order._id}/status`)
+          .set('Authorization', `Bearer ${staffToken2}`)
+          .send({ status: ORDER_STATUS_VALUES.CANCELLED }),
+      ]);
+
+      const statuses = [res1.status, res2.status];
+      // One request MUST succeed (200), and the conflicting concurrent request MUST be rejected (422)
+      expect(statuses).toContain(200);
+      expect(statuses).toContain(422);
+
+      const rejectedRes = res1.status === 422 ? res1 : res2;
+      expect(rejectedRes.body.success).toBe(false);
+      expect(rejectedRes.body.error.message).toMatch(/(concurrent|transition)/i);
+
+      // Verify the final order state in the database has exactly one transition recorded
+      const finalOrder = await Order.findById(order._id);
+      expect([ORDER_STATUS_VALUES.PROCESSING, ORDER_STATUS_VALUES.CANCELLED]).toContain(
+        finalOrder.status
+      );
+      expect(finalOrder.statusHistory).toHaveLength(2);
+    });
   });
 });

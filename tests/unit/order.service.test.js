@@ -37,6 +37,7 @@ jest.mock('../../src/models/order.model', () => ({
   find: jest.fn(),
   findOne: jest.fn(),
   findById: jest.fn(),
+  findOneAndUpdate: jest.fn(),
 }));
 jest.mock('../../src/models/orderItem.model', () => ({
   find: jest.fn(),
@@ -101,13 +102,27 @@ const makeQuery = (result) => ({
 // ─── shapeHistoryEntry ────────────────────────────────────────────────────────
 
 describe('shapeHistoryEntry()', () => {
-  it('shapes a history entry with string changedBy', () => {
+  it('omits changedBy by default for customer view (Comment 3 Security)', () => {
     const entry = {
       status: ORDER_STATUS_VALUES.ORDER_CREATED,
       changedAt: now,
       changedBy: CUSTOMER_ID,
     };
     const result = shapeHistoryEntry(entry);
+    expect(result).toEqual({
+      status: ORDER_STATUS_VALUES.ORDER_CREATED,
+      changedAt: now,
+    });
+    expect(result.changedBy).toBeUndefined();
+  });
+
+  it('includes string changedBy when isStaff is true', () => {
+    const entry = {
+      status: ORDER_STATUS_VALUES.ORDER_CREATED,
+      changedAt: now,
+      changedBy: CUSTOMER_ID,
+    };
+    const result = shapeHistoryEntry(entry, { isStaff: true });
     expect(result).toEqual({
       status: ORDER_STATUS_VALUES.ORDER_CREATED,
       changedAt: now,
@@ -155,9 +170,20 @@ describe('shapeOrderSummary()', () => {
     expect(shaped).toHaveProperty('updatedAt', laterNow);
   });
 
-  it('statusHistory entries are shaped correctly (AC8)', () => {
+  it('statusHistory entries are shaped without changedBy for customer view (AC8, Comment 3 Security)', () => {
     const order = makeOrder();
     const shaped = shapeOrderSummary(order);
+    expect(shaped.statusHistory).toHaveLength(1);
+    expect(shaped.statusHistory[0]).toEqual({
+      status: ORDER_STATUS_VALUES.ORDER_CREATED,
+      changedAt: now,
+    });
+    expect(shaped.statusHistory[0].changedBy).toBeUndefined();
+  });
+
+  it('statusHistory entries include changedBy when isStaff is true', () => {
+    const order = makeOrder();
+    const shaped = shapeOrderSummary(order, { isStaff: true });
     expect(shaped.statusHistory).toHaveLength(1);
     expect(shaped.statusHistory[0]).toEqual({
       status: ORDER_STATUS_VALUES.ORDER_CREATED,
@@ -387,6 +413,23 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
 
   beforeEach(() => {
     jest.clearAllMocks();
+    Order.findOneAndUpdate.mockImplementation(async (filter, update) => {
+      const existing = await Order.findById(filter._id);
+      if (!existing || existing.status !== filter.status) {
+        return null;
+      }
+      return {
+        _id: filter._id,
+        customerId: existing.customerId || CUSTOMER_ID,
+        orderDate: existing.orderDate || now,
+        orderAmount: existing.orderAmount || 26500.5,
+        status: update.$set.status,
+        statusUpdatedAt: update.$set.statusUpdatedAt,
+        statusHistory: [...(existing.statusHistory || []), update.$push.statusHistory],
+        createdAt: existing.createdAt || now,
+        updatedAt: now,
+      };
+    });
   });
 
   describe('Validation & Error Handling', () => {
@@ -434,7 +477,7 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
         updateOrderStatus(ORDER_ID_STR, ORDER_STATUS_VALUES.PROCESSING, STAFF_ID_STR)
       ).rejects.toThrow(ValidationError);
 
-      expect(order.save).not.toHaveBeenCalled();
+      expect(Order.findOneAndUpdate).not.toHaveBeenCalled();
     });
 
     it('rejects status change when current status is CANCELLED', async () => {
@@ -445,7 +488,7 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
         updateOrderStatus(ORDER_ID_STR, ORDER_STATUS_VALUES.PROCESSING, STAFF_ID_STR)
       ).rejects.toThrow(ValidationError);
 
-      expect(order.save).not.toHaveBeenCalled();
+      expect(Order.findOneAndUpdate).not.toHaveBeenCalled();
     });
   });
 
@@ -458,7 +501,7 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
         updateOrderStatus(ORDER_ID_STR, ORDER_STATUS_VALUES.COMPLETED, STAFF_ID_STR)
       ).rejects.toThrow(ValidationError);
 
-      expect(order.save).not.toHaveBeenCalled();
+      expect(Order.findOneAndUpdate).not.toHaveBeenCalled();
     });
 
     it('rejects skipping from PROCESSING directly to PICKED_UP', async () => {
@@ -469,7 +512,7 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
         updateOrderStatus(ORDER_ID_STR, ORDER_STATUS_VALUES.PICKED_UP, STAFF_ID_STR)
       ).rejects.toThrow(ValidationError);
 
-      expect(order.save).not.toHaveBeenCalled();
+      expect(Order.findOneAndUpdate).not.toHaveBeenCalled();
     });
 
     it('rejects cancellation once order is READY_FOR_PICKUP', async () => {
@@ -480,7 +523,7 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
         updateOrderStatus(ORDER_ID_STR, ORDER_STATUS_VALUES.CANCELLED, STAFF_ID_STR)
       ).rejects.toThrow(ValidationError);
 
-      expect(order.save).not.toHaveBeenCalled();
+      expect(Order.findOneAndUpdate).not.toHaveBeenCalled();
     });
   });
 
@@ -496,13 +539,31 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
         STAFF_ID_STR
       );
 
-      expect(order.status).toBe(ORDER_STATUS_VALUES.PROCESSING);
-      expect(order.statusHistory).toHaveLength(2);
-      expect(order.statusHistory[1].status).toBe(ORDER_STATUS_VALUES.PROCESSING);
-      expect(order.statusHistory[1].changedBy).toBe(STAFF_ID_STR);
-      expect(order.save).toHaveBeenCalledTimes(1);
+      expect(Order.findOneAndUpdate).toHaveBeenCalledTimes(1);
+      expect(Order.findOneAndUpdate).toHaveBeenCalledWith(
+        {
+          _id: ORDER_ID_STR,
+          status: ORDER_STATUS_VALUES.ORDER_CREATED,
+        },
+        expect.objectContaining({
+          $set: {
+            status: ORDER_STATUS_VALUES.PROCESSING,
+            statusUpdatedAt: expect.any(Date),
+          },
+          $push: {
+            statusHistory: expect.objectContaining({
+              status: ORDER_STATUS_VALUES.PROCESSING,
+              changedBy: STAFF_ID_STR,
+            }),
+          },
+        }),
+        { new: true, runValidators: true }
+      );
       expect(sendOrderCancellationNotification).not.toHaveBeenCalled();
       expect(result.status).toBe(ORDER_STATUS_VALUES.PROCESSING);
+      expect(result.statusHistory).toHaveLength(2);
+      expect(result.statusHistory[1].status).toBe(ORDER_STATUS_VALUES.PROCESSING);
+      expect(result.statusHistory[1].changedBy).toBe(STAFF_ID_STR);
     });
 
     it('successfully transitions PROCESSING -> READY_FOR_PICKUP', async () => {
@@ -516,8 +577,7 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
         STAFF_ID_STR
       );
 
-      expect(order.status).toBe(ORDER_STATUS_VALUES.READY_FOR_PICKUP);
-      expect(order.save).toHaveBeenCalledTimes(1);
+      expect(Order.findOneAndUpdate).toHaveBeenCalledTimes(1);
       expect(result.status).toBe(ORDER_STATUS_VALUES.READY_FOR_PICKUP);
     });
 
@@ -532,7 +592,7 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
         STAFF_ID_STR
       );
 
-      expect(order.status).toBe(ORDER_STATUS_VALUES.PICKED_UP);
+      expect(Order.findOneAndUpdate).toHaveBeenCalledTimes(1);
       expect(result.status).toBe(ORDER_STATUS_VALUES.PICKED_UP);
     });
 
@@ -547,8 +607,34 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
         STAFF_ID_STR
       );
 
-      expect(order.status).toBe(ORDER_STATUS_VALUES.COMPLETED);
+      expect(Order.findOneAndUpdate).toHaveBeenCalledTimes(1);
       expect(result.status).toBe(ORDER_STATUS_VALUES.COMPLETED);
+    });
+  });
+
+  describe('Concurrent Update Protection (Comment 1)', () => {
+    it('throws ValidationError with CONCURRENT_STATUS_UPDATE when atomic conditional update returns null', async () => {
+      const order = makeMockOrderDoc(ORDER_STATUS_VALUES.ORDER_CREATED);
+      Order.findById.mockResolvedValue(order);
+      Order.findOneAndUpdate.mockResolvedValue(null);
+
+      try {
+        await updateOrderStatus(ORDER_ID_STR, ORDER_STATUS_VALUES.PROCESSING, STAFF_ID_STR);
+        throw new Error('Expected updateOrderStatus to throw');
+      } catch (err) {
+        expect(err).toBeInstanceOf(ValidationError);
+        expect(err.errorCode).toBe('CONCURRENT_STATUS_UPDATE');
+        expect(err.statusCode).toBe(422);
+      }
+
+      expect(Order.findOneAndUpdate).toHaveBeenCalledWith(
+        {
+          _id: ORDER_ID_STR,
+          status: ORDER_STATUS_VALUES.ORDER_CREATED,
+        },
+        expect.any(Object),
+        { new: true, runValidators: true }
+      );
     });
   });
 
@@ -571,8 +657,7 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
         STAFF_ID_STR
       );
 
-      expect(order.status).toBe(ORDER_STATUS_VALUES.CANCELLED);
-      expect(order.save).toHaveBeenCalledTimes(1);
+      expect(Order.findOneAndUpdate).toHaveBeenCalledTimes(1);
       expect(sendOrderCancellationNotification).toHaveBeenCalledTimes(1);
       expect(sendOrderCancellationNotification).toHaveBeenCalledWith({
         customerEmail: 'kamal@example.com',
@@ -602,8 +687,7 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
         STAFF_ID_STR
       );
 
-      expect(order.status).toBe(ORDER_STATUS_VALUES.CANCELLED);
-      expect(order.save).toHaveBeenCalledTimes(1);
+      expect(Order.findOneAndUpdate).toHaveBeenCalledTimes(1);
       expect(result.status).toBe(ORDER_STATUS_VALUES.CANCELLED);
     });
   });
