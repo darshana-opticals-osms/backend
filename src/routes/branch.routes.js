@@ -44,9 +44,7 @@ router.get(
   authenticate,
   authorizeRoles(
     ROLE_VALUES.SYSTEM_ADMIN,
-    ROLE_VALUES.INVENTORY_MANAGER,
-    ROLE_VALUES.BRANCH_MANAGER,
-    ROLE_VALUES.MANAGEMENT
+    ROLE_VALUES.BRANCH_MANAGER
   ),
   getBranches
 );

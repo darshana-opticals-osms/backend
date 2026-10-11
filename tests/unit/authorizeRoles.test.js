@@ -5,9 +5,9 @@ const { ForbiddenError, UnauthorizedError } = require('../../src/errors/AppError
 describe('authorizeRoles middleware', () => {
   it('should call next() when the authenticated role is explicitly allowed', () => {
     // Arrange
-    const req = { auth: { role: ROLE_VALUES.INVENTORY_MANAGER } };
+    const req = { auth: { role: ROLE_VALUES.BRANCH_MANAGER } };
     const next = jest.fn();
-    const middleware = authorizeRoles(ROLE_VALUES.INVENTORY_MANAGER);
+    const middleware = authorizeRoles(ROLE_VALUES.BRANCH_MANAGER);
 
     // Act
     middleware(req, {}, next);
@@ -19,9 +19,9 @@ describe('authorizeRoles middleware', () => {
 
   it('should call next() when the authenticated role is one of multiple explicitly allowed roles', () => {
     // Arrange
-    const req = { auth: { role: ROLE_VALUES.MANAGEMENT } };
+    const req = { auth: { role: ROLE_VALUES.OPTOMETRIST } };
     const next = jest.fn();
-    const middleware = authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.MANAGEMENT);
+    const middleware = authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.OPTOMETRIST);
 
     // Act
     middleware(req, {}, next);

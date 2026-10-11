@@ -108,11 +108,10 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
     expect(admins[0].passwordHash).toMatch(/^\$2[ab]\$12\$/);
 
     const staffMembers = await Staff.find().select('+passwordHash');
-    expect(staffMembers.length).toBeGreaterThanOrEqual(4);
+    expect(staffMembers.length).toBeGreaterThanOrEqual(3);
 
     const staffRoles = staffMembers.map((s) => s.role);
     expect(staffRoles).toContain(ROLE_VALUES.BRANCH_MANAGER);
-    expect(staffRoles).toContain(ROLE_VALUES.INVENTORY_MANAGER);
     expect(staffRoles).toContain(ROLE_VALUES.OPTOMETRIST);
     expect(staffRoles).toContain(ROLE_VALUES.SALES_ASSISTANT_CASHIER);
 

@@ -171,25 +171,16 @@ const authorizeInventoryUpdateFields = (req, _res, next) => {
   const { role } = req.auth;
   const fields = Object.keys(req.body);
 
-  const includesPrice = fields.includes('price');
   const includesNonPriceFields = fields.some((field) => field !== 'price');
 
-  if (role === ROLE_VALUES.INVENTORY_MANAGER) {
-    if (includesPrice) {
-      return next(
-        new ForbiddenError(
-          'Manual price changes require Branch Manager or System Administrator authorization.'
-        )
-      );
-    }
-
+  if (role === ROLE_VALUES.BRANCH_MANAGER) {
     return next();
   }
 
-  if (role === ROLE_VALUES.BRANCH_MANAGER || role === ROLE_VALUES.SYSTEM_ADMIN) {
+  if (role === ROLE_VALUES.SYSTEM_ADMIN) {
     if (includesNonPriceFields) {
       return next(
-        new ForbiddenError('Only Inventory Managers may update general inventory information.')
+        new ForbiddenError('System Administrators may only update price overrides.')
       );
     }
 
@@ -302,7 +293,7 @@ const router = express.Router();
  * /inventory:
  *   post:
  *     summary: Create a new inventory item
- *     description: Inventory creation is restricted to INVENTORY_MANAGER. The request must include branchId, itemName, category, brand, price, and quantity.
+ *     description: Inventory creation is restricted to BRANCH_MANAGER. The request must include branchId, itemName, category, brand, price, and quantity.
  *     tags:
  *       - Inventory
  *     security:
@@ -339,7 +330,7 @@ const router = express.Router();
 router.post(
   '/inventory',
   authenticate,
-  authorizeRoles(ROLE_VALUES.INVENTORY_MANAGER),
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER),
   validate(createInventoryValidation),
   createInventoryItem
 );
@@ -349,7 +340,7 @@ router.post(
  * /inventory/branch/{branchId}:
  *   get:
  *     summary: Retrieve inventory for a branch
- *     description: Returns all inventory records for a branch. Allowed roles are INVENTORY_MANAGER, BRANCH_MANAGER, and MANAGEMENT.
+ *     description: Returns all inventory records for a branch. Allowed roles are BRANCH_MANAGER and SYSTEM_ADMIN.
  *     tags:
  *       - Inventory
  *     security:
@@ -389,7 +380,7 @@ router.post(
 router.get(
   '/inventory/branch/:branchId',
   authenticate,
-  authorizeRoles(ROLE_VALUES.INVENTORY_MANAGER, ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.MANAGEMENT),
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.SYSTEM_ADMIN),
   validate(branchInventoryValidation),
   getInventoryByBranch
 );
@@ -399,7 +390,7 @@ router.get(
  * /inventory/{id}:
  *   patch:
  *     summary: Update inventory metadata or apply an authorized price override
- *     description: Roles are permission-sensitive. INVENTORY_MANAGER may update general fields only; BRANCH_MANAGER and SYSTEM_ADMIN may perform price-only override updates; they cannot update the other general inventory fields in the same request.
+ *     description: Roles are permission-sensitive. BRANCH_MANAGER may update general inventory fields for their branch; SYSTEM_ADMIN may perform price-only override updates.
  *     tags:
  *       - Inventory
  *     security:
@@ -446,7 +437,6 @@ router.patch(
   '/inventory/:id',
   authenticate,
   authorizeRoles(
-    ROLE_VALUES.INVENTORY_MANAGER,
     ROLE_VALUES.BRANCH_MANAGER,
     ROLE_VALUES.SYSTEM_ADMIN
   ),
@@ -460,7 +450,7 @@ router.patch(
  * /inventory/{id}/quantity:
  *   patch:
  *     summary: Update inventory quantity
- *     description: Updates stock quantity for an inventory record. Only INVENTORY_MANAGER can perform this action.
+ *     description: Updates stock quantity for an inventory record. Only BRANCH_MANAGER can perform this action.
  *     tags:
  *       - Inventory
  *     security:
@@ -506,7 +496,7 @@ router.patch(
 router.patch(
   '/inventory/:id/quantity',
   authenticate,
-  authorizeRoles(ROLE_VALUES.INVENTORY_MANAGER),
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER),
   validate(quantityUpdateValidation),
   updateInventoryItemQuantity
 );
@@ -516,7 +506,7 @@ router.patch(
  * /inventory/reorder-alerts:
  *   get:
  *     summary: Retrieve active inventory reorder alerts
- *     description: Returns paginated active low-stock alerts. Permitted roles are INVENTORY_MANAGER, BRANCH_MANAGER, and MANAGEMENT. Optional branchId query parameter filters by branch.
+ *     description: Returns paginated active low-stock alerts. Permitted roles are BRANCH_MANAGER and SYSTEM_ADMIN. Optional branchId query parameter filters by branch.
  *     tags:
  *       - Inventory
  *     security:
@@ -556,9 +546,8 @@ router.get(
   '/inventory/reorder-alerts',
   authenticate,
   authorizeRoles(
-    ROLE_VALUES.INVENTORY_MANAGER,
     ROLE_VALUES.BRANCH_MANAGER,
-    ROLE_VALUES.MANAGEMENT
+    ROLE_VALUES.SYSTEM_ADMIN
   ),
   validate(reorderAlertsQueryValidation),
   getReorderAlerts
@@ -569,7 +558,7 @@ router.get(
  * /inventory/reorder-alerts/branch/{branchId}:
  *   get:
  *     summary: Retrieve active inventory reorder alerts for a specific branch
- *     description: Returns active reorder alerts scoped to the specified branchId. Permitted roles are INVENTORY_MANAGER, BRANCH_MANAGER, and MANAGEMENT.
+ *     description: Returns active reorder alerts scoped to the specified branchId. Permitted roles are BRANCH_MANAGER and SYSTEM_ADMIN.
  *     tags:
  *       - Inventory
  *     security:
@@ -607,9 +596,8 @@ router.get(
   '/inventory/reorder-alerts/branch/:branchId',
   authenticate,
   authorizeRoles(
-    ROLE_VALUES.INVENTORY_MANAGER,
     ROLE_VALUES.BRANCH_MANAGER,
-    ROLE_VALUES.MANAGEMENT
+    ROLE_VALUES.SYSTEM_ADMIN
   ),
   validate(reorderAlertsQueryValidation),
   getReorderAlerts
@@ -620,7 +608,7 @@ router.get(
  * /inventory/reorder-threshold:
  *   get:
  *     summary: Retrieve the global inventory reorder threshold
- *     description: Returns the currently configured authoritative reorder threshold. Permitted roles are INVENTORY_MANAGER, BRANCH_MANAGER, and MANAGEMENT.
+ *     description: Returns the currently configured authoritative reorder threshold. Permitted roles are BRANCH_MANAGER and SYSTEM_ADMIN.
  *     tags:
  *       - Inventory
  *     security:
@@ -634,7 +622,7 @@ router.get(
  *         $ref: '#/components/responses/Forbidden'
  *   put:
  *     summary: Update the global inventory reorder threshold
- *     description: Updates the authoritative reorder threshold and automatically triggers reconciliation across all existing inventory records. Restricted strictly to INVENTORY_MANAGER.
+ *     description: Updates the authoritative reorder threshold and automatically triggers reconciliation across all existing inventory records. Restricted strictly to BRANCH_MANAGER.
  *     tags:
  *       - Inventory
  *     security:
@@ -666,9 +654,8 @@ router.get(
   '/inventory/reorder-threshold',
   authenticate,
   authorizeRoles(
-    ROLE_VALUES.INVENTORY_MANAGER,
     ROLE_VALUES.BRANCH_MANAGER,
-    ROLE_VALUES.MANAGEMENT
+    ROLE_VALUES.SYSTEM_ADMIN
   ),
   getReorderThreshold
 );
@@ -676,7 +663,7 @@ router.get(
 router.put(
   '/inventory/reorder-threshold',
   authenticate,
-  authorizeRoles(ROLE_VALUES.INVENTORY_MANAGER),
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER),
   validate(reorderThresholdValidation),
   updateReorderThreshold
 );

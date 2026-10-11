@@ -229,10 +229,8 @@ const options = {
             role: {
               type: 'string',
               enum: [
-                'INVENTORY_MANAGER',
                 'BRANCH_MANAGER',
                 'OPTOMETRIST',
-                'MANAGEMENT',
                 'SALES_ASSISTANT_CASHIER',
               ],
             },
@@ -256,10 +254,8 @@ const options = {
             role: {
               type: 'string',
               enum: [
-                'INVENTORY_MANAGER',
                 'BRANCH_MANAGER',
                 'OPTOMETRIST',
-                'MANAGEMENT',
                 'SALES_ASSISTANT_CASHIER',
               ],
             },
