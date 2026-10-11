@@ -5,7 +5,9 @@ const { createApp } = require('../../src/app');
 const { connectDatabase, disconnectDatabase } = require('../../src/config/database');
 const Branch = require('../../src/models/branch.model');
 const Inventory = require('../../src/models/inventory.model');
+const ReorderAlert = require('../../src/models/reorderAlert.model');
 const { ROLE_VALUES } = require('../../src/constants/roles');
+const { REORDER_ALERT_STATUS } = require('../../src/constants/inventoryAlert.constants');
 
 const JWT_SECRET = 'inventory-api-test-secret';
 const JWT_EXPIRES_IN = '1h';
@@ -53,11 +55,19 @@ describe('Inventory management API', () => {
   });
 
   beforeEach(async () => {
-    await Promise.all([Inventory.deleteMany({}), Branch.deleteMany({})]);
+    await Promise.all([
+      Inventory.deleteMany({}),
+      Branch.deleteMany({}),
+      ReorderAlert.deleteMany({}),
+    ]);
   });
 
   afterAll(async () => {
-    await Promise.all([Inventory.deleteMany({}), Branch.deleteMany({})]);
+    await Promise.all([
+      Inventory.deleteMany({}),
+      Branch.deleteMany({}),
+      ReorderAlert.deleteMany({}),
+    ]);
     await disconnectDatabase();
 
     process.env = originalEnv;
@@ -559,4 +569,167 @@ describe('Inventory management API', () => {
 
     expect(response.status).toBe(422);
   });
+
+  describe('Inventory reorder alert lifecycle integration (ADR-006)', () => {
+    it('should automatically create an active ReorderAlert when quantity is updated to <= 5', async () => {
+      const branch = await createBranch();
+      const inventory = await Inventory.create(buildInventoryPayload(branch._id, { quantity: 10 }));
+      const token = createToken();
+
+      const response = await request(app)
+        .patch(`/api/inventory/${inventory._id}/quantity`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ quantity: 4 });
+
+      expect(response.status).toBe(200);
+      expect(response.body.data.quantity).toBe(4);
+
+      const alerts = await ReorderAlert.find({ inventoryId: inventory._id });
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0].status).toBe(REORDER_ALERT_STATUS.ACTIVE);
+      expect(alerts[0].currentQuantity).toBe(4);
+      expect(alerts[0].threshold).toBe(5);
+      expect(alerts[0].resolvedAt).toBeNull();
+    });
+
+    it('should update existing alert and prevent duplicate creation when updated again while still low stock', async () => {
+      const branch = await createBranch();
+      const inventory = await Inventory.create(buildInventoryPayload(branch._id, { quantity: 8 }));
+      const token = createToken();
+
+      // First update crosses threshold to low stock
+      await request(app)
+        .patch(`/api/inventory/${inventory._id}/quantity`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ quantity: 3 });
+
+      // Second update changes quantity while still low stock
+      const secondResponse = await request(app)
+        .patch(`/api/inventory/${inventory._id}/quantity`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ quantity: 1 });
+
+      expect(secondResponse.status).toBe(200);
+      expect(secondResponse.body.data.quantity).toBe(1);
+
+      const alerts = await ReorderAlert.find({ inventoryId: inventory._id });
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0].status).toBe(REORDER_ALERT_STATUS.ACTIVE);
+      expect(alerts[0].currentQuantity).toBe(1);
+    });
+
+    it('should resolve the active alert when quantity is replenished above threshold (> 5)', async () => {
+      const branch = await createBranch();
+      const inventory = await Inventory.create(buildInventoryPayload(branch._id, { quantity: 10 }));
+      const token = createToken();
+
+      // Drop to low stock
+      await request(app)
+        .patch(`/api/inventory/${inventory._id}/quantity`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ quantity: 2 });
+
+      // Verify active alert was created
+      let activeAlert = await ReorderAlert.findOne({
+        inventoryId: inventory._id,
+        status: REORDER_ALERT_STATUS.ACTIVE,
+      });
+      expect(activeAlert).not.toBeNull();
+
+      // Replenish stock above threshold
+      const replenishResponse = await request(app)
+        .patch(`/api/inventory/${inventory._id}/quantity`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ quantity: 15 });
+
+
+      expect(replenishResponse.status).toBe(200);
+      expect(replenishResponse.body.data.quantity).toBe(15);
+
+      // Verify alert is marked RESOLVED
+      activeAlert = await ReorderAlert.findOne({
+        inventoryId: inventory._id,
+        status: REORDER_ALERT_STATUS.ACTIVE,
+      });
+      expect(activeAlert).toBeNull();
+
+      const resolvedAlert = await ReorderAlert.findOne({
+        inventoryId: inventory._id,
+        status: REORDER_ALERT_STATUS.RESOLVED,
+      });
+      expect(resolvedAlert).not.toBeNull();
+      expect(resolvedAlert.resolvedAt).toBeInstanceOf(Date);
+    });
+
+    it('should create a new alert episode when stock drops below threshold again after resolution', async () => {
+      const branch = await createBranch();
+      const inventory = await Inventory.create(buildInventoryPayload(branch._id, { quantity: 12 }));
+      const token = createToken();
+
+      // Episode 1: drops to 3 -> active alert
+      await request(app)
+        .patch(`/api/inventory/${inventory._id}/quantity`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ quantity: 3 });
+
+      // Episode 1 resolved: rises to 20 -> alert resolved
+      await request(app)
+        .patch(`/api/inventory/${inventory._id}/quantity`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ quantity: 20 });
+
+      // Episode 2: drops to 2 -> new active alert episode
+      await request(app)
+        .patch(`/api/inventory/${inventory._id}/quantity`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ quantity: 2 });
+
+      const allAlerts = await ReorderAlert.find({ inventoryId: inventory._id }).sort({ createdAt: 1 });
+      expect(allAlerts).toHaveLength(2);
+
+      // Episode 1 remains resolved
+      expect(allAlerts[0].status).toBe(REORDER_ALERT_STATUS.RESOLVED);
+      expect(allAlerts[0].resolvedAt).toBeInstanceOf(Date);
+
+      // Episode 2 is new active alert
+      expect(allAlerts[1].status).toBe(REORDER_ALERT_STATUS.ACTIVE);
+      expect(allAlerts[1].currentQuantity).toBe(2);
+      expect(allAlerts[1].resolvedAt).toBeNull();
+    });
+
+    it('should create an active alert when a new inventory item is created with initial quantity <= 5', async () => {
+      const branch = await createBranch();
+      const token = createToken();
+
+      const response = await request(app)
+        .post('/api/inventory')
+        .set('Authorization', `Bearer ${token}`)
+        .send(buildInventoryPayload(branch._id, { quantity: 5 }));
+
+      expect(response.status).toBe(201);
+
+      const alert = await ReorderAlert.findOne({
+        inventoryId: response.body.data._id,
+        status: REORDER_ALERT_STATUS.ACTIVE,
+      });
+      expect(alert).not.toBeNull();
+      expect(alert.currentQuantity).toBe(5);
+    });
+
+    it('should not create an alert when inventory item is created with initial quantity > 5', async () => {
+      const branch = await createBranch();
+      const token = createToken();
+
+      const response = await request(app)
+        .post('/api/inventory')
+        .set('Authorization', `Bearer ${token}`)
+        .send(buildInventoryPayload(branch._id, { quantity: 18 }));
+
+      expect(response.status).toBe(201);
+
+      const count = await ReorderAlert.countDocuments({ inventoryId: response.body.data._id });
+      expect(count).toBe(0);
+    });
+  });
 });
+
