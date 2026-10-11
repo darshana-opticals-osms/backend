@@ -38,6 +38,7 @@ const buildSafeIdentityResponse = (identity) => {
 
   if (identity.address !== undefined) safeIdentity.address = identity.address;
   if (identity.phone !== undefined) safeIdentity.phone = identity.phone;
+  if (identity.branchId) safeIdentity.branchId = identity.branchId.toString();
 
   return safeIdentity;
 };
@@ -63,10 +64,15 @@ const login = async ({ email, password }) => {
   }
 
   const user = buildSafeIdentityResponse(identity);
-  const token = createAccessToken({ userId: user.id, role: user.role });
+  const token = createAccessToken({
+    userId: user.id,
+    role: user.role,
+    branchId: user.branchId || null,
+  });
 
   return { token, user };
 };
+
 
 const hashPassword = async (password) => bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
 
