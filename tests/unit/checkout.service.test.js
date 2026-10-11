@@ -12,6 +12,10 @@ const {
   decrementInventoryStock,
 } = require('../../src/services/checkout.service');
 
+jest.mock('../../src/services/reorderAlert.service', () => ({
+  evaluateReorderAlert: jest.fn().mockResolvedValue(null),
+}));
+
 jest.mock('../../src/models/cart.model', () => ({
   findOne: jest.fn(),
   deleteOne: jest.fn(),
@@ -20,9 +24,11 @@ jest.mock('../../src/models/customer.model', () => ({ findById: jest.fn() }));
 jest.mock('../../src/models/inventory.model', () => ({
   find: jest.fn(),
   updateOne: jest.fn(),
+  findById: jest.fn(),
 }));
 jest.mock('../../src/models/order.model', () => ({ create: jest.fn() }));
 jest.mock('../../src/models/orderItem.model', () => ({ insertMany: jest.fn() }));
+
 
 const CUSTOMER_ID = '507f1f77bcf86cd799439011';
 const INVENTORY_ID = '507f1f77bcf86cd799439012';
@@ -71,10 +77,17 @@ describe('checkout service', () => {
       items.map((item) => ({ ...item, _id: new mongoose.Types.ObjectId(ITEM_ID) }))
     );
     Inventory.updateOne.mockResolvedValue({ matchedCount: 1 });
+    Inventory.findById.mockReturnValue({
+      session: jest.fn().mockResolvedValue({
+        _id: new mongoose.Types.ObjectId(INVENTORY_ID),
+        quantity: 3,
+      }),
+    });
     Cart.deleteOne.mockReturnValue({
       session: jest.fn().mockReturnValue({ deletedCount: 1 }),
     });
   });
+
 
   afterEach(() => {
     jest.restoreAllMocks();
