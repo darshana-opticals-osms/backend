@@ -33,6 +33,8 @@ const updateInventoryItem = catchAsync(async (req, res) => {
   });
 });
 
+const { getActiveReorderAlerts } = require('../services/reorderAlert.service');
+
 const updateInventoryItemQuantity = catchAsync(async (req, res) => {
   const inventory = await updateInventoryQuantity(req.params.id, req.body.quantity);
 
@@ -42,9 +44,23 @@ const updateInventoryItemQuantity = catchAsync(async (req, res) => {
   });
 });
 
+const getReorderAlerts = catchAsync(async (req, res) => {
+  const branchId = req.params.branchId || req.query.branchId || null;
+  const { page, limit } = req.query;
+
+  const result = await getActiveReorderAlerts({ branchId, page, limit });
+
+  return res.status(200).json({
+    success: true,
+    data: result,
+  });
+});
+
 module.exports = {
   createInventoryItem,
   getInventoryByBranch,
   updateInventoryItem,
   updateInventoryItemQuantity,
+  getReorderAlerts,
 };
+

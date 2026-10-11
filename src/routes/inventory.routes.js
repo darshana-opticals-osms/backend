@@ -5,7 +5,9 @@ const {
   getInventoryByBranch,
   updateInventoryItem,
   updateInventoryItemQuantity,
+  getReorderAlerts,
 } = require('../controllers/inventory.controller');
+
 const authenticate = require('../middleware/authenticate');
 const { authorizeRoles } = require('../middleware/authorizeRoles');
 const { validate } = require('../middleware/validate');
@@ -227,7 +229,39 @@ const quantityUpdateValidation = (req) => {
   return errors;
 };
 
+const reorderAlertsQueryValidation = (req) => {
+  const errors = [];
+  const branchId = req.params.branchId || req.query.branchId;
+
+  if (branchId) {
+    validateObjectId(branchId, 'branchId', errors);
+  }
+
+  if (req.query.page !== undefined) {
+    const pageNum = Number(req.query.page);
+    if (!Number.isInteger(pageNum) || pageNum < 1) {
+      errors.push({
+        field: 'page',
+        message: 'page must be a positive integer.',
+      });
+    }
+  }
+
+  if (req.query.limit !== undefined) {
+    const limitNum = Number(req.query.limit);
+    if (!Number.isInteger(limitNum) || limitNum < 1) {
+      errors.push({
+        field: 'limit',
+        message: 'limit must be a positive integer.',
+      });
+    }
+  }
+
+  return errors;
+};
+
 const router = express.Router();
+
 
 /**
  * @openapi
@@ -443,4 +477,109 @@ router.patch(
   updateInventoryItemQuantity
 );
 
+/**
+ * @openapi
+ * /inventory/reorder-alerts:
+ *   get:
+ *     summary: Retrieve active inventory reorder alerts
+ *     description: Returns paginated active low-stock alerts. Permitted roles are INVENTORY_MANAGER, BRANCH_MANAGER, and MANAGEMENT. Optional branchId query parameter filters by branch.
+ *     tags:
+ *       - Inventory
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: branchId
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: Optional MongoDB branch identifier to filter alerts.
+ *       - in: query
+ *         name: page
+ *         required: false
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number for pagination.
+ *       - in: query
+ *         name: limit
+ *         required: false
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *         description: Number of alerts per page.
+ *     responses:
+ *       200:
+ *         description: Active reorder alerts returned successfully.
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
+ */
+router.get(
+  '/inventory/reorder-alerts',
+  authenticate,
+  authorizeRoles(
+    ROLE_VALUES.INVENTORY_MANAGER,
+    ROLE_VALUES.BRANCH_MANAGER,
+    ROLE_VALUES.MANAGEMENT
+  ),
+  validate(reorderAlertsQueryValidation),
+  getReorderAlerts
+);
+
+/**
+ * @openapi
+ * /inventory/reorder-alerts/branch/{branchId}:
+ *   get:
+ *     summary: Retrieve active inventory reorder alerts for a specific branch
+ *     description: Returns active reorder alerts scoped to the specified branchId. Permitted roles are INVENTORY_MANAGER, BRANCH_MANAGER, and MANAGEMENT.
+ *     tags:
+ *       - Inventory
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: branchId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: MongoDB branch identifier.
+ *       - in: query
+ *         name: page
+ *         required: false
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         required: false
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *     responses:
+ *       200:
+ *         description: Branch-scoped reorder alerts returned successfully.
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
+ */
+router.get(
+  '/inventory/reorder-alerts/branch/:branchId',
+  authenticate,
+  authorizeRoles(
+    ROLE_VALUES.INVENTORY_MANAGER,
+    ROLE_VALUES.BRANCH_MANAGER,
+    ROLE_VALUES.MANAGEMENT
+  ),
+  validate(reorderAlertsQueryValidation),
+  getReorderAlerts
+);
+
 module.exports = router;
+
