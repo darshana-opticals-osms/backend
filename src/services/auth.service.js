@@ -73,7 +73,6 @@ const login = async ({ email, password }) => {
   return { token, user };
 };
 
-
 const hashPassword = async (password) => bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
 
 const registerCustomer = async (customerInput = {}) => {

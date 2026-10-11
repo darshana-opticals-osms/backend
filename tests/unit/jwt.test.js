@@ -86,7 +86,6 @@ describe('JWT utility', () => {
     });
   });
 
-
   it.each([
     { userId: '', role: ROLE_VALUES.CUSTOMER },
     { userId: '507f1f77bcf86cd799439011', role: 'admin' },

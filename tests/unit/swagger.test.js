@@ -31,7 +31,6 @@ describe('Swagger documentation integrity', () => {
     'POST /checkout',
   ];
 
-
   const normalize = (value) => value.toUpperCase();
 
   it('should define OpenAPI 3.0 and represent the real backend API surface', () => {
@@ -123,7 +122,6 @@ describe('Swagger documentation integrity', () => {
       'CheckoutResult',
       'ReorderAlert',
     ]) {
-
       expect(swaggerSpec.components.schemas[schemaName]).toBeDefined();
     }
     expect(swaggerSpec.components.responses.ValidationError).toBeDefined();

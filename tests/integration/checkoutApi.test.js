@@ -13,7 +13,6 @@ const ReorderAlert = require('../../src/models/reorderAlert.model');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 const { REORDER_ALERT_STATUS } = require('../../src/constants/inventoryAlert.constants');
 
-
 const JWT_SECRET = 'checkout-api-test-secret';
 const PASSWORD_HASH = `$2b$12$${'a'.repeat(53)}`;
 
@@ -77,7 +76,6 @@ describe('Secure Checkout API', () => {
       Branch.deleteMany({}),
       ReorderAlert.deleteMany({}),
     ]);
-
   });
 
   afterEach(() => {
@@ -470,4 +468,3 @@ describe('Secure Checkout API', () => {
     });
   });
 });
-

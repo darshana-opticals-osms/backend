@@ -146,7 +146,6 @@ async function decrementInventoryStock(items, session) {
   }
 }
 
-
 async function checkoutCustomer(customerId) {
   if (!mongoose.isValidObjectId(customerId)) {
     throw new ValidationError('Customer identity is invalid.');

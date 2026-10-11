@@ -180,7 +180,7 @@ describe('POST /api/auth/login', () => {
       address: 'Branch Road',
       phone: '+94710000003',
       branchId: '507f1f77bcf86cd799439011',
-      role: ROLE_VALUES.INVENTORY_MANAGER,
+      role: ROLE_VALUES.BRANCH_MANAGER,
       passwordHash: await bcrypt.hash(PASSWORD, 12),
     });
 

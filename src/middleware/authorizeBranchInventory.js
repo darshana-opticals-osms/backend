@@ -52,21 +52,13 @@ const authorizeInventoryItemBranch = async (req, _res, next) => {
     if (role === ROLE_VALUES.BRANCH_MANAGER) {
       if (!branchId || item.branchId.toString() !== branchId.toString()) {
         return next(
-          new ForbiddenError(
-            'Branch Managers may only modify inventory for their assigned branch.'
-          )
+          new ForbiddenError('Branch Managers may only modify inventory for their assigned branch.')
         );
       }
 
-      if (
-        req.body &&
-        req.body.branchId &&
-        req.body.branchId.toString() !== branchId.toString()
-      ) {
+      if (req.body && req.body.branchId && req.body.branchId.toString() !== branchId.toString()) {
         return next(
-          new ForbiddenError(
-            'Branch Managers may not reassign inventory to another branch.'
-          )
+          new ForbiddenError('Branch Managers may not reassign inventory to another branch.')
         );
       }
     }

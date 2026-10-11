@@ -220,9 +220,8 @@ describe('Prescription API', () => {
     const unauthorizedRoles = [
       ROLE_VALUES.CUSTOMER,
       ROLE_VALUES.BRANCH_MANAGER,
-      ROLE_VALUES.INVENTORY_MANAGER,
-      ROLE_VALUES.MANAGEMENT,
       ROLE_VALUES.SALES_ASSISTANT_CASHIER,
+      ROLE_VALUES.SYSTEM_ADMIN,
     ];
 
     it.each(unauthorizedRoles)('should reject prescription creation for role: %s', async (role) => {
@@ -817,8 +816,6 @@ describe('Prescription API', () => {
       [ROLE_VALUES.CUSTOMER],
       [ROLE_VALUES.SALES_ASSISTANT_CASHIER],
       [ROLE_VALUES.BRANCH_MANAGER],
-      [ROLE_VALUES.INVENTORY_MANAGER],
-      [ROLE_VALUES.MANAGEMENT],
       [ROLE_VALUES.SYSTEM_ADMIN],
     ])(
       'should return 403 FORBIDDEN for role %s — not authorized to read customer prescription history (AC18)',

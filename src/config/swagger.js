@@ -228,11 +228,7 @@ const options = {
             address: { type: 'string', example: '12 Main Street, Colombo' },
             role: {
               type: 'string',
-              enum: [
-                'BRANCH_MANAGER',
-                'OPTOMETRIST',
-                'SALES_ASSISTANT_CASHIER',
-              ],
+              enum: ['BRANCH_MANAGER', 'OPTOMETRIST', 'SALES_ASSISTANT_CASHIER'],
             },
             password: { type: 'string', format: 'password', minLength: 8 },
             branchId: {
@@ -253,11 +249,7 @@ const options = {
             address: { type: 'string', example: '12 Main Street, Colombo' },
             role: {
               type: 'string',
-              enum: [
-                'BRANCH_MANAGER',
-                'OPTOMETRIST',
-                'SALES_ASSISTANT_CASHIER',
-              ],
+              enum: ['BRANCH_MANAGER', 'OPTOMETRIST', 'SALES_ASSISTANT_CASHIER'],
             },
             branchId: { type: 'string', nullable: true, example: null },
           },
@@ -573,7 +565,6 @@ const options = {
           },
         },
         CartAddItemRequest: {
-
           type: 'object',
           additionalProperties: false,
           required: ['inventoryId', 'quantity'],

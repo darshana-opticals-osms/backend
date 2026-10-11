@@ -13,9 +13,10 @@ const JWT_EXPIRES_IN = '1h';
 
 const createToken = ({
   userId = '507f1f77bcf86cd799439011',
-  role = ROLE_VALUES.INVENTORY_MANAGER,
+  role = ROLE_VALUES.BRANCH_MANAGER,
+  branchId = null,
 } = {}) =>
-  jwt.sign({ userId, role }, JWT_SECRET, {
+  jwt.sign({ userId, role, ...(branchId ? { branchId } : {}) }, JWT_SECRET, {
     algorithm: 'HS256',
     expiresIn: JWT_EXPIRES_IN,
   });
@@ -114,8 +115,8 @@ describe('Reorder Alert Retrieval API (ADR-006 / ADR-002)', () => {
   });
 
   describe('RBAC Authorization', () => {
-    it('should allow INVENTORY_MANAGER to view active reorder alerts', async () => {
-      const token = createToken({ role: ROLE_VALUES.INVENTORY_MANAGER });
+    it('should allow SYSTEM_ADMIN to view all active reorder alerts across branches', async () => {
+      const token = createToken({ role: ROLE_VALUES.SYSTEM_ADMIN });
       const response = await request(app)
         .get('/api/inventory/reorder-alerts')
         .set('Authorization', `Bearer ${token}`);
@@ -126,26 +127,31 @@ describe('Reorder Alert Retrieval API (ADR-006 / ADR-002)', () => {
       expect(response.body.data.total).toBe(2);
     });
 
-    it('should allow BRANCH_MANAGER to view active reorder alerts', async () => {
-      const token = createToken({ role: ROLE_VALUES.BRANCH_MANAGER });
+    it('should allow BRANCH_MANAGER to view active reorder alerts auto-scoped to their branch', async () => {
+      const token = createToken({
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branchA._id.toString(),
+      });
       const response = await request(app)
         .get('/api/inventory/reorder-alerts')
         .set('Authorization', `Bearer ${token}`);
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
-      expect(response.body.data.alerts).toHaveLength(2);
+      expect(response.body.data.alerts).toHaveLength(1);
+      expect(response.body.data.alerts[0].branchId._id.toString()).toBe(branchA._id.toString());
     });
 
-    it('should allow MANAGEMENT to view active reorder alerts', async () => {
-      const token = createToken({ role: ROLE_VALUES.MANAGEMENT });
+    it('should reject BRANCH_MANAGER trying to view alerts for another branch with 403 Forbidden', async () => {
+      const token = createToken({
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branchA._id.toString(),
+      });
       const response = await request(app)
-        .get('/api/inventory/reorder-alerts')
+        .get(`/api/inventory/reorder-alerts?branchId=${branchB._id}`)
         .set('Authorization', `Bearer ${token}`);
 
-      expect(response.status).toBe(200);
-      expect(response.body.success).toBe(true);
-      expect(response.body.data.alerts).toHaveLength(2);
+      expect(response.status).toBe(403);
     });
 
     it('should reject CUSTOMER access with 403 Forbidden', async () => {
@@ -183,8 +189,8 @@ describe('Reorder Alert Retrieval API (ADR-006 / ADR-002)', () => {
   });
 
   describe('Branch Filtering and Data Contract', () => {
-    it('should filter active alerts by branch using query parameter ?branchId=', async () => {
-      const token = createToken({ role: ROLE_VALUES.INVENTORY_MANAGER });
+    it('should filter active alerts by branch using query parameter ?branchId= for SYSTEM_ADMIN', async () => {
+      const token = createToken({ role: ROLE_VALUES.SYSTEM_ADMIN });
       const response = await request(app)
         .get(`/api/inventory/reorder-alerts?branchId=${branchA._id}`)
         .set('Authorization', `Bearer ${token}`);
@@ -196,8 +202,11 @@ describe('Reorder Alert Retrieval API (ADR-006 / ADR-002)', () => {
       expect(response.body.data.alerts[0].inventoryId.itemName).toBe('Ray-Ban Aviator');
     });
 
-    it('should filter active alerts by branch using path parameter /branch/:branchId', async () => {
-      const token = createToken({ role: ROLE_VALUES.BRANCH_MANAGER });
+    it('should filter active alerts by branch using path parameter /branch/:branchId for matching BRANCH_MANAGER', async () => {
+      const token = createToken({
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branchB._id.toString(),
+      });
       const response = await request(app)
         .get(`/api/inventory/reorder-alerts/branch/${branchB._id}`)
         .set('Authorization', `Bearer ${token}`);
@@ -209,8 +218,20 @@ describe('Reorder Alert Retrieval API (ADR-006 / ADR-002)', () => {
       expect(response.body.data.alerts[0].inventoryId.itemName).toBe('Oakley Holbrook');
     });
 
+    it('should reject BRANCH_MANAGER accessing /branch/:branchId for a foreign branch with 403 Forbidden', async () => {
+      const token = createToken({
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branchA._id.toString(),
+      });
+      const response = await request(app)
+        .get(`/api/inventory/reorder-alerts/branch/${branchB._id}`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(response.status).toBe(403);
+    });
+
     it('should reject malformed branchId with 422 Validation Error', async () => {
-      const token = createToken({ role: ROLE_VALUES.INVENTORY_MANAGER });
+      const token = createToken({ role: ROLE_VALUES.SYSTEM_ADMIN });
       const response = await request(app)
         .get('/api/inventory/reorder-alerts?branchId=invalid-id')
         .set('Authorization', `Bearer ${token}`);
@@ -218,8 +239,8 @@ describe('Reorder Alert Retrieval API (ADR-006 / ADR-002)', () => {
       expect(response.status).toBe(422);
     });
 
-    it('should support pagination (page and limit)', async () => {
-      const token = createToken({ role: ROLE_VALUES.INVENTORY_MANAGER });
+    it('should support pagination (page and limit) for SYSTEM_ADMIN', async () => {
+      const token = createToken({ role: ROLE_VALUES.SYSTEM_ADMIN });
       const response = await request(app)
         .get('/api/inventory/reorder-alerts?page=1&limit=1')
         .set('Authorization', `Bearer ${token}`);

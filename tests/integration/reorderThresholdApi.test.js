@@ -14,9 +14,10 @@ const JWT_EXPIRES_IN = '1h';
 
 const createToken = ({
   userId = '507f1f77bcf86cd799439011',
-  role = ROLE_VALUES.INVENTORY_MANAGER,
+  role = ROLE_VALUES.BRANCH_MANAGER,
+  branchId = null,
 } = {}) =>
-  jwt.sign({ userId, role }, JWT_SECRET, {
+  jwt.sign({ userId, role, ...(branchId ? { branchId } : {}) }, JWT_SECRET, {
     algorithm: 'HS256',
     expiresIn: JWT_EXPIRES_IN,
   });
@@ -66,7 +67,10 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
 
   describe('GET /api/inventory/reorder-threshold', () => {
     it('should return default threshold 5 when no configuration exists', async () => {
-      const token = createToken({ role: ROLE_VALUES.INVENTORY_MANAGER });
+      const token = createToken({
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branch._id.toString(),
+      });
       const response = await request(app)
         .get('/api/inventory/reorder-threshold')
         .set('Authorization', `Bearer ${token}`);
@@ -76,9 +80,12 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
       expect(response.body.data.threshold).toBe(5);
     });
 
-    it('should allow BRANCH_MANAGER and MANAGEMENT to view current threshold', async () => {
-      const branchManagerToken = createToken({ role: ROLE_VALUES.BRANCH_MANAGER });
-      const managementToken = createToken({ role: ROLE_VALUES.MANAGEMENT });
+    it('should allow BRANCH_MANAGER and SYSTEM_ADMIN to view current threshold', async () => {
+      const branchManagerToken = createToken({
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branch._id.toString(),
+      });
+      const adminToken = createToken({ role: ROLE_VALUES.SYSTEM_ADMIN });
 
       const res1 = await request(app)
         .get('/api/inventory/reorder-threshold')
@@ -87,7 +94,7 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
 
       const res2 = await request(app)
         .get('/api/inventory/reorder-threshold')
-        .set('Authorization', `Bearer ${managementToken}`);
+        .set('Authorization', `Bearer ${adminToken}`);
       expect(res2.status).toBe(200);
     });
 
@@ -107,8 +114,11 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
   });
 
   describe('PUT /api/inventory/reorder-threshold Authorization', () => {
-    it('should allow INVENTORY_MANAGER to update the reorder threshold', async () => {
-      const token = createToken({ role: ROLE_VALUES.INVENTORY_MANAGER });
+    it('should allow BRANCH_MANAGER to update the reorder threshold', async () => {
+      const token = createToken({
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branch._id.toString(),
+      });
       const response = await request(app)
         .put('/api/inventory/reorder-threshold')
         .set('Authorization', `Bearer ${token}`)
@@ -119,7 +129,7 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
       expect(response.body.data.threshold).toBe(8);
     });
 
-    it('should reject SYSTEM_ADMIN from updating threshold (per ADR-006 Section 20 & 21)', async () => {
+    it('should reject SYSTEM_ADMIN from updating threshold', async () => {
       const token = createToken({ role: ROLE_VALUES.SYSTEM_ADMIN });
       const response = await request(app)
         .put('/api/inventory/reorder-threshold')
@@ -129,8 +139,8 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
       expect(response.status).toBe(403);
     });
 
-    it('should reject BRANCH_MANAGER from updating threshold with 403 Forbidden', async () => {
-      const token = createToken({ role: ROLE_VALUES.BRANCH_MANAGER });
+    it('should reject SALES_ASSISTANT_CASHIER from updating threshold with 403 Forbidden', async () => {
+      const token = createToken({ role: ROLE_VALUES.SALES_ASSISTANT_CASHIER });
       const response = await request(app)
         .put('/api/inventory/reorder-threshold')
         .set('Authorization', `Bearer ${token}`)
@@ -152,7 +162,10 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
 
   describe('PUT /api/inventory/reorder-threshold Validation', () => {
     it('should reject negative threshold with 422 Validation Error', async () => {
-      const token = createToken({ role: ROLE_VALUES.INVENTORY_MANAGER });
+      const token = createToken({
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branch._id.toString(),
+      });
       const response = await request(app)
         .put('/api/inventory/reorder-threshold')
         .set('Authorization', `Bearer ${token}`)
@@ -162,7 +175,10 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
     });
 
     it('should reject non-numeric threshold with 422 Validation Error', async () => {
-      const token = createToken({ role: ROLE_VALUES.INVENTORY_MANAGER });
+      const token = createToken({
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branch._id.toString(),
+      });
       const response = await request(app)
         .put('/api/inventory/reorder-threshold')
         .set('Authorization', `Bearer ${token}`)
@@ -172,7 +188,10 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
     });
 
     it('should reject empty body with 422 Validation Error', async () => {
-      const token = createToken({ role: ROLE_VALUES.INVENTORY_MANAGER });
+      const token = createToken({
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branch._id.toString(),
+      });
       const response = await request(app)
         .put('/api/inventory/reorder-threshold')
         .set('Authorization', `Bearer ${token}`)
@@ -182,7 +201,10 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
     });
 
     it('should reject unsupported fields in body with 422 Validation Error', async () => {
-      const token = createToken({ role: ROLE_VALUES.INVENTORY_MANAGER });
+      const token = createToken({
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branch._id.toString(),
+      });
       const response = await request(app)
         .put('/api/inventory/reorder-threshold')
         .set('Authorization', `Bearer ${token}`)
@@ -194,7 +216,10 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
 
   describe('Automatic Inventory Reconciliation (ADR-006 Section 21)', () => {
     it('should reconcile all inventories upon threshold change: create, update, and resolve alerts', async () => {
-      const token = createToken({ role: ROLE_VALUES.INVENTORY_MANAGER });
+      const token = createToken({
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branch._id.toString(),
+      });
 
       // Create 3 inventory items:
       // Item A: qty 3 (below default 5)

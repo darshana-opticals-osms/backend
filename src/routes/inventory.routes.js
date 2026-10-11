@@ -10,7 +10,6 @@ const {
   updateReorderThreshold,
 } = require('../controllers/inventory.controller');
 
-
 const authenticate = require('../middleware/authenticate');
 const { authorizeRoles } = require('../middleware/authorizeRoles');
 const { validate } = require('../middleware/validate');
@@ -203,9 +202,7 @@ const authorizeInventoryUpdateFields = (req, _res, next) => {
 
   if (role === ROLE_VALUES.SYSTEM_ADMIN) {
     if (includesNonPriceFields) {
-      return next(
-        new ForbiddenError('System Administrators may only update price overrides.')
-      );
+      return next(new ForbiddenError('System Administrators may only update price overrides.'));
     }
 
     return next();
@@ -309,8 +306,6 @@ const reorderThresholdValidation = (req) => {
 };
 
 const router = express.Router();
-
-
 
 /**
  * @openapi
@@ -462,10 +457,7 @@ router.get(
 router.patch(
   '/inventory/:id',
   authenticate,
-  authorizeRoles(
-    ROLE_VALUES.BRANCH_MANAGER,
-    ROLE_VALUES.SYSTEM_ADMIN
-  ),
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.SYSTEM_ADMIN),
   validate(updateInventoryValidation),
   authorizeInventoryUpdateFields,
   authorizeInventoryItemBranch,
@@ -573,10 +565,7 @@ router.patch(
 router.get(
   '/inventory/reorder-alerts',
   authenticate,
-  authorizeRoles(
-    ROLE_VALUES.BRANCH_MANAGER,
-    ROLE_VALUES.SYSTEM_ADMIN
-  ),
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.SYSTEM_ADMIN),
   validate(reorderAlertsQueryValidation),
   authorizeReorderAlertsBranch,
   getReorderAlerts
@@ -624,10 +613,7 @@ router.get(
 router.get(
   '/inventory/reorder-alerts/branch/:branchId',
   authenticate,
-  authorizeRoles(
-    ROLE_VALUES.BRANCH_MANAGER,
-    ROLE_VALUES.SYSTEM_ADMIN
-  ),
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.SYSTEM_ADMIN),
   validate(reorderAlertsQueryValidation),
   authorizeReorderAlertsBranchParam,
   getReorderAlerts
@@ -683,10 +669,7 @@ router.get(
 router.get(
   '/inventory/reorder-threshold',
   authenticate,
-  authorizeRoles(
-    ROLE_VALUES.BRANCH_MANAGER,
-    ROLE_VALUES.SYSTEM_ADMIN
-  ),
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.SYSTEM_ADMIN),
   getReorderThreshold
 );
 
@@ -699,5 +682,3 @@ router.put(
 );
 
 module.exports = router;
-
-

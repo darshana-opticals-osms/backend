@@ -286,20 +286,14 @@ describe('Inventory service', () => {
         { $inc: { quantity: -2 } },
         { new: true, session: null }
       );
-      expect(reorderAlertService.evaluateReorderAlert).toHaveBeenCalledWith(
-        updatedDoc,
-        null,
-        null
-      );
+      expect(reorderAlertService.evaluateReorderAlert).toHaveBeenCalledWith(updatedDoc, null, null);
       expect(result).toEqual([updatedDoc]);
     });
 
     it('should reject invalid deduction quantity', async () => {
       const inventoryId = new mongoose.Types.ObjectId().toString();
 
-      await expect(
-        deductInventoryStock([{ inventoryId, quantity: 0 }])
-      ).rejects.toMatchObject({
+      await expect(deductInventoryStock([{ inventoryId, quantity: 0 }])).rejects.toMatchObject({
         statusCode: 422,
       });
     });
@@ -319,9 +313,7 @@ describe('Inventory service', () => {
         session: jest.fn().mockResolvedValue({ _id: inventoryId, quantity: 1 }),
       });
 
-      await expect(
-        deductInventoryStock([{ inventoryId, quantity: 5 }])
-      ).rejects.toMatchObject({
+      await expect(deductInventoryStock([{ inventoryId, quantity: 5 }])).rejects.toMatchObject({
         statusCode: 409,
       });
     });
@@ -333,12 +325,9 @@ describe('Inventory service', () => {
         session: jest.fn().mockResolvedValue(null),
       });
 
-      await expect(
-        deductInventoryStock([{ inventoryId, quantity: 2 }])
-      ).rejects.toMatchObject({
+      await expect(deductInventoryStock([{ inventoryId, quantity: 2 }])).rejects.toMatchObject({
         statusCode: 404,
       });
     });
   });
 });
-

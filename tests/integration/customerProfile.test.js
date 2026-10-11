@@ -202,7 +202,7 @@ describe('Customer profile self-service API', () => {
       address: 'Staff Lane',
       phone: '+94710000001',
       branchId: '507f1f77bcf86cd799439011',
-      role: ROLE_VALUES.INVENTORY_MANAGER,
+      role: ROLE_VALUES.BRANCH_MANAGER,
       passwordHash: await bcrypt.hash(PASSWORD, 12),
     });
     const admin = await Admin.create({

@@ -202,7 +202,7 @@ describe('Identity models', () => {
       phone: '+94710000009',
       address: '2 Protected Lane',
       branchId: new mongoose.Types.ObjectId().toString(),
-      role: ROLE_VALUES.INVENTORY_MANAGER,
+      role: ROLE_VALUES.BRANCH_MANAGER,
       passwordHash: syntheticHash,
     });
     const admin = await Admin.create({

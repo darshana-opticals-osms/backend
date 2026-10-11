@@ -58,49 +58,47 @@ describe('GET /api/branches', () => {
     process.env = originalEnv;
   });
 
-  it.each([
-    ROLE_VALUES.SYSTEM_ADMIN,
-    ROLE_VALUES.INVENTORY_MANAGER,
-    ROLE_VALUES.BRANCH_MANAGER,
-    ROLE_VALUES.MANAGEMENT,
-  ])('should return safe Branch references for %s', async (role) => {
-    const branches = await createBranches();
+  it.each([ROLE_VALUES.SYSTEM_ADMIN, ROLE_VALUES.BRANCH_MANAGER])(
+    'should return safe Branch references for %s',
+    async (role) => {
+      const branches = await createBranches();
 
-    const response = await request(app)
-      .get('/api/branches')
-      .set('Authorization', `Bearer ${createToken(role)}`);
+      const response = await request(app)
+        .get('/api/branches')
+        .set('Authorization', `Bearer ${createToken(role)}`);
 
-    expect(response.status).toBe(200);
-    expect(response.body).toEqual({
-      success: true,
-      data: [
-        {
-          id: branches[1]._id.toString(),
-          address: '100 Galle Road, Colombo 03',
-          contactNumber: '+94 11 250 0000',
-        },
-        {
-          id: branches[2]._id.toString(),
-          address: '100 Galle Road, Colombo 03',
-          contactNumber: '+94 11 250 0001',
-        },
-        {
-          id: branches[0]._id.toString(),
-          address: '45 Peradeniya Road, Kandy',
-          contactNumber: '+94 81 220 0000',
-        },
-      ],
-    });
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({
+        success: true,
+        data: [
+          {
+            id: branches[1]._id.toString(),
+            address: '100 Galle Road, Colombo 03',
+            contactNumber: '+94 11 250 0000',
+          },
+          {
+            id: branches[2]._id.toString(),
+            address: '100 Galle Road, Colombo 03',
+            contactNumber: '+94 11 250 0001',
+          },
+          {
+            id: branches[0]._id.toString(),
+            address: '45 Peradeniya Road, Kandy',
+            contactNumber: '+94 81 220 0000',
+          },
+        ],
+      });
 
-    for (const branch of response.body.data) {
-      expect(Object.keys(branch)).toEqual(['id', 'address', 'contactNumber']);
-      expect(branch).not.toHaveProperty('name');
-      expect(branch).not.toHaveProperty('_id');
-      expect(branch).not.toHaveProperty('__v');
-      expect(branch).not.toHaveProperty('createdAt');
-      expect(branch).not.toHaveProperty('updatedAt');
+      for (const branch of response.body.data) {
+        expect(Object.keys(branch)).toEqual(['id', 'address', 'contactNumber']);
+        expect(branch).not.toHaveProperty('name');
+        expect(branch).not.toHaveProperty('_id');
+        expect(branch).not.toHaveProperty('__v');
+        expect(branch).not.toHaveProperty('createdAt');
+        expect(branch).not.toHaveProperty('updatedAt');
+      }
     }
-  });
+  );
 
   it('should return an empty list for an authorized request with no Branch records', async () => {
     const response = await request(app)
@@ -143,7 +141,7 @@ describe('GET /api/branches', () => {
 
     const authorizedResponse = await request(app)
       .get('/api/branches?$where=malicious&$ne=invalid&role=SYSTEM_ADMIN')
-      .set('Authorization', `Bearer ${createToken(ROLE_VALUES.MANAGEMENT)}`);
+      .set('Authorization', `Bearer ${createToken(ROLE_VALUES.BRANCH_MANAGER)}`);
     const customerResponse = await request(app)
       .get('/api/branches?role=SYSTEM_ADMIN')
       .set('Authorization', `Bearer ${createToken(ROLE_VALUES.CUSTOMER)}`);

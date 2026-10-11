@@ -29,7 +29,6 @@ jest.mock('../../src/models/inventory.model', () => ({
 jest.mock('../../src/models/order.model', () => ({ create: jest.fn() }));
 jest.mock('../../src/models/orderItem.model', () => ({ insertMany: jest.fn() }));
 
-
 const CUSTOMER_ID = '507f1f77bcf86cd799439011';
 const INVENTORY_ID = '507f1f77bcf86cd799439012';
 const ORDER_ID = '507f1f77bcf86cd799439013';
@@ -87,7 +86,6 @@ describe('checkout service', () => {
       session: jest.fn().mockReturnValue({ deletedCount: 1 }),
     });
   });
-
 
   afterEach(() => {
     jest.restoreAllMocks();

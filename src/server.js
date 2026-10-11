@@ -13,7 +13,6 @@ async function startServer() {
       console.log(`OSMS backend listening on port ${port}`);
       startReminderScheduler();
     });
-
   } catch (error) {
     console.error('Failed to start OSMS backend:', error.message);
     process.exit(1);

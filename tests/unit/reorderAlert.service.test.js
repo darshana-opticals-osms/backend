@@ -84,7 +84,11 @@ describe('ReorderAlert service', () => {
     it('should update threshold and reconcile all inventory records', async () => {
       InventoryConfig.findOneAndUpdate.mockResolvedValue({ key: 'REORDER_THRESHOLD', value: 10 });
       Inventory.find.mockResolvedValue([
-        { _id: new mongoose.Types.ObjectId(), branchId: new mongoose.Types.ObjectId(), quantity: 5 },
+        {
+          _id: new mongoose.Types.ObjectId(),
+          branchId: new mongoose.Types.ObjectId(),
+          quantity: 5,
+        },
       ]);
       ReorderAlert.findOne.mockResolvedValue(null);
       ReorderAlert.create.mockResolvedValue({ status: REORDER_ALERT_STATUS.ACTIVE });
@@ -220,11 +224,11 @@ describe('ReorderAlert service', () => {
 
   describe('getActiveReorderAlerts', () => {
     it('should reject invalid branchId format', async () => {
-      await expect(
-        getActiveReorderAlerts({ branchId: 'invalid-branch-id' })
-      ).rejects.toMatchObject({
-        statusCode: 422,
-      });
+      await expect(getActiveReorderAlerts({ branchId: 'invalid-branch-id' })).rejects.toMatchObject(
+        {
+          statusCode: 422,
+        }
+      );
     });
 
     it('should query active alerts with pagination', async () => {

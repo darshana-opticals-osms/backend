@@ -85,6 +85,7 @@ describe('Product catalog API (Integration tests)', () => {
         category: 'Men',
         brand: 'Oliver Peoples',
         price: 12500,
+        imageUrl: null,
       },
     });
   });
@@ -203,7 +204,7 @@ describe('Product catalog API (Integration tests)', () => {
 
     for (const product of response.body.data) {
       expect(Object.keys(product).sort()).toEqual(
-        ['brand', 'category', 'id', 'itemName', 'price'].sort()
+        ['brand', 'category', 'id', 'imageUrl', 'itemName', 'price'].sort()
       );
       expect(product.branchId).toBeUndefined();
       expect(product.quantity).toBeUndefined();

@@ -35,11 +35,7 @@ async function getGlobalReorderThreshold(session = null) {
  * @returns {Promise<{ threshold: number, reconciliation: { totalEvaluated: number } }>}
  */
 async function setGlobalReorderThreshold(newThreshold, updatedBy = null) {
-  if (
-    typeof newThreshold !== 'number' ||
-    !Number.isFinite(newThreshold) ||
-    newThreshold < 0
-  ) {
+  if (typeof newThreshold !== 'number' || !Number.isFinite(newThreshold) || newThreshold < 0) {
     throw new ValidationError('Reorder threshold must be a non-negative number.', {
       field: 'threshold',
     });
@@ -216,10 +212,7 @@ async function processPeriodicReminders(currentTime = new Date()) {
 
   const candidateAlerts = await ReorderAlert.find({
     status: REORDER_ALERT_STATUS.ACTIVE,
-    $or: [
-      { lastReminderSentAt: null },
-      { lastReminderSentAt: { $lte: cutoffTime } },
-    ],
+    $or: [{ lastReminderSentAt: null }, { lastReminderSentAt: { $lte: cutoffTime } }],
   });
 
   let remindersSent = 0;

@@ -57,7 +57,6 @@ const verifyAccessToken = (token) => {
   return claims;
 };
 
-
 module.exports = {
   JWT_ALGORITHM,
   createAccessToken,
