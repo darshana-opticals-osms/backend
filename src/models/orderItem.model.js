@@ -23,7 +23,11 @@ const orderItemSchema = new mongoose.Schema(
     quantity: {
       type: Number,
       required: true,
-      min: [0, 'Quantity cannot be negative.'],
+      min: [1, 'Quantity must be a positive integer.'],
+      validate: {
+        validator: Number.isSafeInteger,
+        message: 'Quantity must be a positive integer.',
+      },
     },
   },
   {

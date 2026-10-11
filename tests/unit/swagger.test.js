@@ -24,6 +24,7 @@ describe('Swagger documentation integrity', () => {
     'POST /cart/items',
     'PATCH /cart/items/{inventoryId}',
     'DELETE /cart/items/{inventoryId}',
+    'POST /checkout',
   ];
 
   const normalize = (value) => value.toUpperCase();
@@ -76,6 +77,7 @@ describe('Swagger documentation integrity', () => {
       '/cart',
       '/cart/items',
       '/cart/items/{inventoryId}',
+      '/checkout',
     ];
 
     for (const path of publicPaths) {
@@ -110,6 +112,7 @@ describe('Swagger documentation integrity', () => {
       'CartAddItemRequest',
       'CartQuantityRequest',
       'CartResponse',
+      'CheckoutResult',
     ]) {
       expect(swaggerSpec.components.schemas[schemaName]).toBeDefined();
     }
