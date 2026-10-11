@@ -6,7 +6,10 @@ const {
   updateInventoryItem,
   updateInventoryItemQuantity,
   getReorderAlerts,
+  getReorderThreshold,
+  updateReorderThreshold,
 } = require('../controllers/inventory.controller');
+
 
 const authenticate = require('../middleware/authenticate');
 const { authorizeRoles } = require('../middleware/authorizeRoles');
@@ -260,7 +263,38 @@ const reorderAlertsQueryValidation = (req) => {
   return errors;
 };
 
+const reorderThresholdValidation = (req) => {
+  const { body } = req;
+  const errors = [];
+
+  if (!validateObjectBody(body, errors)) {
+    return errors;
+  }
+
+  for (const field of Object.keys(body)) {
+    if (field !== 'threshold') {
+      errors.push({
+        field,
+        message: `${field} is not allowed for threshold update.`,
+      });
+    }
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(body, 'threshold')) {
+    errors.push({
+      field: 'threshold',
+      message: 'threshold is required.',
+    });
+    return errors;
+  }
+
+  validateNonNegativeNumber(body.threshold, 'threshold', errors);
+
+  return errors;
+};
+
 const router = express.Router();
+
 
 
 /**
@@ -581,5 +615,72 @@ router.get(
   getReorderAlerts
 );
 
+/**
+ * @openapi
+ * /inventory/reorder-threshold:
+ *   get:
+ *     summary: Retrieve the global inventory reorder threshold
+ *     description: Returns the currently configured authoritative reorder threshold. Permitted roles are INVENTORY_MANAGER, BRANCH_MANAGER, and MANAGEMENT.
+ *     tags:
+ *       - Inventory
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Global reorder threshold returned successfully.
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *   put:
+ *     summary: Update the global inventory reorder threshold
+ *     description: Updates the authoritative reorder threshold and automatically triggers reconciliation across all existing inventory records. Restricted strictly to INVENTORY_MANAGER.
+ *     tags:
+ *       - Inventory
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - threshold
+ *             properties:
+ *               threshold:
+ *                 type: number
+ *                 minimum: 0
+ *                 example: 5
+ *     responses:
+ *       200:
+ *         description: Reorder threshold updated and inventories reconciled successfully.
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
+ */
+router.get(
+  '/inventory/reorder-threshold',
+  authenticate,
+  authorizeRoles(
+    ROLE_VALUES.INVENTORY_MANAGER,
+    ROLE_VALUES.BRANCH_MANAGER,
+    ROLE_VALUES.MANAGEMENT
+  ),
+  getReorderThreshold
+);
+
+router.put(
+  '/inventory/reorder-threshold',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.INVENTORY_MANAGER),
+  validate(reorderThresholdValidation),
+  updateReorderThreshold
+);
+
 module.exports = router;
+
 
