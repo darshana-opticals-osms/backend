@@ -14,12 +14,20 @@ const {
 const authenticate = require('../middleware/authenticate');
 const { authorizeRoles } = require('../middleware/authorizeRoles');
 const { validate } = require('../middleware/validate');
+const {
+  authorizeCreateInventoryBranch,
+  authorizeBranchInventoryAccess,
+  authorizeInventoryItemBranch,
+  authorizeReorderAlertsBranch,
+  authorizeReorderAlertsBranchParam,
+} = require('../middleware/authorizeBranchInventory');
 const { ROLE_VALUES } = require('../constants/roles');
 const { ForbiddenError } = require('../errors/AppError');
 
-const CREATE_FIELDS = new Set(['branchId', 'itemName', 'category', 'brand', 'price', 'quantity']);
+const REQUIRED_CREATE_FIELDS = ['branchId', 'itemName', 'category', 'brand', 'price', 'quantity'];
+const CREATE_FIELDS = new Set([...REQUIRED_CREATE_FIELDS, 'imageUrl']);
 
-const UPDATE_FIELDS = new Set(['branchId', 'itemName', 'category', 'brand', 'price']);
+const UPDATE_FIELDS = new Set(['branchId', 'itemName', 'category', 'brand', 'price', 'imageUrl']);
 
 const validateObjectBody = (body, errors) => {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -77,7 +85,7 @@ const createInventoryValidation = (req) => {
     }
   }
 
-  for (const field of CREATE_FIELDS) {
+  for (const field of REQUIRED_CREATE_FIELDS) {
     if (
       !Object.prototype.hasOwnProperty.call(body, field) ||
       body[field] === undefined ||
@@ -107,6 +115,14 @@ const createInventoryValidation = (req) => {
 
   if (body.quantity !== undefined && body.quantity !== null && body.quantity !== '') {
     validateNonNegativeNumber(body.quantity, 'quantity', errors);
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(body, 'imageUrl') &&
+    body.imageUrl !== null &&
+    body.imageUrl !== undefined
+  ) {
+    validateStringField(body.imageUrl, 'imageUrl', errors);
   }
 
   return errors;
@@ -162,6 +178,14 @@ const updateInventoryValidation = (req) => {
 
   if (Object.prototype.hasOwnProperty.call(body, 'price')) {
     validateNonNegativeNumber(body.price, 'price', errors);
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(body, 'imageUrl') &&
+    body.imageUrl !== null &&
+    body.imageUrl !== undefined
+  ) {
+    validateStringField(body.imageUrl, 'imageUrl', errors);
   }
 
   return errors;
@@ -332,6 +356,7 @@ router.post(
   authenticate,
   authorizeRoles(ROLE_VALUES.BRANCH_MANAGER),
   validate(createInventoryValidation),
+  authorizeCreateInventoryBranch,
   createInventoryItem
 );
 
@@ -382,6 +407,7 @@ router.get(
   authenticate,
   authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.SYSTEM_ADMIN),
   validate(branchInventoryValidation),
+  authorizeBranchInventoryAccess,
   getInventoryByBranch
 );
 
@@ -442,6 +468,7 @@ router.patch(
   ),
   validate(updateInventoryValidation),
   authorizeInventoryUpdateFields,
+  authorizeInventoryItemBranch,
   updateInventoryItem
 );
 
@@ -498,6 +525,7 @@ router.patch(
   authenticate,
   authorizeRoles(ROLE_VALUES.BRANCH_MANAGER),
   validate(quantityUpdateValidation),
+  authorizeInventoryItemBranch,
   updateInventoryItemQuantity
 );
 
@@ -550,6 +578,7 @@ router.get(
     ROLE_VALUES.SYSTEM_ADMIN
   ),
   validate(reorderAlertsQueryValidation),
+  authorizeReorderAlertsBranch,
   getReorderAlerts
 );
 
@@ -600,6 +629,7 @@ router.get(
     ROLE_VALUES.SYSTEM_ADMIN
   ),
   validate(reorderAlertsQueryValidation),
+  authorizeReorderAlertsBranchParam,
   getReorderAlerts
 );
 

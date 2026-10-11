@@ -8,7 +8,7 @@ const reorderAlertService = require('./reorderAlert.service');
 const INVALID_BRANCH_REFERENCE = 'INVALID_BRANCH_REFERENCE';
 const INVALID_INVENTORY_REFERENCE = 'INVALID_INVENTORY_REFERENCE';
 
-const INVENTORY_UPDATE_FIELDS = ['branchId', 'itemName', 'category', 'brand', 'price'];
+const INVENTORY_UPDATE_FIELDS = ['branchId', 'itemName', 'category', 'brand', 'price', 'imageUrl'];
 
 function validateInventoryId(inventoryId) {
   if (!mongoose.isValidObjectId(inventoryId)) {

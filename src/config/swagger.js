@@ -389,6 +389,11 @@ const options = {
               minimum: 0,
               example: 5,
             },
+            imageUrl: {
+              type: 'string',
+              nullable: true,
+              example: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+            },
             createdAt: {
               type: 'string',
               format: 'date-time',
@@ -431,6 +436,11 @@ const options = {
               minimum: 0,
               example: 5,
             },
+            imageUrl: {
+              type: 'string',
+              nullable: true,
+              example: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+            },
           },
         },
         InventoryUpdateRequest: {
@@ -457,6 +467,11 @@ const options = {
               type: 'number',
               minimum: 0,
               example: 16000,
+            },
+            imageUrl: {
+              type: 'string',
+              nullable: true,
+              example: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
             },
           },
         },

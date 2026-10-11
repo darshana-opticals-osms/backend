@@ -8,6 +8,7 @@ const PUBLIC_PRODUCT_FIELDS = {
   category: 1,
   brand: 1,
   price: 1,
+  imageUrl: 1,
 };
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -18,6 +19,7 @@ const toPublicProduct = (product) => ({
   category: product.category,
   brand: product.brand,
   price: product.price,
+  imageUrl: product.imageUrl || null,
 });
 
 const buildCatalogFilter = ({ search, category, brand, minPrice, maxPrice } = {}) => {
