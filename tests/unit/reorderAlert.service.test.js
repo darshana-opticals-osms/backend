@@ -103,6 +103,26 @@ describe('ReorderAlert service', () => {
       expect(result.threshold).toBe(10);
       expect(result.reconciliation.totalEvaluated).toBe(1);
     });
+
+    it('should restore previous threshold in InventoryConfig if reconciliation fails midway (recovery strategy)', async () => {
+      InventoryConfig.findOne.mockResolvedValue({
+        key: 'REORDER_THRESHOLD',
+        value: 5,
+        updatedBy: 'user-orig',
+      });
+      InventoryConfig.findOneAndUpdate.mockResolvedValue({ key: 'REORDER_THRESHOLD', value: 10 });
+      Inventory.find.mockRejectedValueOnce(new Error('DB failure during reconciliation'));
+
+      await expect(setGlobalReorderThreshold(10)).rejects.toThrow(
+        'DB failure during reconciliation'
+      );
+
+      expect(InventoryConfig.findOneAndUpdate).toHaveBeenCalledWith(
+        { key: 'REORDER_THRESHOLD' },
+        { $set: { value: 5, updatedBy: 'user-orig' } },
+        { upsert: true, new: true }
+      );
+    });
   });
 
   describe('evaluateReorderAlert', () => {

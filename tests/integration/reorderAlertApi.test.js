@@ -154,6 +154,18 @@ describe('Reorder Alert Retrieval API (ADR-006 / ADR-002)', () => {
       expect(response.status).toBe(403);
     });
 
+    it('should reject BRANCH_MANAGER without an assigned branchId with 403 Forbidden (fail-closed)', async () => {
+      const token = createToken({
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: null,
+      });
+      const response = await request(app)
+        .get('/api/inventory/reorder-alerts')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(response.status).toBe(403);
+    });
+
     it('should reject CUSTOMER access with 403 Forbidden', async () => {
       const token = createToken({ role: ROLE_VALUES.CUSTOMER });
       const response = await request(app)

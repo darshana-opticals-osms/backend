@@ -207,6 +207,17 @@ describe('authorizeBranchInventory middleware', () => {
       expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
     });
 
+    it('should reject BRANCH_MANAGER without an assigned branchId (fail-closed)', () => {
+      const req = {
+        auth: { role: ROLE_VALUES.BRANCH_MANAGER, branchId: null },
+        query: {},
+      };
+
+      authorizeReorderAlertsBranch(req, {}, next);
+
+      expect(next).toHaveBeenCalledWith(expect.any(ForbiddenError));
+    });
+
     it('should allow SYSTEM_ADMIN querying without branch scoping', () => {
       const req = {
         auth: { role: ROLE_VALUES.SYSTEM_ADMIN },

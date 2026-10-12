@@ -270,6 +270,31 @@ describe('Inventory service', () => {
         statusCode: 404,
       });
     });
+
+    it('should rollback quantity and rethrow when evaluateReorderAlert fails (recovery fallback)', async () => {
+      const inventoryId = new mongoose.Types.ObjectId().toString();
+      const updatedInventory = {
+        _id: inventoryId,
+        itemName: 'Classic Frame',
+        quantity: 2,
+      };
+
+      Inventory.findById.mockResolvedValue({ _id: inventoryId, quantity: 15 });
+      Inventory.findByIdAndUpdate.mockResolvedValue(updatedInventory);
+      reorderAlertService.evaluateReorderAlert.mockRejectedValueOnce(
+        new Error('Alert DB connection error')
+      );
+
+      await expect(updateInventoryQuantity(inventoryId, 2)).rejects.toThrow(
+        'Alert DB connection error'
+      );
+
+      expect(Inventory.findByIdAndUpdate).toHaveBeenCalledWith(
+        inventoryId,
+        { $set: { quantity: 15 } },
+        { new: true, runValidators: true, context: 'query' }
+      );
+    });
   });
 
   describe('deductInventoryStock', () => {

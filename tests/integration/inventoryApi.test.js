@@ -807,5 +807,36 @@ describe('Inventory management API', () => {
       const count = await ReorderAlert.countDocuments({ inventoryId: response.body.data._id });
       expect(count).toBe(0);
     });
+
+    it('should maintain inventory quantity consistency when alert evaluation fails during quantity update', async () => {
+      const branch = await createBranch();
+      const inventory = await Inventory.create(buildInventoryPayload(branch._id, { quantity: 15 }));
+      const token = createToken({ branchId: branch._id.toString() });
+
+      const reorderAlertService = require('../../src/services/reorderAlert.service');
+      const evalSpy = jest
+        .spyOn(reorderAlertService, 'evaluateReorderAlert')
+        .mockRejectedValueOnce(new Error('Simulated alert persistence failure'));
+
+      const response = await request(app)
+        .patch(`/api/inventory/${inventory._id}/quantity`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ quantity: 2 });
+
+      expect(response.status).toBe(500);
+
+      // Verify the quantity was NOT modified and rolled back / preserved at 15
+      const persisted = await Inventory.findById(inventory._id);
+      expect(persisted.quantity).toBe(15);
+
+      // Verify no active alert was created
+      const alert = await ReorderAlert.findOne({
+        inventoryId: inventory._id,
+        status: REORDER_ALERT_STATUS.ACTIVE,
+      });
+      expect(alert).toBeNull();
+
+      evalSpy.mockRestore();
+    });
   });
 });

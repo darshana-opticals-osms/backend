@@ -40,15 +40,77 @@ async function validateBranch(branchId) {
   }
 }
 
-async function createInventory(inventoryInput = {}) {
+/**
+ * Helper to execute an operation inside a MongoDB transaction when supported by the cluster,
+ * falling back to an explicit compensation/recovery mechanism on standalone deployments.
+ */
+async function executeWithTransactionOrRecovery(transactionFn, recoveryFn) {
+  const isDbConnected = mongoose.connection && mongoose.connection.readyState === 1;
+
+  if (isDbConnected) {
+    let session = null;
+    try {
+      session = await mongoose.startSession();
+      if (session && typeof session.withTransaction === 'function') {
+        let result;
+        await session.withTransaction(async () => {
+          result = await transactionFn(session);
+        });
+        return result;
+      }
+    } catch (err) {
+      const isStandaloneUnsupported =
+        (err.name === 'MongoServerError' &&
+          (err.code === 20 ||
+            err.codeName === 'IllegalOperation' ||
+            (err.message && err.message.includes('Transaction numbers are only allowed')))) ||
+        (err.message && err.message.includes('replica set'));
+
+      if (!isStandaloneUnsupported) {
+        throw err;
+      }
+    } finally {
+      if (session && session.endSession) {
+        await session.endSession();
+      }
+    }
+  }
+
+  return recoveryFn();
+}
+
+async function createInventory(inventoryInput = {}, externalSession = null) {
   const { branchId } = inventoryInput;
 
   await validateBranch(branchId);
 
-  const createdInventory = await Inventory.create(inventoryInput);
-  await reorderAlertService.evaluateReorderAlert(createdInventory);
+  if (externalSession) {
+    const [createdInventory] = await Inventory.create([inventoryInput], {
+      session: externalSession,
+    });
+    await reorderAlertService.evaluateReorderAlert(createdInventory, null, externalSession);
+    return createdInventory;
+  }
 
-  return createdInventory;
+  return executeWithTransactionOrRecovery(
+    async (session) => {
+      const [createdInventory] = await Inventory.create([inventoryInput], { session });
+      await reorderAlertService.evaluateReorderAlert(createdInventory, null, session);
+      return createdInventory;
+    },
+    async () => {
+      const createdInventory = await Inventory.create(inventoryInput);
+      try {
+        await reorderAlertService.evaluateReorderAlert(createdInventory);
+        return createdInventory;
+      } catch (alertError) {
+        if (createdInventory && createdInventory._id && Inventory.deleteOne) {
+          await Inventory.deleteOne({ _id: createdInventory._id });
+        }
+        throw alertError;
+      }
+    }
+  );
 }
 
 async function getBranchInventory(branchId) {
@@ -98,7 +160,7 @@ async function updateInventory(inventoryId, inventoryInput = {}) {
   return updatedInventory;
 }
 
-async function updateInventoryQuantity(inventoryId, quantity) {
+async function updateInventoryQuantity(inventoryId, quantity, externalSession = null) {
   validateInventoryId(inventoryId);
 
   if (typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity < 0) {
@@ -107,23 +169,83 @@ async function updateInventoryQuantity(inventoryId, quantity) {
     });
   }
 
-  const updatedInventory = await Inventory.findByIdAndUpdate(
-    inventoryId,
-    { $set: { quantity } },
-    {
-      new: true,
-      runValidators: true,
-      context: 'query',
-    }
-  );
+  if (externalSession) {
+    const updatedInventory = await Inventory.findByIdAndUpdate(
+      inventoryId,
+      { $set: { quantity } },
+      {
+        new: true,
+        runValidators: true,
+        context: 'query',
+        session: externalSession,
+      }
+    );
 
-  if (!updatedInventory) {
-    throw new NotFoundError('Inventory item not found.');
+    if (!updatedInventory) {
+      throw new NotFoundError('Inventory item not found.');
+    }
+
+    await reorderAlertService.evaluateReorderAlert(updatedInventory, null, externalSession);
+    return updatedInventory;
   }
 
-  await reorderAlertService.evaluateReorderAlert(updatedInventory);
+  return executeWithTransactionOrRecovery(
+    async (session) => {
+      const updatedInventory = await Inventory.findByIdAndUpdate(
+        inventoryId,
+        { $set: { quantity } },
+        {
+          new: true,
+          runValidators: true,
+          context: 'query',
+          session,
+        }
+      );
 
-  return updatedInventory;
+      if (!updatedInventory) {
+        throw new NotFoundError('Inventory item not found.');
+      }
+
+      await reorderAlertService.evaluateReorderAlert(updatedInventory, null, session);
+      return updatedInventory;
+    },
+    async () => {
+      const currentDoc = await Inventory.findById(inventoryId);
+      const previousQuantity = currentDoc ? currentDoc.quantity : null;
+
+      const updatedInventory = await Inventory.findByIdAndUpdate(
+        inventoryId,
+        { $set: { quantity } },
+        {
+          new: true,
+          runValidators: true,
+          context: 'query',
+        }
+      );
+
+      if (!updatedInventory) {
+        throw new NotFoundError('Inventory item not found.');
+      }
+
+      try {
+        await reorderAlertService.evaluateReorderAlert(updatedInventory);
+        return updatedInventory;
+      } catch (alertError) {
+        if (previousQuantity !== null) {
+          await Inventory.findByIdAndUpdate(
+            inventoryId,
+            { $set: { quantity: previousQuantity } },
+            {
+              new: true,
+              runValidators: true,
+              context: 'query',
+            }
+          );
+        }
+        throw alertError;
+      }
+    }
+  );
 }
 
 /**

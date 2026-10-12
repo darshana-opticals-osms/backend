@@ -74,13 +74,19 @@ const authorizeReorderAlertsBranch = (req, _res, next) => {
   const { role, branchId } = req.auth || {};
 
   if (role === ROLE_VALUES.BRANCH_MANAGER) {
+    if (!branchId) {
+      return next(
+        new ForbiddenError('Branch Managers may only view alerts for their assigned branch.')
+      );
+    }
+
     if (req.query && req.query.branchId) {
-      if (!branchId || req.query.branchId.toString() !== branchId.toString()) {
+      if (req.query.branchId.toString() !== branchId.toString()) {
         return next(
           new ForbiddenError('Branch Managers may only view alerts for their assigned branch.')
         );
       }
-    } else if (branchId) {
+    } else {
       req.query = req.query || {};
       req.query.branchId = branchId.toString();
     }

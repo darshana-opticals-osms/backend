@@ -30,16 +30,84 @@ async function getGlobalReorderThreshold(session = null) {
 
 /**
  * Sets the global reorder threshold and reconciles all inventory records.
+ * Ensures consistent threshold and alert state using transaction atomicity when supported,
+ * and an explicit rollback/recovery mechanism on standalone deployments.
  * @param {number} newThreshold
  * @param {string|mongoose.Types.ObjectId|null} [updatedBy=null]
+ * @param {import('mongoose').ClientSession|null} [externalSession=null]
  * @returns {Promise<{ threshold: number, reconciliation: { totalEvaluated: number } }>}
  */
-async function setGlobalReorderThreshold(newThreshold, updatedBy = null) {
+async function setGlobalReorderThreshold(newThreshold, updatedBy = null, externalSession = null) {
   if (typeof newThreshold !== 'number' || !Number.isFinite(newThreshold) || newThreshold < 0) {
     throw new ValidationError('Reorder threshold must be a non-negative number.', {
       field: 'threshold',
     });
   }
+
+  // 1. Caller-provided session: execute within caller's transaction
+  if (externalSession) {
+    await InventoryConfig.findOneAndUpdate(
+      { key: REORDER_THRESHOLD_KEY },
+      { $set: { value: newThreshold, updatedBy } },
+      { upsert: true, new: true, runValidators: true, session: externalSession }
+    );
+
+    const reconciliation = await reconcileAllInventories(newThreshold, externalSession);
+
+    return {
+      threshold: newThreshold,
+      reconciliation,
+    };
+  }
+
+  // 2. Transaction atomicity when DB connected with transaction support
+  const isDbConnected = mongoose.connection && mongoose.connection.readyState === 1;
+  if (isDbConnected) {
+    let session = null;
+    try {
+      session = await mongoose.startSession();
+      if (session && typeof session.withTransaction === 'function') {
+        let result;
+        await session.withTransaction(async () => {
+          await InventoryConfig.findOneAndUpdate(
+            { key: REORDER_THRESHOLD_KEY },
+            { $set: { value: newThreshold, updatedBy } },
+            { upsert: true, new: true, runValidators: true, session }
+          );
+
+          const reconciliation = await reconcileAllInventories(newThreshold, session);
+
+          result = {
+            threshold: newThreshold,
+            reconciliation,
+          };
+        });
+
+        return result;
+      }
+    } catch (err) {
+      const isStandaloneUnsupported =
+        (err.name === 'MongoServerError' &&
+          (err.code === 20 ||
+            err.codeName === 'IllegalOperation' ||
+            (err.message && err.message.includes('Transaction numbers are only allowed')))) ||
+        (err.message && err.message.includes('replica set'));
+
+      if (!isStandaloneUnsupported) {
+        throw err;
+      }
+    } finally {
+      if (session && session.endSession) {
+        await session.endSession();
+      }
+    }
+  }
+
+  // 3. Recovery strategy fallback for standalone MongoDB or mocked unit test environments:
+  const previousConfig = await InventoryConfig.findOne({ key: REORDER_THRESHOLD_KEY });
+  const hasPreviousConfig = previousConfig !== null;
+  const previousThreshold = hasPreviousConfig ? previousConfig.value : null;
+  const previousUpdatedBy = hasPreviousConfig ? previousConfig.updatedBy : null;
 
   await InventoryConfig.findOneAndUpdate(
     { key: REORDER_THRESHOLD_KEY },
@@ -47,12 +115,24 @@ async function setGlobalReorderThreshold(newThreshold, updatedBy = null) {
     { upsert: true, new: true, runValidators: true }
   );
 
-  const reconciliation = await reconcileAllInventories(newThreshold);
-
-  return {
-    threshold: newThreshold,
-    reconciliation,
-  };
+  try {
+    const reconciliation = await reconcileAllInventories(newThreshold);
+    return {
+      threshold: newThreshold,
+      reconciliation,
+    };
+  } catch (reconciliationError) {
+    if (hasPreviousConfig) {
+      await InventoryConfig.findOneAndUpdate(
+        { key: REORDER_THRESHOLD_KEY },
+        { $set: { value: previousThreshold, updatedBy: previousUpdatedBy } },
+        { upsert: true, new: true }
+      );
+    } else {
+      await InventoryConfig.deleteOne({ key: REORDER_THRESHOLD_KEY });
+    }
+    throw reconciliationError;
+  }
 }
 
 /**
@@ -149,7 +229,7 @@ async function reconcileAllInventories(threshold = null, session = null) {
   const items = await query;
 
   for (const item of items) {
-    await evaluateReorderAlert(item, effectiveThreshold, session);
+    await module.exports.evaluateReorderAlert(item, effectiveThreshold, session);
   }
 
   return { totalEvaluated: items.length };

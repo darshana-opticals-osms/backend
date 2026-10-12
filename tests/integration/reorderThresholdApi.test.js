@@ -328,5 +328,63 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
       expect(resolvedAlertB).not.toBeNull();
       expect(resolvedAlertB.resolvedAt).toBeInstanceOf(Date);
     });
+
+    it('should restore threshold and ensure consistency when reconciliation fails midway', async () => {
+      const reorderAlertService = require('../../src/services/reorderAlert.service');
+
+      // Set initial threshold to 5
+      await InventoryConfig.create({
+        key: 'REORDER_THRESHOLD',
+        value: 5,
+      });
+
+      // Create two inventory items
+      await Inventory.create({
+        branchId: branch._id,
+        itemName: 'Reconcile Item 1',
+        category: 'Frames',
+        brand: 'Brand 1',
+        price: 5000,
+        quantity: 4,
+      });
+
+      await Inventory.create({
+        branchId: branch._id,
+        itemName: 'Reconcile Item 2',
+        category: 'Frames',
+        brand: 'Brand 2',
+        price: 6000,
+        quantity: 4,
+      });
+
+      let evaluationCount = 0;
+      const originalEvaluate = reorderAlertService.evaluateReorderAlert;
+      const evalSpy = jest
+        .spyOn(reorderAlertService, 'evaluateReorderAlert')
+        .mockImplementation(async (...args) => {
+          evaluationCount += 1;
+          if (evaluationCount === 2) {
+            throw new Error('Midway reconciliation network error');
+          }
+          return originalEvaluate(...args);
+        });
+
+      const token = createToken({
+        role: ROLE_VALUES.SYSTEM_ADMIN,
+      });
+
+      const response = await request(app)
+        .put('/api/inventory/reorder-threshold')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ threshold: 10 });
+
+      expect(response.status).toBe(500);
+
+      // Verify the global threshold was restored to 5 (not left at 10)
+      const config = await InventoryConfig.findOne({ key: 'REORDER_THRESHOLD' });
+      expect(config.value).toBe(5);
+
+      evalSpy.mockRestore();
+    });
   });
 });
