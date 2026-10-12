@@ -156,7 +156,7 @@ describe('ReorderAlert service', () => {
       expect(mockSession.endSession).toHaveBeenCalled();
     });
 
-    it('should reject threshold update with 500 TRANSACTION_REQUIRED when MongoDB deployment does not support transactions (regression test)', async () => {
+    it('should reject threshold update with client-safe error when MongoDB deployment does not support transactions (DDP-052 AC24 regression test)', async () => {
       const unsupportedErr = new Error(
         'Transaction numbers are only allowed on a replica set member or mongos'
       );
@@ -168,7 +168,8 @@ describe('ReorderAlert service', () => {
 
       await expect(setGlobalReorderThreshold(10)).rejects.toMatchObject({
         statusCode: 500,
-        errorCode: 'TRANSACTION_REQUIRED',
+        message: 'Reorder threshold update is currently unavailable.',
+        errorCode: 'THRESHOLD_UPDATE_UNAVAILABLE',
       });
 
       expect(mockSession.endSession).toHaveBeenCalled();

@@ -74,11 +74,14 @@ async function setGlobalReorderThreshold(newThreshold, updatedBy = null, externa
       (err.message && err.message.includes('replica set'));
 
     if (isStandaloneUnsupported) {
+      console.warn(
+        '[ReorderAlertService] Reorder threshold reconciliation requires a transaction-capable MongoDB deployment (replica set). Standalone deployment is unsupported.'
+      );
       throw new AppError(
-        'Reorder threshold reconciliation requires a transaction-capable MongoDB deployment (replica set) to guarantee atomic multi-document consistency without destructive collection-wide rollback.',
+        'Reorder threshold update is currently unavailable.',
         500,
         null,
-        'TRANSACTION_REQUIRED',
+        'THRESHOLD_UPDATE_UNAVAILABLE',
         true
       );
     }
@@ -86,11 +89,15 @@ async function setGlobalReorderThreshold(newThreshold, updatedBy = null, externa
   }
 
   if (!session || typeof session.withTransaction !== 'function') {
+    console.warn(
+      '[ReorderAlertService] Reorder threshold reconciliation requires a transaction-capable MongoDB deployment (replica set). Session with transaction is unsupported.'
+    );
     throw new AppError(
-      'Reorder threshold reconciliation requires a transaction-capable MongoDB deployment (replica set) to guarantee atomic multi-document consistency without destructive collection-wide rollback.',
+      'Reorder threshold update is currently unavailable.',
       500,
       null,
-      'TRANSACTION_REQUIRED'
+      'THRESHOLD_UPDATE_UNAVAILABLE',
+      true
     );
   }
 
@@ -121,11 +128,14 @@ async function setGlobalReorderThreshold(newThreshold, updatedBy = null, externa
       (err.message && err.message.includes('replica set'));
 
     if (isStandaloneUnsupported) {
+      console.warn(
+        '[ReorderAlertService] Reorder threshold reconciliation requires a transaction-capable MongoDB deployment (replica set). Standalone deployment is unsupported.'
+      );
       throw new AppError(
-        'Reorder threshold reconciliation requires a transaction-capable MongoDB deployment (replica set) to guarantee atomic multi-document consistency without destructive collection-wide rollback.',
+        'Reorder threshold update is currently unavailable.',
         500,
         null,
-        'TRANSACTION_REQUIRED',
+        'THRESHOLD_UPDATE_UNAVAILABLE',
         true
       );
     }

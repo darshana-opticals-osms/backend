@@ -474,7 +474,7 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
       evalSpy.mockRestore();
     });
 
-    it('should safely reject threshold update with 500 TRANSACTION_REQUIRED when MongoDB deployment does not support transactions (regression test)', async () => {
+    it('should safely reject threshold update with a generic client-safe error without exposing database internals or infrastructure details (DDP-052 AC24 regression test)', async () => {
       const unsupportedErr = new Error(
         'Transaction numbers are only allowed on a replica set member or mongos'
       );
@@ -494,8 +494,18 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
         .send({ threshold: 10 });
 
       expect(response.status).toBe(500);
-      expect(response.body.error.code).toBe('TRANSACTION_REQUIRED');
-      expect(response.body.error.message).toMatch(/transaction-capable MongoDB deployment/);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error.message).toBe(
+        'Reorder threshold update is currently unavailable.'
+      );
+      expect(response.body.error.code).toBe('THRESHOLD_UPDATE_UNAVAILABLE');
+
+      // DDP-052 AC24: ensure client response does not leak internal MongoDB, replica set, transaction details, or stack trace
+      const rawBody = JSON.stringify(response.body);
+      expect(rawBody).not.toMatch(/mongodb/i);
+      expect(rawBody).not.toMatch(/replica\s*set/i);
+      expect(rawBody).not.toMatch(/transaction/i);
+      expect(response.body.error.stack).toBeUndefined();
 
       sessionSpy.mockRestore();
     });
