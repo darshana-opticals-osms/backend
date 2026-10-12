@@ -10,7 +10,7 @@ const {
  *
  * Returns Orders accessible to caller:
  * - CUSTOMER: Returns only orders owned by the authenticated customer.
- * - Staff (BRANCH_MANAGER, SYSTEM_ADMIN):
+ * - Staff (SALES_ASSISTANT_CASHIER):
  *   Returns all orders in reverse chronological order for tracking and fulfillment.
  *
  * AC1, AC2, AC6, ADR-004 §12, §13.
@@ -28,7 +28,7 @@ const getOrders = catchAsync(async (req, res) => {
  *
  * Returns a single Order with its OrderItems:
  * - CUSTOMER: Enforces customer ownership (scoped lookup to prevent IDOR).
- * - Staff (BRANCH_MANAGER, SYSTEM_ADMIN):
+ * - Staff (SALES_ASSISTANT_CASHIER):
  *   Returns tracking information and line items for the requested order.
  *
  * AC3, AC4, AC5, AC6, AC9, ADR-004 §12, §13.

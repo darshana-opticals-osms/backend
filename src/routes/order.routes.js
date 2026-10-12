@@ -82,7 +82,7 @@ const router = express.Router();
  *   get:
  *     summary: Retrieve order history or fulfillment orders
  *     description: >
- *       Accessible to CUSTOMER and authorized staff (BRANCH_MANAGER, SYSTEM_ADMIN) per ADR-004 §12, §13.
+ *       Accessible to CUSTOMER and authorized branch staff (SALES_ASSISTANT_CASHIER) per ADR-004 §12, §13.
  *
  *       For CUSTOMER: Returns only Orders owned by the authenticated Customer,
  *       ordered newest-first. Customer identity is derived from the JWT (AC1, AC17).
@@ -127,7 +127,7 @@ router.get('/orders', authenticate, authorizeRoles(...ALL_ORDER_VIEW_ROLES), get
  *   get:
  *     summary: Retrieve a single Order and its tracking details
  *     description: >
- *       Accessible to CUSTOMER and authorized staff (BRANCH_MANAGER, SYSTEM_ADMIN) per ADR-004 §12, §13.
+ *       Accessible to CUSTOMER and authorized branch staff (SALES_ASSISTANT_CASHIER) per ADR-004 §12, §13.
  *
  *       For CUSTOMER: Returns the specified Order and its OrderItems only if
  *       the Order is owned by the authenticated Customer. Ownership is enforced
@@ -194,7 +194,7 @@ router.get(
  *   patch:
  *     summary: Update an Order's canonical tracking status
  *     description: >
- *       Authorized staff only (BRANCH_MANAGER, SYSTEM_ADMIN).
+ *       Authorized branch staff only (SALES_ASSISTANT_CASHIER).
  *       Validates canonical status value, ensures transition is permitted by
  *       the authoritative ADR-004 lifecycle matrix, and rejects changes to
  *       terminal states (COMPLETED, CANCELLED).

@@ -702,7 +702,7 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
   });
 
   describe('getOrders with staff roles', () => {
-    it('retrieves all orders without customerId filter for SYSTEM_ADMIN', async () => {
+    it('retrieves all orders without customerId filter for SALES_ASSISTANT_CASHIER', async () => {
       const mockOrders = [makeOrder()];
       Order.find.mockReturnValue({
         sort: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(mockOrders) }),
@@ -710,7 +710,7 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
 
       const results = await getOrders({
         userId: STAFF_ID_STR,
-        role: ROLE_VALUES.SYSTEM_ADMIN,
+        role: ROLE_VALUES.SALES_ASSISTANT_CASHIER,
       });
 
       expect(Order.find).toHaveBeenCalledWith({});
@@ -718,55 +718,30 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
       expect(results[0].id).toBe(ORDER_ID_STR);
     });
 
-    it('retrieves all orders for BRANCH_MANAGER', async () => {
-      Order.find.mockReturnValue({
-        sort: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }),
-      });
-
-      const results = await getOrders({
-        userId: STAFF_ID_STR,
-        role: ROLE_VALUES.BRANCH_MANAGER,
-      });
-
-      expect(Order.find).toHaveBeenCalledWith({});
-      expect(results).toEqual([]);
-    });
-
-    it('rejects unauthorized roles with ValidationError', async () => {
-      await expect(
-        getOrders({ userId: STAFF_ID_STR, role: ROLE_VALUES.OPTOMETRIST })
-      ).rejects.toThrow(ValidationError);
-    });
+    it.each([ROLE_VALUES.SYSTEM_ADMIN, ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.OPTOMETRIST])(
+      'rejects unauthorized role %s with ValidationError',
+      async (unauthorizedRole) => {
+        await expect(getOrders({ userId: STAFF_ID_STR, role: unauthorizedRole })).rejects.toThrow(
+          ValidationError
+        );
+      }
+    );
   });
 
   describe('getOrderById with staff roles', () => {
-    it('retrieves any order by ID for SYSTEM_ADMIN', async () => {
+    it('retrieves any order by ID for SALES_ASSISTANT_CASHIER', async () => {
       Order.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(makeOrder()) });
       OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([makeItem()]) });
 
       const result = await getOrderById({
         orderId: ORDER_ID_STR,
         userId: STAFF_ID_STR,
-        role: ROLE_VALUES.SYSTEM_ADMIN,
+        role: ROLE_VALUES.SALES_ASSISTANT_CASHIER,
       });
 
       expect(Order.findById).toHaveBeenCalledWith(ORDER_ID_STR);
       expect(result.id).toBe(ORDER_ID_STR);
       expect(result.items).toHaveLength(1);
-    });
-
-    it('retrieves any order by ID for BRANCH_MANAGER', async () => {
-      Order.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(makeOrder()) });
-      OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) });
-
-      const result = await getOrderById({
-        orderId: ORDER_ID_STR,
-        userId: STAFF_ID_STR,
-        role: ROLE_VALUES.BRANCH_MANAGER,
-      });
-
-      expect(Order.findById).toHaveBeenCalledWith(ORDER_ID_STR);
-      expect(result.id).toBe(ORDER_ID_STR);
     });
 
     it('throws NotFoundError if order does not exist', async () => {
@@ -776,19 +751,22 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
         getOrderById({
           orderId: ORDER_ID_STR,
           userId: STAFF_ID_STR,
-          role: ROLE_VALUES.SYSTEM_ADMIN,
+          role: ROLE_VALUES.SALES_ASSISTANT_CASHIER,
         })
       ).rejects.toThrow(NotFoundError);
     });
 
-    it('rejects unauthorized roles with ValidationError', async () => {
-      await expect(
-        getOrderById({
-          orderId: ORDER_ID_STR,
-          userId: STAFF_ID_STR,
-          role: ROLE_VALUES.OPTOMETRIST,
-        })
-      ).rejects.toThrow(ValidationError);
-    });
+    it.each([ROLE_VALUES.SYSTEM_ADMIN, ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.OPTOMETRIST])(
+      'rejects unauthorized role %s with ValidationError',
+      async (unauthorizedRole) => {
+        await expect(
+          getOrderById({
+            orderId: ORDER_ID_STR,
+            userId: STAFF_ID_STR,
+            role: unauthorizedRole,
+          })
+        ).rejects.toThrow(ValidationError);
+      }
+    );
   });
 });

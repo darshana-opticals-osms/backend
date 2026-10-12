@@ -127,12 +127,16 @@ describe('TERMINAL_ORDER_STATUSES', () => {
 // ─── Authorized Roles ─────────────────────────────────────────────────────────
 
 describe('ORDER_STATUS_UPDATE_ROLES', () => {
-  it('includes BRANCH_MANAGER', () => {
-    expect(ORDER_STATUS_UPDATE_ROLES).toContain(ROLE_VALUES.BRANCH_MANAGER);
+  it('includes SALES_ASSISTANT_CASHIER', () => {
+    expect(ORDER_STATUS_UPDATE_ROLES).toContain(ROLE_VALUES.SALES_ASSISTANT_CASHIER);
   });
 
-  it('includes SYSTEM_ADMIN', () => {
-    expect(ORDER_STATUS_UPDATE_ROLES).toContain(ROLE_VALUES.SYSTEM_ADMIN);
+  it('does not include BRANCH_MANAGER', () => {
+    expect(ORDER_STATUS_UPDATE_ROLES).not.toContain(ROLE_VALUES.BRANCH_MANAGER);
+  });
+
+  it('does not include SYSTEM_ADMIN', () => {
+    expect(ORDER_STATUS_UPDATE_ROLES).not.toContain(ROLE_VALUES.SYSTEM_ADMIN);
   });
 
   it('does not include CUSTOMER (customers cannot update status)', () => {
@@ -143,26 +147,30 @@ describe('ORDER_STATUS_UPDATE_ROLES', () => {
     expect(ORDER_STATUS_UPDATE_ROLES).not.toContain(ROLE_VALUES.OPTOMETRIST);
   });
 
-  it('does not include SALES_ASSISTANT_CASHIER', () => {
-    expect(ORDER_STATUS_UPDATE_ROLES).not.toContain(ROLE_VALUES.SALES_ASSISTANT_CASHIER);
-  });
-
   it('is frozen', () => {
     expect(Object.isFrozen(ORDER_STATUS_UPDATE_ROLES)).toBe(true);
   });
 });
 
 describe('ORDER_TRACKING_VIEW_ROLES', () => {
-  it('includes BRANCH_MANAGER', () => {
-    expect(ORDER_TRACKING_VIEW_ROLES).toContain(ROLE_VALUES.BRANCH_MANAGER);
+  it('includes SALES_ASSISTANT_CASHIER', () => {
+    expect(ORDER_TRACKING_VIEW_ROLES).toContain(ROLE_VALUES.SALES_ASSISTANT_CASHIER);
   });
 
-  it('includes SYSTEM_ADMIN', () => {
-    expect(ORDER_TRACKING_VIEW_ROLES).toContain(ROLE_VALUES.SYSTEM_ADMIN);
+  it('does not include BRANCH_MANAGER', () => {
+    expect(ORDER_TRACKING_VIEW_ROLES).not.toContain(ROLE_VALUES.BRANCH_MANAGER);
+  });
+
+  it('does not include SYSTEM_ADMIN', () => {
+    expect(ORDER_TRACKING_VIEW_ROLES).not.toContain(ROLE_VALUES.SYSTEM_ADMIN);
   });
 
   it('does not include CUSTOMER (customer uses own-resource endpoint)', () => {
     expect(ORDER_TRACKING_VIEW_ROLES).not.toContain(ROLE_VALUES.CUSTOMER);
+  });
+
+  it('does not include OPTOMETRIST', () => {
+    expect(ORDER_TRACKING_VIEW_ROLES).not.toContain(ROLE_VALUES.OPTOMETRIST);
   });
 
   it('is frozen', () => {
