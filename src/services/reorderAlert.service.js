@@ -185,7 +185,9 @@ async function getActiveReorderAlerts({ branchId = null, page = 1, limit = 50 } 
     ReorderAlert.countDocuments(filter),
   ]);
 
-  const validAlerts = alerts.filter((alert) => alert.inventoryId && alert.branchId);
+  const validAlerts = alerts.filter(
+    (alert) => alert.inventoryId !== null && alert.branchId !== null
+  );
 
   return {
     alerts: validAlerts,
