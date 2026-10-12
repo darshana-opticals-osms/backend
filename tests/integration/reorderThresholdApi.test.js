@@ -129,8 +129,20 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
       expect(response.body.data.threshold).toBe(8);
     });
 
-    it('should reject SYSTEM_ADMIN from updating threshold', async () => {
+    it('should allow SYSTEM_ADMIN to update the reorder threshold', async () => {
       const token = createToken({ role: ROLE_VALUES.SYSTEM_ADMIN });
+      const response = await request(app)
+        .put('/api/inventory/reorder-threshold')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ threshold: 10 });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.threshold).toBe(10);
+    });
+
+    it('should reject OPTOMETRIST from updating threshold with 403 Forbidden', async () => {
+      const token = createToken({ role: ROLE_VALUES.OPTOMETRIST });
       const response = await request(app)
         .put('/api/inventory/reorder-threshold')
         .set('Authorization', `Bearer ${token}`)

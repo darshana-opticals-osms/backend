@@ -638,7 +638,7 @@ router.get(
  *         $ref: '#/components/responses/Forbidden'
  *   put:
  *     summary: Update the global inventory reorder threshold
- *     description: Updates the authoritative reorder threshold and automatically triggers reconciliation across all existing inventory records. Restricted strictly to BRANCH_MANAGER.
+ *     description: Updates the authoritative reorder threshold and automatically triggers reconciliation across all existing inventory records. Permitted roles are BRANCH_MANAGER and SYSTEM_ADMIN.
  *     tags:
  *       - Inventory
  *     security:
@@ -676,7 +676,7 @@ router.get(
 router.put(
   '/inventory/reorder-threshold',
   authenticate,
-  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER),
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.SYSTEM_ADMIN),
   validate(reorderThresholdValidation),
   updateReorderThreshold
 );
