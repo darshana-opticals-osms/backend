@@ -7,7 +7,7 @@ const {
   DEFAULT_REORDER_THRESHOLD,
   REMINDER_CONFIG,
 } = require('../constants/inventoryAlert.constants');
-const { ValidationError } = require('../errors/AppError');
+const { AppError, ValidationError } = require('../errors/AppError');
 
 const REORDER_THRESHOLD_KEY = 'REORDER_THRESHOLD';
 
@@ -30,8 +30,9 @@ async function getGlobalReorderThreshold(session = null) {
 
 /**
  * Sets the global reorder threshold and reconciles all inventory records.
- * Ensures consistent threshold and alert state using transaction atomicity when supported,
- * and an explicit rollback/recovery mechanism on standalone deployments.
+ * Ensures consistent threshold and alert state using atomic MongoDB transactions.
+ * Requires a transaction-capable deployment (replica set) to guarantee consistency
+ * without destructive collection-wide snapshot rollbacks.
  * @param {number} newThreshold
  * @param {string|mongoose.Types.ObjectId|null} [updatedBy=null]
  * @param {import('mongoose').ClientSession|null} [externalSession=null]
@@ -60,161 +61,79 @@ async function setGlobalReorderThreshold(newThreshold, updatedBy = null, externa
     };
   }
 
-  // 2. Transaction atomicity when DB connected with transaction support
-  const isDbConnected = mongoose.connection && mongoose.connection.readyState === 1;
-  if (isDbConnected) {
-    let session = null;
-    try {
-      session = await mongoose.startSession();
-      if (session && typeof session.withTransaction === 'function') {
-        let result;
-        await session.withTransaction(async () => {
-          await InventoryConfig.findOneAndUpdate(
-            { key: REORDER_THRESHOLD_KEY },
-            { $set: { value: newThreshold, updatedBy } },
-            { upsert: true, new: true, runValidators: true, session }
-          );
+  // 2. Transaction atomicity: start session and execute withTransaction
+  let session = null;
+  try {
+    session = await mongoose.startSession();
+  } catch (err) {
+    const isStandaloneUnsupported =
+      (err.name === 'MongoServerError' &&
+        (err.code === 20 ||
+          err.codeName === 'IllegalOperation' ||
+          (err.message && err.message.includes('Transaction numbers are only allowed')))) ||
+      (err.message && err.message.includes('replica set'));
 
-          const reconciliation = await reconcileAllInventories(newThreshold, session);
-
-          result = {
-            threshold: newThreshold,
-            reconciliation,
-          };
-        });
-
-        return result;
-      }
-    } catch (err) {
-      const isStandaloneUnsupported =
-        (err.name === 'MongoServerError' &&
-          (err.code === 20 ||
-            err.codeName === 'IllegalOperation' ||
-            (err.message && err.message.includes('Transaction numbers are only allowed')))) ||
-        (err.message && err.message.includes('replica set'));
-
-      if (!isStandaloneUnsupported) {
-        throw err;
-      }
-    } finally {
-      if (session && session.endSession) {
-        await session.endSession();
-      }
+    if (isStandaloneUnsupported) {
+      throw new AppError(
+        'Reorder threshold reconciliation requires a transaction-capable MongoDB deployment (replica set) to guarantee atomic multi-document consistency without destructive collection-wide rollback.',
+        500,
+        null,
+        'TRANSACTION_REQUIRED',
+        true
+      );
     }
+    throw err;
   }
 
-  // 3. Recovery strategy fallback for standalone MongoDB or mocked unit test environments:
-  const previousConfig = await InventoryConfig.findOne({ key: REORDER_THRESHOLD_KEY });
-  const hasPreviousConfig = previousConfig !== null;
-  const previousThreshold = hasPreviousConfig ? previousConfig.value : null;
-  const previousUpdatedBy = hasPreviousConfig ? previousConfig.updatedBy : null;
-
-  const alertSnapshot = await captureAlertSnapshot();
-
-  await InventoryConfig.findOneAndUpdate(
-    { key: REORDER_THRESHOLD_KEY },
-    { $set: { value: newThreshold, updatedBy } },
-    { upsert: true, new: true, runValidators: true }
-  );
+  if (!session || typeof session.withTransaction !== 'function') {
+    throw new AppError(
+      'Reorder threshold reconciliation requires a transaction-capable MongoDB deployment (replica set) to guarantee atomic multi-document consistency without destructive collection-wide rollback.',
+      500,
+      null,
+      'TRANSACTION_REQUIRED'
+    );
+  }
 
   try {
-    const reconciliation = await reconcileAllInventories(newThreshold);
-    return {
-      threshold: newThreshold,
-      reconciliation,
-    };
-  } catch (reconciliationError) {
-    if (hasPreviousConfig) {
+    let result;
+    await session.withTransaction(async () => {
       await InventoryConfig.findOneAndUpdate(
         { key: REORDER_THRESHOLD_KEY },
-        { $set: { value: previousThreshold, updatedBy: previousUpdatedBy } },
-        { upsert: true, new: true }
+        { $set: { value: newThreshold, updatedBy } },
+        { upsert: true, new: true, runValidators: true, session }
       );
-    } else {
-      await InventoryConfig.deleteOne({ key: REORDER_THRESHOLD_KEY });
+
+      const reconciliation = await reconcileAllInventories(newThreshold, session);
+
+      result = {
+        threshold: newThreshold,
+        reconciliation,
+      };
+    });
+
+    return result;
+  } catch (err) {
+    const isStandaloneUnsupported =
+      (err.name === 'MongoServerError' &&
+        (err.code === 20 ||
+          err.codeName === 'IllegalOperation' ||
+          (err.message && err.message.includes('Transaction numbers are only allowed')))) ||
+      (err.message && err.message.includes('replica set'));
+
+    if (isStandaloneUnsupported) {
+      throw new AppError(
+        'Reorder threshold reconciliation requires a transaction-capable MongoDB deployment (replica set) to guarantee atomic multi-document consistency without destructive collection-wide rollback.',
+        500,
+        null,
+        'TRANSACTION_REQUIRED',
+        true
+      );
     }
 
-    await restoreAlertSnapshot(alertSnapshot);
-
-    throw reconciliationError;
-  }
-}
-
-/**
- * Captures a snapshot of current reorder alerts before reconciliation.
- * Used for standalone fallback rollback if reconciliation fails midway.
- * @returns {Promise<object[]>}
- */
-async function captureAlertSnapshot() {
-  if (!ReorderAlert || typeof ReorderAlert.find !== 'function') {
-    return [];
-  }
-  let query = null;
-  try {
-    query = ReorderAlert.find({});
-  } catch {
-    return [];
-  }
-
-  let rawAlerts = [];
-  if (query && typeof query.lean === 'function') {
-    rawAlerts = await query.lean();
-  } else if (query && typeof query.then === 'function') {
-    rawAlerts = await query;
-  } else if (Array.isArray(query)) {
-    rawAlerts = query;
-  }
-
-  if (!Array.isArray(rawAlerts)) {
-    return [];
-  }
-
-  return rawAlerts.map((doc) => {
-    if (doc && typeof doc.toObject === 'function') {
-      return doc.toObject();
-    }
-    return { ...doc };
-  });
-}
-
-/**
- * Restores reorder alert state to snapshot upon reconciliation failure.
- * @param {object[]} snapshotAlerts
- * @returns {Promise<void>}
- */
-async function restoreAlertSnapshot(snapshotAlerts) {
-  if (!ReorderAlert) {
-    return;
-  }
-
-  const snapshotList = Array.isArray(snapshotAlerts) ? snapshotAlerts : [];
-  const snapshotIds = snapshotList.map((alert) => alert._id).filter(Boolean);
-
-  // 1. Remove alerts that were created during the failed reconciliation
-  if (typeof ReorderAlert.deleteMany === 'function') {
-    if (snapshotIds.length > 0) {
-      await ReorderAlert.deleteMany({ _id: { $nin: snapshotIds } });
-    } else {
-      await ReorderAlert.deleteMany({});
-    }
-  }
-
-  // 2. Restore alerts that existed prior to reconciliation back to their original state
-  for (const alert of snapshotList) {
-    const updatePayload = {
-      $set: {
-        currentQuantity: alert.currentQuantity,
-        threshold: alert.threshold,
-        status: alert.status,
-        resolvedAt: alert.resolvedAt || null,
-        lastReminderSentAt: alert.lastReminderSentAt || null,
-      },
-    };
-
-    if (typeof ReorderAlert.findByIdAndUpdate === 'function') {
-      await ReorderAlert.findByIdAndUpdate(alert._id, updatePayload, { new: true });
-    } else if (typeof ReorderAlert.findOneAndUpdate === 'function') {
-      await ReorderAlert.findOneAndUpdate({ _id: alert._id }, updatePayload, { new: true });
+    throw err;
+  } finally {
+    if (session && session.endSession) {
+      await session.endSession();
     }
   }
 }

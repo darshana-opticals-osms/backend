@@ -20,14 +20,11 @@ jest.mock('../../src/models/reorderAlert.model', () => ({
   find: jest.fn(),
   create: jest.fn(),
   countDocuments: jest.fn(),
-  deleteMany: jest.fn(),
-  findByIdAndUpdate: jest.fn(),
 }));
 
 jest.mock('../../src/models/inventoryConfig.model', () => ({
   findOne: jest.fn(),
   findOneAndUpdate: jest.fn(),
-  deleteOne: jest.fn(),
 }));
 
 jest.mock('../../src/models/inventory.model', () => ({
@@ -68,6 +65,22 @@ describe('ReorderAlert service', () => {
   });
 
   describe('setGlobalReorderThreshold', () => {
+    let mockSession;
+
+    beforeEach(() => {
+      mockSession = {
+        withTransaction: jest.fn(async (fn) => fn()),
+        endSession: jest.fn().mockResolvedValue(undefined),
+      };
+      jest.spyOn(mongoose, 'startSession').mockResolvedValue(mockSession);
+    });
+
+    afterEach(() => {
+      if (mongoose.startSession.mockRestore) {
+        mongoose.startSession.mockRestore();
+      }
+    });
+
     it('should reject a negative threshold value', async () => {
       await expect(setGlobalReorderThreshold(-1)).rejects.toMatchObject({
         statusCode: 422,
@@ -84,79 +97,81 @@ describe('ReorderAlert service', () => {
       expect(InventoryConfig.findOneAndUpdate).not.toHaveBeenCalled();
     });
 
-    it('should update threshold and reconcile all inventory records', async () => {
+    const makeMockQuery = (resolvedValue) => ({
+      session: jest.fn().mockReturnThis(),
+      then: (onFulfilled, onRejected) =>
+        Promise.resolve(resolvedValue).then(onFulfilled, onRejected),
+    });
+
+    it('should execute threshold update within caller-provided external session', async () => {
+      const externalSession = { id: 'ext-session-1' };
       InventoryConfig.findOneAndUpdate.mockResolvedValue({ key: 'REORDER_THRESHOLD', value: 10 });
-      Inventory.find.mockResolvedValue([
-        {
-          _id: new mongoose.Types.ObjectId(),
-          branchId: new mongoose.Types.ObjectId(),
-          quantity: 5,
-        },
-      ]);
-      ReorderAlert.find.mockReturnValue({
-        lean: jest.fn().mockResolvedValue([]),
-      });
-      ReorderAlert.findOne.mockResolvedValue(null);
-      ReorderAlert.create.mockResolvedValue({ status: REORDER_ALERT_STATUS.ACTIVE });
+      Inventory.find.mockReturnValue(makeMockQuery([]));
+
+      const result = await setGlobalReorderThreshold(10, 'admin-1', externalSession);
+
+      expect(InventoryConfig.findOneAndUpdate).toHaveBeenCalledWith(
+        { key: 'REORDER_THRESHOLD' },
+        { $set: { value: 10, updatedBy: 'admin-1' } },
+        { upsert: true, new: true, runValidators: true, session: externalSession }
+      );
+      expect(result.threshold).toBe(10);
+      expect(mongoose.startSession).not.toHaveBeenCalled();
+    });
+
+    it('should update threshold and reconcile all inventory records inside a transaction session', async () => {
+      InventoryConfig.findOneAndUpdate.mockResolvedValue({ key: 'REORDER_THRESHOLD', value: 10 });
+      const inventoryItem = {
+        _id: new mongoose.Types.ObjectId(),
+        branchId: new mongoose.Types.ObjectId(),
+        quantity: 5,
+      };
+      Inventory.find.mockReturnValue(makeMockQuery([inventoryItem]));
+      ReorderAlert.findOne.mockReturnValue(makeMockQuery(null));
+      ReorderAlert.create.mockResolvedValue([{ status: REORDER_ALERT_STATUS.ACTIVE }]);
 
       const result = await setGlobalReorderThreshold(10);
 
+      expect(mongoose.startSession).toHaveBeenCalled();
+      expect(mockSession.withTransaction).toHaveBeenCalled();
       expect(InventoryConfig.findOneAndUpdate).toHaveBeenCalledWith(
         { key: 'REORDER_THRESHOLD' },
         { $set: { value: 10, updatedBy: null } },
-        { upsert: true, new: true, runValidators: true }
+        { upsert: true, new: true, runValidators: true, session: mockSession }
       );
       expect(result.threshold).toBe(10);
       expect(result.reconciliation.totalEvaluated).toBe(1);
+      expect(mockSession.endSession).toHaveBeenCalled();
     });
 
-    it('should restore previous threshold in InventoryConfig and restore prior alert states if reconciliation fails midway (recovery strategy)', async () => {
-      const priorAlertId = new mongoose.Types.ObjectId();
-      const priorAlert = {
-        _id: priorAlertId,
-        currentQuantity: 4,
-        threshold: 5,
-        status: REORDER_ALERT_STATUS.ACTIVE,
-        resolvedAt: null,
-        lastReminderSentAt: null,
-      };
-
-      ReorderAlert.find.mockReturnValue({
-        lean: jest.fn().mockResolvedValue([{ ...priorAlert }]),
-      });
-      InventoryConfig.findOne.mockResolvedValue({
-        key: 'REORDER_THRESHOLD',
-        value: 5,
-        updatedBy: 'user-orig',
-      });
+    it('should abort transaction and propagate error without destructive collection rollback when reconciliation fails midway', async () => {
       InventoryConfig.findOneAndUpdate.mockResolvedValue({ key: 'REORDER_THRESHOLD', value: 10 });
-      Inventory.find.mockRejectedValueOnce(new Error('DB failure during reconciliation'));
-
-      await expect(setGlobalReorderThreshold(10)).rejects.toThrow(
-        'DB failure during reconciliation'
+      Inventory.find.mockReturnValue(
+        makeMockQuery(Promise.reject(new Error('Midway reconciliation failure')))
       );
 
-      expect(InventoryConfig.findOneAndUpdate).toHaveBeenCalledWith(
-        { key: 'REORDER_THRESHOLD' },
-        { $set: { value: 5, updatedBy: 'user-orig' } },
-        { upsert: true, new: true }
+      await expect(setGlobalReorderThreshold(10)).rejects.toThrow('Midway reconciliation failure');
+
+      expect(mockSession.withTransaction).toHaveBeenCalled();
+      expect(mockSession.endSession).toHaveBeenCalled();
+    });
+
+    it('should reject threshold update with 500 TRANSACTION_REQUIRED when MongoDB deployment does not support transactions (regression test)', async () => {
+      const unsupportedErr = new Error(
+        'Transaction numbers are only allowed on a replica set member or mongos'
       );
-      expect(ReorderAlert.deleteMany).toHaveBeenCalledWith({
-        _id: { $nin: [priorAlertId] },
+      unsupportedErr.name = 'MongoServerError';
+      unsupportedErr.code = 20;
+      unsupportedErr.codeName = 'IllegalOperation';
+
+      mockSession.withTransaction.mockRejectedValueOnce(unsupportedErr);
+
+      await expect(setGlobalReorderThreshold(10)).rejects.toMatchObject({
+        statusCode: 500,
+        errorCode: 'TRANSACTION_REQUIRED',
       });
-      expect(ReorderAlert.findByIdAndUpdate).toHaveBeenCalledWith(
-        priorAlertId,
-        {
-          $set: {
-            currentQuantity: 4,
-            threshold: 5,
-            status: REORDER_ALERT_STATUS.ACTIVE,
-            resolvedAt: null,
-            lastReminderSentAt: null,
-          },
-        },
-        { new: true }
-      );
+
+      expect(mockSession.endSession).toHaveBeenCalled();
     });
   });
 

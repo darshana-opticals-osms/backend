@@ -1,7 +1,8 @@
+const mongoose = require('mongoose');
+const { MongoMemoryServer } = require('mongodb-memory-server');
 const jwt = require('jsonwebtoken');
 const request = require('supertest');
 const { createApp } = require('../../src/app');
-const { connectDatabase, disconnectDatabase } = require('../../src/config/database');
 const Branch = require('../../src/models/branch.model');
 const Inventory = require('../../src/models/inventory.model');
 const ReorderAlert = require('../../src/models/reorderAlert.model');
@@ -26,6 +27,7 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
   let app;
   let originalEnv;
   let branch;
+  let mongoServer;
 
   beforeAll(async () => {
     originalEnv = { ...process.env };
@@ -35,9 +37,26 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
     process.env.JWT_EXPIRES_IN = JWT_EXPIRES_IN;
     delete process.env.MONGODB_URI;
 
-    await connectDatabase();
+    mongoServer = await MongoMemoryServer.create({ instance: { replSet: 'rs0' } });
+    const uri = mongoServer.getUri();
+    await mongoose.connect(uri, { directConnection: true });
+    await mongoose.connection.db.admin().command({
+      replSetInitiate: {
+        _id: 'rs0',
+        members: [{ _id: 0, host: new URL(uri).host }],
+      },
+    });
+    await mongoose.disconnect();
+    await mongoose.connect(`${uri}?replicaSet=rs0`, { serverSelectionTimeoutMS: 15000 });
+    await Promise.all([
+      Branch.init(),
+      Inventory.init(),
+      ReorderAlert.init(),
+      InventoryConfig.init(),
+    ]);
+
     app = createApp();
-  });
+  }, 30000);
 
   beforeEach(async () => {
     await Promise.all([
@@ -60,10 +79,15 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
       ReorderAlert.deleteMany({}),
       InventoryConfig.deleteMany({}),
     ]);
-    await disconnectDatabase();
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.disconnect();
+    }
+    if (mongoServer) {
+      await mongoServer.stop();
+    }
 
     process.env = originalEnv;
-  });
+  }, 30000);
 
   describe('GET /api/inventory/reorder-threshold', () => {
     it('should return default threshold 5 when no configuration exists', async () => {
@@ -329,7 +353,7 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
       expect(resolvedAlertB.resolvedAt).toBeInstanceOf(Date);
     });
 
-    it('should restore threshold and ensure consistency of all alert states when reconciliation fails midway', async () => {
+    it('should atomically roll back threshold and all alert modifications via transaction when reconciliation fails midway, preserving concurrent alerts', async () => {
       const reorderAlertService = require('../../src/services/reorderAlert.service');
 
       // Set initial threshold to 5
@@ -366,12 +390,30 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
         quantity: 8,
       });
 
-      // Item 3 (evaluation will fail on this item)
+      // Concurrent Item 3 has an active alert created outside the transaction
+      const concurrentItem = await Inventory.create({
+        branchId: branch._id,
+        itemName: 'Concurrent Item',
+        category: 'Frames',
+        brand: 'Brand Concurrent',
+        price: 4500,
+        quantity: 2,
+      });
+
+      const concurrentAlert = await ReorderAlert.create({
+        inventoryId: concurrentItem._id,
+        branchId: branch._id,
+        currentQuantity: 2,
+        threshold: 5,
+        status: REORDER_ALERT_STATUS.ACTIVE,
+      });
+
+      // Item 4 (evaluation will fail on this item)
       await Inventory.create({
         branchId: branch._id,
-        itemName: 'Reconcile Item 3',
+        itemName: 'Failing Item 4',
         category: 'Frames',
-        brand: 'Brand 3',
+        brand: 'Brand 4',
         price: 7000,
         quantity: 3,
       });
@@ -382,7 +424,7 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
         .spyOn(reorderAlertService, 'evaluateReorderAlert')
         .mockImplementation(async (...args) => {
           evaluationCount += 1;
-          if (evaluationCount === 3) {
+          if (evaluationCount === 4) {
             throw new Error('Midway reconciliation network error');
           }
           return originalEvaluate(...args);
@@ -399,31 +441,63 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
 
       expect(response.status).toBe(500);
 
-      // Verify the global threshold was restored to 5 (not left at 10)
+      // Verify the global threshold remained at 5 (not left at 10)
       const config = await InventoryConfig.findOne({ key: 'REORDER_THRESHOLD' });
       expect(config.value).toBe(5);
 
-      // Verify pre-existing alert on Item 1 was restored to threshold 5
+      // Verify pre-existing alert on Item 1 was rolled back to threshold 5
       const restoredAlert1 = await ReorderAlert.findById(initialAlert1._id);
       expect(restoredAlert1).not.toBeNull();
       expect(restoredAlert1.threshold).toBe(5);
       expect(restoredAlert1.status).toBe(REORDER_ALERT_STATUS.ACTIVE);
 
-      // Verify the alert created for Item 2 during failed reconciliation was deleted
+      // Verify no alert was created for Item 2 because transaction aborted
       const alert2 = await ReorderAlert.findOne({ inventoryId: item2._id });
       expect(alert2).toBeNull();
+
+      // Verify concurrent alert outside transaction was NOT deleted by rollback
+      const preservedConcurrentAlert = await ReorderAlert.findById(concurrentAlert._id);
+      expect(preservedConcurrentAlert).not.toBeNull();
+      expect(preservedConcurrentAlert.threshold).toBe(5);
+      expect(preservedConcurrentAlert.status).toBe(REORDER_ALERT_STATUS.ACTIVE);
 
       // Verify no alerts in the database remain with the failed threshold 10
       const inconsistentAlerts = await ReorderAlert.find({ threshold: 10 });
       expect(inconsistentAlerts.length).toBe(0);
 
-      // Overall active alerts count should match initial state (only alert 1)
+      // Overall active alerts count should match initial state (alert 1 and concurrentAlert)
       const totalActiveAlerts = await ReorderAlert.countDocuments({
         status: REORDER_ALERT_STATUS.ACTIVE,
       });
-      expect(totalActiveAlerts).toBe(1);
+      expect(totalActiveAlerts).toBe(2);
 
       evalSpy.mockRestore();
+    });
+
+    it('should safely reject threshold update with 500 TRANSACTION_REQUIRED when MongoDB deployment does not support transactions (regression test)', async () => {
+      const unsupportedErr = new Error(
+        'Transaction numbers are only allowed on a replica set member or mongos'
+      );
+      unsupportedErr.name = 'MongoServerError';
+      unsupportedErr.code = 20;
+      unsupportedErr.codeName = 'IllegalOperation';
+
+      const sessionSpy = jest.spyOn(mongoose, 'startSession').mockRejectedValueOnce(unsupportedErr);
+
+      const token = createToken({
+        role: ROLE_VALUES.SYSTEM_ADMIN,
+      });
+
+      const response = await request(app)
+        .put('/api/inventory/reorder-threshold')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ threshold: 10 });
+
+      expect(response.status).toBe(500);
+      expect(response.body.error.code).toBe('TRANSACTION_REQUIRED');
+      expect(response.body.error.message).toMatch(/transaction-capable MongoDB deployment/);
+
+      sessionSpy.mockRestore();
     });
   });
 });
