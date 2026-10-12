@@ -7,6 +7,7 @@ const reorderAlertService = require('./reorderAlert.service');
 
 const INVALID_BRANCH_REFERENCE = 'INVALID_BRANCH_REFERENCE';
 const INVALID_INVENTORY_REFERENCE = 'INVALID_INVENTORY_REFERENCE';
+const INSUFFICIENT_STOCK = 'INSUFFICIENT_STOCK';
 
 const INVENTORY_UPDATE_FIELDS = ['branchId', 'itemName', 'category', 'brand', 'price', 'imageUrl'];
 
@@ -277,7 +278,7 @@ async function deductInventoryStock(items, session = null) {
       if (!exists) {
         throw new NotFoundError('Inventory item not found.');
       }
-      throw new ConflictError('Insufficient Inventory stock.');
+      throw new ConflictError('Insufficient Inventory stock.', null, INSUFFICIENT_STOCK);
     }
 
     await reorderAlertService.evaluateReorderAlert(updated, null, session);
@@ -290,6 +291,7 @@ async function deductInventoryStock(items, session = null) {
 module.exports = {
   INVALID_BRANCH_REFERENCE,
   INVALID_INVENTORY_REFERENCE,
+  INSUFFICIENT_STOCK,
   INVENTORY_UPDATE_FIELDS,
   createInventory,
   getBranchInventory,

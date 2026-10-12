@@ -329,7 +329,7 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
       expect(resolvedAlertB.resolvedAt).toBeInstanceOf(Date);
     });
 
-    it('should restore threshold and ensure consistency when reconciliation fails midway', async () => {
+    it('should restore threshold and ensure consistency of all alert states when reconciliation fails midway', async () => {
       const reorderAlertService = require('../../src/services/reorderAlert.service');
 
       // Set initial threshold to 5
@@ -338,8 +338,8 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
         value: 5,
       });
 
-      // Create two inventory items
-      await Inventory.create({
+      // Item 1 has quantity 4 (<= 5) and has an existing alert at threshold 5
+      const item1 = await Inventory.create({
         branchId: branch._id,
         itemName: 'Reconcile Item 1',
         category: 'Frames',
@@ -348,13 +348,32 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
         quantity: 4,
       });
 
-      await Inventory.create({
+      const initialAlert1 = await ReorderAlert.create({
+        inventoryId: item1._id,
+        branchId: branch._id,
+        currentQuantity: 4,
+        threshold: 5,
+        status: REORDER_ALERT_STATUS.ACTIVE,
+      });
+
+      // Item 2 has quantity 8 (> 5, so no alert at initial threshold 5; becomes low stock at threshold 10)
+      const item2 = await Inventory.create({
         branchId: branch._id,
         itemName: 'Reconcile Item 2',
         category: 'Frames',
         brand: 'Brand 2',
         price: 6000,
-        quantity: 4,
+        quantity: 8,
+      });
+
+      // Item 3 (evaluation will fail on this item)
+      await Inventory.create({
+        branchId: branch._id,
+        itemName: 'Reconcile Item 3',
+        category: 'Frames',
+        brand: 'Brand 3',
+        price: 7000,
+        quantity: 3,
       });
 
       let evaluationCount = 0;
@@ -363,7 +382,7 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
         .spyOn(reorderAlertService, 'evaluateReorderAlert')
         .mockImplementation(async (...args) => {
           evaluationCount += 1;
-          if (evaluationCount === 2) {
+          if (evaluationCount === 3) {
             throw new Error('Midway reconciliation network error');
           }
           return originalEvaluate(...args);
@@ -383,6 +402,26 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
       // Verify the global threshold was restored to 5 (not left at 10)
       const config = await InventoryConfig.findOne({ key: 'REORDER_THRESHOLD' });
       expect(config.value).toBe(5);
+
+      // Verify pre-existing alert on Item 1 was restored to threshold 5
+      const restoredAlert1 = await ReorderAlert.findById(initialAlert1._id);
+      expect(restoredAlert1).not.toBeNull();
+      expect(restoredAlert1.threshold).toBe(5);
+      expect(restoredAlert1.status).toBe(REORDER_ALERT_STATUS.ACTIVE);
+
+      // Verify the alert created for Item 2 during failed reconciliation was deleted
+      const alert2 = await ReorderAlert.findOne({ inventoryId: item2._id });
+      expect(alert2).toBeNull();
+
+      // Verify no alerts in the database remain with the failed threshold 10
+      const inconsistentAlerts = await ReorderAlert.find({ threshold: 10 });
+      expect(inconsistentAlerts.length).toBe(0);
+
+      // Overall active alerts count should match initial state (only alert 1)
+      const totalActiveAlerts = await ReorderAlert.countDocuments({
+        status: REORDER_ALERT_STATUS.ACTIVE,
+      });
+      expect(totalActiveAlerts).toBe(1);
 
       evalSpy.mockRestore();
     });

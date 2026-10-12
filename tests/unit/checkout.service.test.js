@@ -24,6 +24,7 @@ jest.mock('../../src/models/customer.model', () => ({ findById: jest.fn() }));
 jest.mock('../../src/models/inventory.model', () => ({
   find: jest.fn(),
   updateOne: jest.fn(),
+  findOneAndUpdate: jest.fn(),
   findById: jest.fn(),
 }));
 jest.mock('../../src/models/order.model', () => ({ create: jest.fn() }));
@@ -75,7 +76,10 @@ describe('checkout service', () => {
     OrderItem.insertMany.mockImplementation(async (items) =>
       items.map((item) => ({ ...item, _id: new mongoose.Types.ObjectId(ITEM_ID) }))
     );
-    Inventory.updateOne.mockResolvedValue({ matchedCount: 1 });
+    Inventory.findOneAndUpdate.mockResolvedValue({
+      _id: new mongoose.Types.ObjectId(INVENTORY_ID),
+      quantity: 3,
+    });
     Inventory.findById.mockReturnValue({
       session: jest.fn().mockResolvedValue({
         _id: new mongoose.Types.ObjectId(INVENTORY_ID),
@@ -110,10 +114,10 @@ describe('checkout service', () => {
       [expect.objectContaining({ itemName: 'Optical Frame', price: 12.25, quantity: 2 })],
       { session, ordered: true }
     );
-    expect(Inventory.updateOne).toHaveBeenCalledWith(
-      expect.objectContaining({ quantity: { $gte: 2 } }),
+    expect(Inventory.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: new mongoose.Types.ObjectId(INVENTORY_ID), quantity: { $gte: 2 } },
       { $inc: { quantity: -2 } },
-      expect.objectContaining({ session, runValidators: true })
+      { new: true, session }
     );
     expect(result.order.orderAmount).toBe(24.5);
     expect(result.items[0]).toMatchObject({ itemName: 'Optical Frame', price: 12.25, quantity: 2 });
@@ -173,7 +177,13 @@ describe('checkout service', () => {
   });
 
   it('should abort when conditional stock deduction no longer matches', async () => {
-    Inventory.updateOne.mockResolvedValue({ matchedCount: 0 });
+    Inventory.findOneAndUpdate.mockResolvedValue(null);
+    Inventory.findById.mockReturnValue({
+      session: jest.fn().mockResolvedValue({
+        _id: new mongoose.Types.ObjectId(INVENTORY_ID),
+        quantity: 1,
+      }),
+    });
 
     await expect(
       decrementInventoryStock(

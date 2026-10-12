@@ -131,8 +131,8 @@ describe('ORDER_STATUS_UPDATE_ROLES', () => {
     expect(ORDER_STATUS_UPDATE_ROLES).toContain(ROLE_VALUES.BRANCH_ASSISTANT);
   });
 
-  it('does not include BRANCH_MANAGER', () => {
-    expect(ORDER_STATUS_UPDATE_ROLES).not.toContain(ROLE_VALUES.BRANCH_MANAGER);
+  it('includes BRANCH_MANAGER', () => {
+    expect(ORDER_STATUS_UPDATE_ROLES).toContain(ROLE_VALUES.BRANCH_MANAGER);
   });
 
   it('does not include SYSTEM_ADMIN', () => {
@@ -157,8 +157,8 @@ describe('ORDER_TRACKING_VIEW_ROLES', () => {
     expect(ORDER_TRACKING_VIEW_ROLES).toContain(ROLE_VALUES.BRANCH_ASSISTANT);
   });
 
-  it('does not include BRANCH_MANAGER', () => {
-    expect(ORDER_TRACKING_VIEW_ROLES).not.toContain(ROLE_VALUES.BRANCH_MANAGER);
+  it('includes BRANCH_MANAGER', () => {
+    expect(ORDER_TRACKING_VIEW_ROLES).toContain(ROLE_VALUES.BRANCH_MANAGER);
   });
 
   it('does not include SYSTEM_ADMIN', () => {

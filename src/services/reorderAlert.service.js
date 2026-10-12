@@ -109,6 +109,8 @@ async function setGlobalReorderThreshold(newThreshold, updatedBy = null, externa
   const previousThreshold = hasPreviousConfig ? previousConfig.value : null;
   const previousUpdatedBy = hasPreviousConfig ? previousConfig.updatedBy : null;
 
+  const alertSnapshot = await captureAlertSnapshot();
+
   await InventoryConfig.findOneAndUpdate(
     { key: REORDER_THRESHOLD_KEY },
     { $set: { value: newThreshold, updatedBy } },
@@ -131,7 +133,89 @@ async function setGlobalReorderThreshold(newThreshold, updatedBy = null, externa
     } else {
       await InventoryConfig.deleteOne({ key: REORDER_THRESHOLD_KEY });
     }
+
+    await restoreAlertSnapshot(alertSnapshot);
+
     throw reconciliationError;
+  }
+}
+
+/**
+ * Captures a snapshot of current reorder alerts before reconciliation.
+ * Used for standalone fallback rollback if reconciliation fails midway.
+ * @returns {Promise<object[]>}
+ */
+async function captureAlertSnapshot() {
+  if (!ReorderAlert || typeof ReorderAlert.find !== 'function') {
+    return [];
+  }
+  let query = null;
+  try {
+    query = ReorderAlert.find({});
+  } catch {
+    return [];
+  }
+
+  let rawAlerts = [];
+  if (query && typeof query.lean === 'function') {
+    rawAlerts = await query.lean();
+  } else if (query && typeof query.then === 'function') {
+    rawAlerts = await query;
+  } else if (Array.isArray(query)) {
+    rawAlerts = query;
+  }
+
+  if (!Array.isArray(rawAlerts)) {
+    return [];
+  }
+
+  return rawAlerts.map((doc) => {
+    if (doc && typeof doc.toObject === 'function') {
+      return doc.toObject();
+    }
+    return { ...doc };
+  });
+}
+
+/**
+ * Restores reorder alert state to snapshot upon reconciliation failure.
+ * @param {object[]} snapshotAlerts
+ * @returns {Promise<void>}
+ */
+async function restoreAlertSnapshot(snapshotAlerts) {
+  if (!ReorderAlert) {
+    return;
+  }
+
+  const snapshotList = Array.isArray(snapshotAlerts) ? snapshotAlerts : [];
+  const snapshotIds = snapshotList.map((alert) => alert._id).filter(Boolean);
+
+  // 1. Remove alerts that were created during the failed reconciliation
+  if (typeof ReorderAlert.deleteMany === 'function') {
+    if (snapshotIds.length > 0) {
+      await ReorderAlert.deleteMany({ _id: { $nin: snapshotIds } });
+    } else {
+      await ReorderAlert.deleteMany({});
+    }
+  }
+
+  // 2. Restore alerts that existed prior to reconciliation back to their original state
+  for (const alert of snapshotList) {
+    const updatePayload = {
+      $set: {
+        currentQuantity: alert.currentQuantity,
+        threshold: alert.threshold,
+        status: alert.status,
+        resolvedAt: alert.resolvedAt || null,
+        lastReminderSentAt: alert.lastReminderSentAt || null,
+      },
+    };
+
+    if (typeof ReorderAlert.findByIdAndUpdate === 'function') {
+      await ReorderAlert.findByIdAndUpdate(alert._id, updatePayload, { new: true });
+    } else if (typeof ReorderAlert.findOneAndUpdate === 'function') {
+      await ReorderAlert.findOneAndUpdate({ _id: alert._id }, updatePayload, { new: true });
+    }
   }
 }
 

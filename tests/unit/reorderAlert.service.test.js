@@ -20,11 +20,14 @@ jest.mock('../../src/models/reorderAlert.model', () => ({
   find: jest.fn(),
   create: jest.fn(),
   countDocuments: jest.fn(),
+  deleteMany: jest.fn(),
+  findByIdAndUpdate: jest.fn(),
 }));
 
 jest.mock('../../src/models/inventoryConfig.model', () => ({
   findOne: jest.fn(),
   findOneAndUpdate: jest.fn(),
+  deleteOne: jest.fn(),
 }));
 
 jest.mock('../../src/models/inventory.model', () => ({
@@ -90,6 +93,9 @@ describe('ReorderAlert service', () => {
           quantity: 5,
         },
       ]);
+      ReorderAlert.find.mockReturnValue({
+        lean: jest.fn().mockResolvedValue([]),
+      });
       ReorderAlert.findOne.mockResolvedValue(null);
       ReorderAlert.create.mockResolvedValue({ status: REORDER_ALERT_STATUS.ACTIVE });
 
@@ -104,7 +110,20 @@ describe('ReorderAlert service', () => {
       expect(result.reconciliation.totalEvaluated).toBe(1);
     });
 
-    it('should restore previous threshold in InventoryConfig if reconciliation fails midway (recovery strategy)', async () => {
+    it('should restore previous threshold in InventoryConfig and restore prior alert states if reconciliation fails midway (recovery strategy)', async () => {
+      const priorAlertId = new mongoose.Types.ObjectId();
+      const priorAlert = {
+        _id: priorAlertId,
+        currentQuantity: 4,
+        threshold: 5,
+        status: REORDER_ALERT_STATUS.ACTIVE,
+        resolvedAt: null,
+        lastReminderSentAt: null,
+      };
+
+      ReorderAlert.find.mockReturnValue({
+        lean: jest.fn().mockResolvedValue([{ ...priorAlert }]),
+      });
       InventoryConfig.findOne.mockResolvedValue({
         key: 'REORDER_THRESHOLD',
         value: 5,
@@ -121,6 +140,22 @@ describe('ReorderAlert service', () => {
         { key: 'REORDER_THRESHOLD' },
         { $set: { value: 5, updatedBy: 'user-orig' } },
         { upsert: true, new: true }
+      );
+      expect(ReorderAlert.deleteMany).toHaveBeenCalledWith({
+        _id: { $nin: [priorAlertId] },
+      });
+      expect(ReorderAlert.findByIdAndUpdate).toHaveBeenCalledWith(
+        priorAlertId,
+        {
+          $set: {
+            currentQuantity: 4,
+            threshold: 5,
+            status: REORDER_ALERT_STATUS.ACTIVE,
+            resolvedAt: null,
+            lastReminderSentAt: null,
+          },
+        },
+        { new: true }
       );
     });
   });

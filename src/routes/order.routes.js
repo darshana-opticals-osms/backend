@@ -194,7 +194,7 @@ router.get(
  *   patch:
  *     summary: Update an Order's canonical tracking status
  *     description: >
- *       Authorized branch staff only (BRANCH_ASSISTANT).
+ *       Authorized branch staff only (BRANCH_ASSISTANT and BRANCH_MANAGER).
  *       Validates canonical status value, ensures transition is permitted by
  *       the authoritative ADR-004 lifecycle matrix, and rejects changes to
  *       terminal states (COMPLETED, CANCELLED).

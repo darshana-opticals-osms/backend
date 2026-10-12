@@ -83,17 +83,33 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       expect(res.status).toBe(403);
     });
 
-    it('returns 403 when called by a BRANCH_MANAGER', async () => {
+    it('allows BRANCH_MANAGER to update order status', async () => {
+      const customer = await createCustomer('bm-status@example.com');
+      const order = await Order.create({
+        customerId: customer._id,
+        orderDate: new Date(),
+        orderAmount: 10000,
+        status: ORDER_STATUS_VALUES.ORDER_CREATED,
+        statusUpdatedAt: new Date(),
+        statusHistory: [
+          {
+            status: ORDER_STATUS_VALUES.ORDER_CREATED,
+            changedAt: new Date(),
+            changedBy: customer._id,
+          },
+        ],
+      });
       const staffId = new mongoose.Types.ObjectId();
       const token = createToken({ userId: staffId.toString(), role: ROLE_VALUES.BRANCH_MANAGER });
-      const orderId = new mongoose.Types.ObjectId();
 
       const res = await request(app)
-        .patch(`/api/orders/${orderId}/status`)
+        .patch(`/api/orders/${order._id}/status`)
         .set('Authorization', `Bearer ${token}`)
         .send({ status: ORDER_STATUS_VALUES.PROCESSING });
 
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.status).toBe(ORDER_STATUS_VALUES.PROCESSING);
     });
 
     it('returns 403 when called by a SYSTEM_ADMIN', async () => {
@@ -402,11 +418,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       expect(otherRes.status).toBe(404);
 
       // Unauthorized roles -> 403 Forbidden
-      for (const unauthorizedRole of [
-        ROLE_VALUES.OPTOMETRIST,
-        ROLE_VALUES.BRANCH_MANAGER,
-        ROLE_VALUES.SYSTEM_ADMIN,
-      ]) {
+      for (const unauthorizedRole of [ROLE_VALUES.OPTOMETRIST, ROLE_VALUES.SYSTEM_ADMIN]) {
         const unauthRes = await request(app)
           .get(`/api/orders/${order._id}`)
           .set(
@@ -419,6 +431,17 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
 
         expect(unauthRes.status).toBe(403);
       }
+
+      // Authorized staff BRANCH_MANAGER can also view order tracking
+      const bmToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+      });
+      const bmRes = await request(app)
+        .get(`/api/orders/${order._id}`)
+        .set('Authorization', `Bearer ${bmToken}`);
+      expect(bmRes.status).toBe(200);
+      expect(bmRes.body.data.id).toBe(order._id.toString());
     });
 
     it('omits changedBy from statusHistory for customer view, but includes it for staff (Comment 3 Security)', async () => {

@@ -702,23 +702,26 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
   });
 
   describe('getOrders with staff roles', () => {
-    it('retrieves all orders without customerId filter for BRANCH_ASSISTANT', async () => {
-      const mockOrders = [makeOrder()];
-      Order.find.mockReturnValue({
-        sort: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(mockOrders) }),
-      });
+    it.each([ROLE_VALUES.BRANCH_ASSISTANT, ROLE_VALUES.BRANCH_MANAGER])(
+      'retrieves all orders without customerId filter for %s',
+      async (staffRole) => {
+        const mockOrders = [makeOrder()];
+        Order.find.mockReturnValue({
+          sort: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(mockOrders) }),
+        });
 
-      const results = await getOrders({
-        userId: STAFF_ID_STR,
-        role: ROLE_VALUES.BRANCH_ASSISTANT,
-      });
+        const results = await getOrders({
+          userId: STAFF_ID_STR,
+          role: staffRole,
+        });
 
-      expect(Order.find).toHaveBeenCalledWith({});
-      expect(results).toHaveLength(1);
-      expect(results[0].id).toBe(ORDER_ID_STR);
-    });
+        expect(Order.find).toHaveBeenCalledWith({});
+        expect(results).toHaveLength(1);
+        expect(results[0].id).toBe(ORDER_ID_STR);
+      }
+    );
 
-    it.each([ROLE_VALUES.SYSTEM_ADMIN, ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.OPTOMETRIST])(
+    it.each([ROLE_VALUES.SYSTEM_ADMIN, ROLE_VALUES.OPTOMETRIST])(
       'rejects unauthorized role %s with ValidationError',
       async (unauthorizedRole) => {
         await expect(getOrders({ userId: STAFF_ID_STR, role: unauthorizedRole })).rejects.toThrow(
@@ -729,20 +732,23 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
   });
 
   describe('getOrderById with staff roles', () => {
-    it('retrieves any order by ID for BRANCH_ASSISTANT', async () => {
-      Order.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(makeOrder()) });
-      OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([makeItem()]) });
+    it.each([ROLE_VALUES.BRANCH_ASSISTANT, ROLE_VALUES.BRANCH_MANAGER])(
+      'retrieves any order by ID for %s',
+      async (staffRole) => {
+        Order.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(makeOrder()) });
+        OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([makeItem()]) });
 
-      const result = await getOrderById({
-        orderId: ORDER_ID_STR,
-        userId: STAFF_ID_STR,
-        role: ROLE_VALUES.BRANCH_ASSISTANT,
-      });
+        const result = await getOrderById({
+          orderId: ORDER_ID_STR,
+          userId: STAFF_ID_STR,
+          role: staffRole,
+        });
 
-      expect(Order.findById).toHaveBeenCalledWith(ORDER_ID_STR);
-      expect(result.id).toBe(ORDER_ID_STR);
-      expect(result.items).toHaveLength(1);
-    });
+        expect(Order.findById).toHaveBeenCalledWith(ORDER_ID_STR);
+        expect(result.id).toBe(ORDER_ID_STR);
+        expect(result.items).toHaveLength(1);
+      }
+    );
 
     it('throws NotFoundError if order does not exist', async () => {
       Order.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
@@ -756,7 +762,7 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
       ).rejects.toThrow(NotFoundError);
     });
 
-    it.each([ROLE_VALUES.SYSTEM_ADMIN, ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.OPTOMETRIST])(
+    it.each([ROLE_VALUES.SYSTEM_ADMIN, ROLE_VALUES.OPTOMETRIST])(
       'rejects unauthorized role %s with ValidationError',
       async (unauthorizedRole) => {
         await expect(

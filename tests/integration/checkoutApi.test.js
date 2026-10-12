@@ -258,9 +258,9 @@ describe('Secure Checkout API', () => {
       { inventoryId: secondInventory._id, quantity: 1 },
     ]);
     const token = createToken({ userId: customer._id.toString() });
-    const updateInventory = Inventory.updateOne.bind(Inventory);
+    const updateInventory = Inventory.findOneAndUpdate.bind(Inventory);
     let stockUpdates = 0;
-    jest.spyOn(Inventory, 'updateOne').mockImplementation((...args) => {
+    jest.spyOn(Inventory, 'findOneAndUpdate').mockImplementation((...args) => {
       stockUpdates += 1;
       if (stockUpdates === 2) {
         return Promise.reject(new Error('simulated stock persistence failure'));
