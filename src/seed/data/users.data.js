@@ -28,14 +28,6 @@ const SEED_STAFF = [
     role: ROLE_VALUES.BRANCH_MANAGER,
   },
   {
-    branchCodeName: 'COLOMBO_MAIN',
-    name: 'Colombo Inventory Manager',
-    email: 'inventory.colombo@darshanaopticals.local',
-    phone: '+94 77 100 0003',
-    address: '100 Galle Road, Colombo 03',
-    role: ROLE_VALUES.INVENTORY_MANAGER,
-  },
-  {
     branchCodeName: 'KANDY_CITY',
     name: 'Kandy Optometrist',
     email: 'optometrist.kandy@darshanaopticals.local',
@@ -45,11 +37,11 @@ const SEED_STAFF = [
   },
   {
     branchCodeName: 'GAMPAHA_CENTRAL',
-    name: 'Gampaha Cashier',
-    email: 'sales.gampaha@darshanaopticals.local',
+    name: 'Gampaha Branch Assistant',
+    email: 'assistant.gampaha@darshanaopticals.local',
     phone: '+94 77 100 0005',
     address: '12 Main Street, Gampaha',
-    role: ROLE_VALUES.SALES_ASSISTANT_CASHIER,
+    role: ROLE_VALUES.BRANCH_ASSISTANT,
   },
 ];
 

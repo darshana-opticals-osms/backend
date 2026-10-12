@@ -41,11 +41,33 @@ describe('JWT utility', () => {
     );
   });
 
-  it('should verify only the configured signing algorithm and return trusted identity claims', () => {
+  it('should include branchId in token payload when provided', () => {
+    jwt.sign.mockReturnValue('signed-token-with-branch');
+
+    const token = createAccessToken({
+      userId: '507f1f77bcf86cd799439011',
+      role: ROLE_VALUES.BRANCH_MANAGER,
+      branchId: '507f1f77bcf86cd799439099',
+    });
+
+    expect(token).toBe('signed-token-with-branch');
+    expect(jwt.sign).toHaveBeenCalledWith(
+      {
+        userId: '507f1f77bcf86cd799439011',
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: '507f1f77bcf86cd799439099',
+      },
+      'controlled-unit-test-secret',
+      { algorithm: JWT_ALGORITHM, expiresIn: '2h' }
+    );
+  });
+
+  it('should verify only the configured signing algorithm and return trusted identity claims including branchId', () => {
     // Arrange
     jwt.verify.mockReturnValue({
       userId: '507f1f77bcf86cd799439011',
       role: ROLE_VALUES.SYSTEM_ADMIN,
+      branchId: '507f1f77bcf86cd799439099',
       iat: 1,
       exp: 2,
     });
@@ -57,6 +79,7 @@ describe('JWT utility', () => {
     expect(claims).toEqual({
       userId: '507f1f77bcf86cd799439011',
       role: ROLE_VALUES.SYSTEM_ADMIN,
+      branchId: '507f1f77bcf86cd799439099',
     });
     expect(jwt.verify).toHaveBeenCalledWith('signed-token', 'controlled-unit-test-secret', {
       algorithms: [JWT_ALGORITHM],

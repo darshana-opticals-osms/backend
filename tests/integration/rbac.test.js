@@ -29,7 +29,7 @@ const createTestApp = () => {
   app.post(
     '/inventory-modify',
     authenticate,
-    authorizeRoles(ROLE_VALUES.INVENTORY_MANAGER),
+    authorizeRoles(ROLE_VALUES.BRANCH_MANAGER),
     (_req, res) => {
       res.status(200).json({ success: true, message: 'inventory modification allowed' });
     }
@@ -38,7 +38,7 @@ const createTestApp = () => {
   app.get(
     '/multi-role-view',
     authenticate,
-    authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.MANAGEMENT),
+    authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.SYSTEM_ADMIN),
     (_req, res) => {
       res.status(200).json({ success: true, message: 'multi-role access granted' });
     }
@@ -182,7 +182,7 @@ describe('RBAC integration tests', () => {
 
   it('should deny non-OPTOMETRIST roles access to the clinical modification route', async () => {
     // Arrange
-    const token = createToken({ role: ROLE_VALUES.INVENTORY_MANAGER });
+    const token = createToken({ role: ROLE_VALUES.BRANCH_MANAGER });
 
     // Act
     const response = await request(app)
@@ -207,7 +207,7 @@ describe('RBAC integration tests', () => {
     expect(response.body.success).toBe(true);
   });
 
-  it('should deny unauthorized roles from performing inventory stock modification', async () => {
+  it('should allow BRANCH_MANAGER to perform inventory stock modification', async () => {
     // Arrange
     const token = createToken({ role: ROLE_VALUES.BRANCH_MANAGER });
 
@@ -217,26 +217,27 @@ describe('RBAC integration tests', () => {
       .set('Authorization', `Bearer ${token}`);
 
     // Assert
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
   });
 
-  it('should deny BRANCH_MANAGER and MANAGEMENT view roles inventory modification permission', async () => {
-    const branchToken = createToken({ role: ROLE_VALUES.BRANCH_MANAGER });
-    const managementToken = createToken({ role: ROLE_VALUES.MANAGEMENT });
+  it('should deny unauthorized roles inventory modification permission', async () => {
+    const branchAssistantToken = createToken({ role: ROLE_VALUES.BRANCH_ASSISTANT });
+    const customerToken = createToken({ role: ROLE_VALUES.CUSTOMER });
 
-    const branchResponse = await request(app)
+    const assistantResponse = await request(app)
       .post('/inventory-modify')
-      .set('Authorization', `Bearer ${branchToken}`);
-    const managementResponse = await request(app)
+      .set('Authorization', `Bearer ${branchAssistantToken}`);
+    const customerResponse = await request(app)
       .post('/inventory-modify')
-      .set('Authorization', `Bearer ${managementToken}`);
+      .set('Authorization', `Bearer ${customerToken}`);
 
-    expect(branchResponse.status).toBe(403);
-    expect(managementResponse.status).toBe(403);
+    expect(assistantResponse.status).toBe(403);
+    expect(customerResponse.status).toBe(403);
   });
 
-  it('should deny SALES_ASSISTANT_CASHIER access to unrelated privileged operations', async () => {
-    const token = createToken({ role: ROLE_VALUES.SALES_ASSISTANT_CASHIER });
+  it('should deny BRANCH_ASSISTANT access to unrelated privileged operations', async () => {
+    const token = createToken({ role: ROLE_VALUES.BRANCH_ASSISTANT });
 
     const adminResponse = await request(app)
       .get('/admin-test')
@@ -257,12 +258,12 @@ describe('RBAC integration tests', () => {
     const branchResponse = await request(app)
       .get('/multi-role-view')
       .set('Authorization', `Bearer ${createToken({ role: ROLE_VALUES.BRANCH_MANAGER })}`);
-    const managementResponse = await request(app)
+    const adminResponse = await request(app)
       .get('/multi-role-view')
-      .set('Authorization', `Bearer ${createToken({ role: ROLE_VALUES.MANAGEMENT })}`);
+      .set('Authorization', `Bearer ${createToken({ role: ROLE_VALUES.SYSTEM_ADMIN })}`);
 
     expect(branchResponse.status).toBe(200);
-    expect(managementResponse.status).toBe(200);
+    expect(adminResponse.status).toBe(200);
   });
 
   it('should deny a role not listed in the multi-role endpoint', async () => {

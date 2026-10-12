@@ -17,6 +17,10 @@ describe('Swagger documentation integrity', () => {
     'GET /inventory/branch/{branchId}',
     'PATCH /inventory/{id}',
     'PATCH /inventory/{id}/quantity',
+    'GET /inventory/reorder-alerts',
+    'GET /inventory/reorder-alerts/branch/{branchId}',
+    'GET /inventory/reorder-threshold',
+    'PUT /inventory/reorder-threshold',
     'GET /branches',
     'POST /v1/chatbot/query',
     'GET /customers/lookup',
@@ -71,6 +75,9 @@ describe('Swagger documentation integrity', () => {
       '/inventory/branch/{branchId}',
       '/inventory/{id}',
       '/inventory/{id}/quantity',
+      '/inventory/reorder-alerts',
+      '/inventory/reorder-alerts/branch/{branchId}',
+      '/inventory/reorder-threshold',
       '/prescriptions',
       '/prescriptions/me',
       '/prescriptions/customer/{customerId}',
@@ -116,6 +123,7 @@ describe('Swagger documentation integrity', () => {
       'CartQuantityRequest',
       'CartResponse',
       'CheckoutResult',
+      'ReorderAlert',
     ]) {
       expect(swaggerSpec.components.schemas[schemaName]).toBeDefined();
     }

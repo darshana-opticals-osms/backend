@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Branch = require('../../src/models/branch.model');
 const Inventory = require('../../src/models/inventory.model');
+const reorderAlertService = require('../../src/services/reorderAlert.service');
 const {
   INVALID_BRANCH_REFERENCE,
   INVALID_INVENTORY_REFERENCE,
@@ -8,7 +9,12 @@ const {
   getBranchInventory,
   updateInventory,
   updateInventoryQuantity,
+  deductInventoryStock,
 } = require('../../src/services/inventory.service');
+
+jest.mock('../../src/services/reorderAlert.service', () => ({
+  evaluateReorderAlert: jest.fn().mockResolvedValue(null),
+}));
 
 jest.mock('../../src/models/branch.model', () => ({
   exists: jest.fn(),
@@ -18,6 +24,8 @@ jest.mock('../../src/models/inventory.model', () => ({
   create: jest.fn(),
   find: jest.fn(),
   findByIdAndUpdate: jest.fn(),
+  findOneAndUpdate: jest.fn(),
+  findById: jest.fn(),
 }));
 
 describe('Inventory service', () => {
@@ -50,6 +58,7 @@ describe('Inventory service', () => {
 
       expect(Branch.exists).toHaveBeenCalledWith({ _id: branchId });
       expect(Inventory.create).toHaveBeenCalledWith(inventoryInput);
+      expect(reorderAlertService.evaluateReorderAlert).toHaveBeenCalledWith(createdInventory);
       expect(result).toEqual(createdInventory);
     });
 
@@ -229,6 +238,7 @@ describe('Inventory service', () => {
       );
 
       expect(result).toEqual(updatedInventory);
+      expect(reorderAlertService.evaluateReorderAlert).toHaveBeenCalledWith(updatedInventory);
     });
 
     it('should reject a negative quantity', async () => {
@@ -257,6 +267,90 @@ describe('Inventory service', () => {
       Inventory.findByIdAndUpdate.mockResolvedValue(null);
 
       await expect(updateInventoryQuantity(inventoryId, 5)).rejects.toMatchObject({
+        statusCode: 404,
+      });
+    });
+
+    it('should rollback quantity and rethrow when evaluateReorderAlert fails (recovery fallback)', async () => {
+      const inventoryId = new mongoose.Types.ObjectId().toString();
+      const updatedInventory = {
+        _id: inventoryId,
+        itemName: 'Classic Frame',
+        quantity: 2,
+      };
+
+      Inventory.findById.mockResolvedValue({ _id: inventoryId, quantity: 15 });
+      Inventory.findByIdAndUpdate.mockResolvedValue(updatedInventory);
+      reorderAlertService.evaluateReorderAlert.mockRejectedValueOnce(
+        new Error('Alert DB connection error')
+      );
+
+      await expect(updateInventoryQuantity(inventoryId, 2)).rejects.toThrow(
+        'Alert DB connection error'
+      );
+
+      expect(Inventory.findByIdAndUpdate).toHaveBeenCalledWith(
+        inventoryId,
+        { $set: { quantity: 15 } },
+        { new: true, runValidators: true, context: 'query' }
+      );
+    });
+  });
+
+  describe('deductInventoryStock', () => {
+    it('should deduct stock successfully and evaluate reorder alert', async () => {
+      const inventoryId = new mongoose.Types.ObjectId().toString();
+      const updatedDoc = { _id: inventoryId, quantity: 3 };
+
+      Inventory.findOneAndUpdate.mockResolvedValue(updatedDoc);
+
+      const result = await deductInventoryStock([{ inventoryId, quantity: 2 }]);
+
+      expect(Inventory.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: inventoryId, quantity: { $gte: 2 } },
+        { $inc: { quantity: -2 } },
+        { new: true, session: null }
+      );
+      expect(reorderAlertService.evaluateReorderAlert).toHaveBeenCalledWith(updatedDoc, null, null);
+      expect(result).toEqual([updatedDoc]);
+    });
+
+    it('should reject invalid deduction quantity', async () => {
+      const inventoryId = new mongoose.Types.ObjectId().toString();
+
+      await expect(deductInventoryStock([{ inventoryId, quantity: 0 }])).rejects.toMatchObject({
+        statusCode: 422,
+      });
+    });
+
+    it('should reject invalid inventory id', async () => {
+      await expect(
+        deductInventoryStock([{ inventoryId: 'invalid-id', quantity: 1 }])
+      ).rejects.toMatchObject({
+        statusCode: 422,
+      });
+    });
+
+    it('should throw ConflictError when inventory stock is insufficient', async () => {
+      const inventoryId = new mongoose.Types.ObjectId().toString();
+      Inventory.findOneAndUpdate.mockResolvedValue(null);
+      Inventory.findById.mockReturnValue({
+        session: jest.fn().mockResolvedValue({ _id: inventoryId, quantity: 1 }),
+      });
+
+      await expect(deductInventoryStock([{ inventoryId, quantity: 5 }])).rejects.toMatchObject({
+        statusCode: 409,
+      });
+    });
+
+    it('should throw NotFoundError when inventory item does not exist during deduction', async () => {
+      const inventoryId = new mongoose.Types.ObjectId().toString();
+      Inventory.findOneAndUpdate.mockResolvedValue(null);
+      Inventory.findById.mockReturnValue({
+        session: jest.fn().mockResolvedValue(null),
+      });
+
+      await expect(deductInventoryStock([{ inventoryId, quantity: 2 }])).rejects.toMatchObject({
         statusCode: 404,
       });
     });

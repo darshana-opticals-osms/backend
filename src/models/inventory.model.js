@@ -34,6 +34,11 @@ const inventorySchema = new mongoose.Schema(
       required: [true, 'quantity is required.'],
       min: [0, 'Quantity cannot be negative.'],
     },
+    imageUrl: {
+      type: String,
+      trim: true,
+      default: null,
+    },
   },
   {
     timestamps: true,

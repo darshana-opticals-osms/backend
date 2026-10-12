@@ -82,6 +82,48 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
 
       expect(res.status).toBe(403);
     });
+
+    it('allows BRANCH_MANAGER to update order status', async () => {
+      const customer = await createCustomer('bm-status@example.com');
+      const order = await Order.create({
+        customerId: customer._id,
+        orderDate: new Date(),
+        orderAmount: 10000,
+        status: ORDER_STATUS_VALUES.ORDER_CREATED,
+        statusUpdatedAt: new Date(),
+        statusHistory: [
+          {
+            status: ORDER_STATUS_VALUES.ORDER_CREATED,
+            changedAt: new Date(),
+            changedBy: customer._id,
+          },
+        ],
+      });
+      const staffId = new mongoose.Types.ObjectId();
+      const token = createToken({ userId: staffId.toString(), role: ROLE_VALUES.BRANCH_MANAGER });
+
+      const res = await request(app)
+        .patch(`/api/orders/${order._id}/status`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: ORDER_STATUS_VALUES.PROCESSING });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.status).toBe(ORDER_STATUS_VALUES.PROCESSING);
+    });
+
+    it('returns 403 when called by a SYSTEM_ADMIN', async () => {
+      const staffId = new mongoose.Types.ObjectId();
+      const token = createToken({ userId: staffId.toString(), role: ROLE_VALUES.SYSTEM_ADMIN });
+      const orderId = new mongoose.Types.ObjectId();
+
+      const res = await request(app)
+        .patch(`/api/orders/${orderId}/status`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: ORDER_STATUS_VALUES.PROCESSING });
+
+      expect(res.status).toBe(403);
+    });
   });
 
   describe('Validation & Not Found', () => {
@@ -89,7 +131,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       const staffId = new mongoose.Types.ObjectId();
       const token = createToken({
         userId: staffId.toString(),
-        role: ROLE_VALUES.INVENTORY_MANAGER,
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
       });
 
       const res = await request(app)
@@ -105,7 +147,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       const staffId = new mongoose.Types.ObjectId();
       const token = createToken({
         userId: staffId.toString(),
-        role: ROLE_VALUES.INVENTORY_MANAGER,
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
       });
       const orderId = new mongoose.Types.ObjectId();
 
@@ -122,7 +164,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       const staffId = new mongoose.Types.ObjectId();
       const token = createToken({
         userId: staffId.toString(),
-        role: ROLE_VALUES.BRANCH_MANAGER,
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
       });
       const orderId = new mongoose.Types.ObjectId();
 
@@ -139,7 +181,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       const staffId = new mongoose.Types.ObjectId();
       const token = createToken({
         userId: staffId.toString(),
-        role: ROLE_VALUES.SYSTEM_ADMIN,
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
       });
       const orderId = new mongoose.Types.ObjectId();
 
@@ -173,7 +215,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       const staffId = new mongoose.Types.ObjectId();
       const token = createToken({
         userId: staffId.toString(),
-        role: ROLE_VALUES.INVENTORY_MANAGER,
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
       });
 
       const res = await request(app)
@@ -189,7 +231,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       expect(dbOrder.statusHistory).toHaveLength(1);
     });
 
-    it('successfully transitions ORDER_CREATED -> PROCESSING by INVENTORY_MANAGER', async () => {
+    it('successfully transitions ORDER_CREATED -> PROCESSING by BRANCH_ASSISTANT', async () => {
       const customer = await createCustomer();
       const order = await Order.create({
         customerId: customer._id,
@@ -216,7 +258,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       const staffId = new mongoose.Types.ObjectId();
       const token = createToken({
         userId: staffId.toString(),
-        role: ROLE_VALUES.INVENTORY_MANAGER,
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
       });
 
       const res = await request(app)
@@ -263,7 +305,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       const staffId = new mongoose.Types.ObjectId();
       const token = createToken({
         userId: staffId.toString(),
-        role: ROLE_VALUES.BRANCH_MANAGER,
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
       });
 
       // Cancel the order
@@ -287,7 +329,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
   });
 
   describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
-    it('allows INVENTORY_MANAGER to view all orders and Customer to view only own orders', async () => {
+    it('allows BRANCH_ASSISTANT to view all orders and Customer to view only own orders', async () => {
       const customerA = await createCustomer('customera@example.com');
       const customerB = await createCustomer('customerb@example.com');
 
@@ -323,7 +365,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       // Staff query -> all 2 orders
       const staffToken = createToken({
         userId: new mongoose.Types.ObjectId().toString(),
-        role: ROLE_VALUES.INVENTORY_MANAGER,
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
       });
       const staffRes = await request(app)
         .get('/api/orders')
@@ -353,7 +395,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       // Staff view -> 200
       const staffToken = createToken({
         userId: new mongoose.Types.ObjectId().toString(),
-        role: ROLE_VALUES.BRANCH_MANAGER,
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
       });
       const staffRes = await request(app)
         .get(`/api/orders/${order._id}`)
@@ -375,16 +417,31 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
 
       expect(otherRes.status).toBe(404);
 
-      // Optometrist -> 403 Forbidden
-      const optToken = createToken({
-        userId: new mongoose.Types.ObjectId().toString(),
-        role: ROLE_VALUES.OPTOMETRIST,
-      });
-      const optRes = await request(app)
-        .get(`/api/orders/${order._id}`)
-        .set('Authorization', `Bearer ${optToken}`);
+      // Unauthorized roles -> 403 Forbidden
+      for (const unauthorizedRole of [ROLE_VALUES.OPTOMETRIST, ROLE_VALUES.SYSTEM_ADMIN]) {
+        const unauthRes = await request(app)
+          .get(`/api/orders/${order._id}`)
+          .set(
+            'Authorization',
+            `Bearer ${createToken({
+              userId: new mongoose.Types.ObjectId().toString(),
+              role: unauthorizedRole,
+            })}`
+          );
 
-      expect(optRes.status).toBe(403);
+        expect(unauthRes.status).toBe(403);
+      }
+
+      // Authorized staff BRANCH_MANAGER can also view order tracking
+      const bmToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+      });
+      const bmRes = await request(app)
+        .get(`/api/orders/${order._id}`)
+        .set('Authorization', `Bearer ${bmToken}`);
+      expect(bmRes.status).toBe(200);
+      expect(bmRes.body.data.id).toBe(order._id.toString());
     });
 
     it('omits changedBy from statusHistory for customer view, but includes it for staff (Comment 3 Security)', async () => {
@@ -426,7 +483,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       // Staff view -> changedBy must be included
       const staffToken = createToken({
         userId: staffId.toString(),
-        role: ROLE_VALUES.INVENTORY_MANAGER,
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
       });
       const staffRes = await request(app)
         .get(`/api/orders/${order._id}`)
@@ -457,11 +514,11 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
 
       const staffToken1 = createToken({
         userId: new mongoose.Types.ObjectId().toString(),
-        role: ROLE_VALUES.INVENTORY_MANAGER,
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
       });
       const staffToken2 = createToken({
         userId: new mongoose.Types.ObjectId().toString(),
-        role: ROLE_VALUES.BRANCH_MANAGER,
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
       });
 
       // Dispatch two concurrent status update requests from ORDER_CREATED
