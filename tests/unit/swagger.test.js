@@ -25,6 +25,16 @@ describe('Swagger documentation integrity', () => {
     'PATCH /cart/items/{inventoryId}',
     'DELETE /cart/items/{inventoryId}',
     'POST /checkout',
+    'GET /appointments/providers',
+    'GET /doctor-sessions/available',
+    'POST /doctor-sessions',
+    'GET /doctor-sessions',
+    'PATCH /doctor-sessions/{id}',
+    'POST /appointments',
+    'GET /appointments',
+    'GET /appointments/{id}',
+    'PATCH /appointments/{id}/cancel',
+    'PATCH /appointments/{id}/reassign',
   ];
 
   const normalize = (value) => value.toUpperCase();
@@ -78,6 +88,14 @@ describe('Swagger documentation integrity', () => {
       '/cart/items',
       '/cart/items/{inventoryId}',
       '/checkout',
+      '/appointments/providers',
+      '/doctor-sessions/available',
+      '/doctor-sessions',
+      '/doctor-sessions/{id}',
+      '/appointments',
+      '/appointments/{id}',
+      '/appointments/{id}/cancel',
+      '/appointments/{id}/reassign',
     ];
 
     for (const path of publicPaths) {
@@ -113,6 +131,18 @@ describe('Swagger documentation integrity', () => {
       'CartQuantityRequest',
       'CartResponse',
       'CheckoutResult',
+      'AppointmentProvider',
+      'AppointmentCustomerContact',
+      'DoctorSession',
+      'Appointment',
+      'DoctorSessionCreateRequest',
+      'DoctorSessionUpdateRequest',
+      'AppointmentCreateRequest',
+      'AppointmentReassignRequest',
+      'AppointmentResponse',
+      'DoctorSessionResponse',
+      'AppointmentListResponse',
+      'DoctorSessionListResponse',
     ]) {
       expect(swaggerSpec.components.schemas[schemaName]).toBeDefined();
     }
@@ -181,5 +211,42 @@ describe('Swagger documentation integrity', () => {
     expect(responseSchema.properties).not.toHaveProperty('password');
     expect(responseSchema.properties).not.toHaveProperty('passwordHash');
     expect(responseSchema.properties).not.toHaveProperty('token');
+  });
+
+  it('documents all appointment operations with real roles, constraints, and error responses', () => {
+    const booking = swaggerSpec.paths['/appointments'].post;
+    const cancellation = swaggerSpec.paths['/appointments/{id}/cancel'].patch;
+    const reassignment = swaggerSpec.paths['/appointments/{id}/reassign'].patch;
+    const sessionUpdate = swaggerSpec.paths['/doctor-sessions/{id}'].patch;
+
+    expect(booking.description).toMatch(/24 hours/);
+    expect(booking.description).toMatch(/atomic/);
+    expect(booking.security).toEqual([{ bearerAuth: [] }]);
+    expect(booking.responses['409']).toBeDefined();
+    expect(booking.responses['503']).toBeDefined();
+    expect(cancellation.description).toMatch(/before the session starts/);
+    expect(cancellation.description).toMatch(/no request body/);
+    expect(reassignment.description).toMatch(/SALES_ASSISTANT_CASHIER only/);
+    expect(sessionUpdate.description).toMatch(/including cancelled appointments/);
+    expect(swaggerSpec.components.schemas.DoctorSessionCreateRequest.additionalProperties).toBe(
+      false
+    );
+    expect(swaggerSpec.components.schemas.AppointmentCreateRequest.properties).toEqual({
+      sessionId: expect.any(Object),
+    });
+    expect(swaggerSpec.paths['/appointments/providers'].get.description).toMatch(
+      /SALES_ASSISTANT_CASHIER/
+    );
+    expect(swaggerSpec.paths['/appointments/providers'].get.description).toMatch(
+      /approved Gampaha branch/
+    );
+    expect(swaggerSpec.paths['/appointments'].get.description).toMatch(
+      /customer ID, name, and phone/
+    );
+    expect(swaggerSpec.components.schemas.AppointmentCustomerContact.required).toEqual([
+      'id',
+      'name',
+      'phone',
+    ]);
   });
 });

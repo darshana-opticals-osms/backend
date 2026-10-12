@@ -17,7 +17,9 @@ const chatbotRoutes = require('./routes/chatbot.routes');
 const customerLookupRoutes = require('./routes/customerLookup.routes');
 const cartRoutes = require('./routes/cart.routes');
 const checkoutRoutes = require('./routes/checkout.routes');
+const appointmentRoutes = require('./routes/appointment.routes');
 const captureCheckoutRequest = require('./middleware/captureCheckoutRequest');
+const { rejectUnsafeAppointmentInput } = require('./middleware/rejectUnsafeAppointmentInput');
 const notFound = require('./middleware/notFound');
 
 const errorHandler = require('./middleware/errorHandler');
@@ -38,6 +40,8 @@ function createApp() {
   app.use(express.json({ limit: REQUEST_BODY_LIMIT }));
 
   app.use('/api/checkout', captureCheckoutRequest);
+
+  app.use(['/api/appointments', '/api/doctor-sessions'], rejectUnsafeAppointmentInput);
 
   // AC8: Input Sanitization (trims whitespace, strips script tags, prevents Mongo injection)
   app.use(sanitizeInput);
@@ -64,6 +68,7 @@ function createApp() {
   app.use('/api', chatbotRoutes);
   app.use('/api', cartRoutes);
   app.use('/api', checkoutRoutes);
+  app.use('/api', appointmentRoutes);
 
   // Catch-all route handler for non-existent endpoints (404)
 
