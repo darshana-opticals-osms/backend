@@ -451,7 +451,7 @@ describe('Inventory management API', () => {
     const inventory = await Inventory.create(buildInventoryPayload(branch._id));
 
     const token = createToken({
-      role: ROLE_VALUES.SALES_ASSISTANT_CASHIER,
+      role: ROLE_VALUES.BRANCH_ASSISTANT,
     });
 
     const response = await request(app)

@@ -60,7 +60,7 @@ All seeded development accounts use the default password: **`DevPassword123!`**
 - **System Admin:** `admin.dev@darshanaopticals.local` (Role: `SYSTEM_ADMIN`)
 - **Branch Manager:** `manager.colombo@darshanaopticals.local` (Role: `BRANCH_MANAGER`, Branch: Colombo)
 - **Optometrist:** `optometrist.kandy@darshanaopticals.local` (Role: `OPTOMETRIST`, Branch: Kandy)
-- **Cashier:** `sales.gampaha@darshanaopticals.local` (Role: `SALES_ASSISTANT_CASHIER`, Branch: Gampaha)
+- **Branch Assistant:** `assistant.gampaha@darshanaopticals.local` (Role: `BRANCH_ASSISTANT`, Branch: Gampaha)
 - **Customer 1:** `kamal.customer@example.com` (Role: `CUSTOMER`)
 - **Customer 2:** `alice.customer@example.com` (Role: `CUSTOMER`)
 - **Customer 3:** `nimal.customer@example.com` (Role: `CUSTOMER`)

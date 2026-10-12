@@ -118,7 +118,7 @@ function shapeOrderDetail(order, items, options = {}) {
  * Retrieves orders based on caller role.
  *
  * - CUSTOMER: Returns orders owned by that customer (scoped to customerId).
- * - Authorized Staff (SALES_ASSISTANT_CASHIER):
+ * - Authorized Staff (BRANCH_ASSISTANT):
  *   Returns all orders in reverse chronological order for tracking and fulfillment.
  *
  * AC1, AC2, AC6, ADR-004 §12, §13.
@@ -160,7 +160,7 @@ async function getCustomerOrders(authenticatedCustomerId) {
  * Retrieves a single Order with its OrderItems based on caller role.
  *
  * - CUSTOMER: Enforces ownership (scopes query to _id AND customerId) to prevent IDOR.
- * - Authorized Staff (SALES_ASSISTANT_CASHIER):
+ * - Authorized Staff (BRANCH_ASSISTANT):
  *   Retrieves any order to inspect tracking status and fulfillment details.
  *
  * AC3, AC4, AC5, AC6, AC9, ADR-004 §12, §13.

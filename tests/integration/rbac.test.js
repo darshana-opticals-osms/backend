@@ -222,22 +222,22 @@ describe('RBAC integration tests', () => {
   });
 
   it('should deny unauthorized roles inventory modification permission', async () => {
-    const cashierToken = createToken({ role: ROLE_VALUES.SALES_ASSISTANT_CASHIER });
+    const branchAssistantToken = createToken({ role: ROLE_VALUES.BRANCH_ASSISTANT });
     const customerToken = createToken({ role: ROLE_VALUES.CUSTOMER });
 
-    const cashierResponse = await request(app)
+    const assistantResponse = await request(app)
       .post('/inventory-modify')
-      .set('Authorization', `Bearer ${cashierToken}`);
+      .set('Authorization', `Bearer ${branchAssistantToken}`);
     const customerResponse = await request(app)
       .post('/inventory-modify')
       .set('Authorization', `Bearer ${customerToken}`);
 
-    expect(cashierResponse.status).toBe(403);
+    expect(assistantResponse.status).toBe(403);
     expect(customerResponse.status).toBe(403);
   });
 
-  it('should deny SALES_ASSISTANT_CASHIER access to unrelated privileged operations', async () => {
-    const token = createToken({ role: ROLE_VALUES.SALES_ASSISTANT_CASHIER });
+  it('should deny BRANCH_ASSISTANT access to unrelated privileged operations', async () => {
+    const token = createToken({ role: ROLE_VALUES.BRANCH_ASSISTANT });
 
     const adminResponse = await request(app)
       .get('/admin-test')

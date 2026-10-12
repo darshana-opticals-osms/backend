@@ -702,7 +702,7 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
   });
 
   describe('getOrders with staff roles', () => {
-    it('retrieves all orders without customerId filter for SALES_ASSISTANT_CASHIER', async () => {
+    it('retrieves all orders without customerId filter for BRANCH_ASSISTANT', async () => {
       const mockOrders = [makeOrder()];
       Order.find.mockReturnValue({
         sort: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(mockOrders) }),
@@ -710,7 +710,7 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
 
       const results = await getOrders({
         userId: STAFF_ID_STR,
-        role: ROLE_VALUES.SALES_ASSISTANT_CASHIER,
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
       });
 
       expect(Order.find).toHaveBeenCalledWith({});
@@ -729,14 +729,14 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
   });
 
   describe('getOrderById with staff roles', () => {
-    it('retrieves any order by ID for SALES_ASSISTANT_CASHIER', async () => {
+    it('retrieves any order by ID for BRANCH_ASSISTANT', async () => {
       Order.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(makeOrder()) });
       OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([makeItem()]) });
 
       const result = await getOrderById({
         orderId: ORDER_ID_STR,
         userId: STAFF_ID_STR,
-        role: ROLE_VALUES.SALES_ASSISTANT_CASHIER,
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
       });
 
       expect(Order.findById).toHaveBeenCalledWith(ORDER_ID_STR);
@@ -751,7 +751,7 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
         getOrderById({
           orderId: ORDER_ID_STR,
           userId: STAFF_ID_STR,
-          role: ROLE_VALUES.SALES_ASSISTANT_CASHIER,
+          role: ROLE_VALUES.BRANCH_ASSISTANT,
         })
       ).rejects.toThrow(NotFoundError);
     });

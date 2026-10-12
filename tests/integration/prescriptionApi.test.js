@@ -220,7 +220,7 @@ describe('Prescription API', () => {
     const unauthorizedRoles = [
       ROLE_VALUES.CUSTOMER,
       ROLE_VALUES.BRANCH_MANAGER,
-      ROLE_VALUES.SALES_ASSISTANT_CASHIER,
+      ROLE_VALUES.BRANCH_ASSISTANT,
       ROLE_VALUES.SYSTEM_ADMIN,
     ];
 
@@ -814,7 +814,7 @@ describe('Prescription API', () => {
 
     it.each([
       [ROLE_VALUES.CUSTOMER],
-      [ROLE_VALUES.SALES_ASSISTANT_CASHIER],
+      [ROLE_VALUES.BRANCH_ASSISTANT],
       [ROLE_VALUES.BRANCH_MANAGER],
       [ROLE_VALUES.SYSTEM_ADMIN],
     ])(

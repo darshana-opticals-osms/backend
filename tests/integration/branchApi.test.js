@@ -120,7 +120,7 @@ describe('GET /api/branches', () => {
     expect(response.body).not.toHaveProperty('data');
   });
 
-  it.each([ROLE_VALUES.CUSTOMER, ROLE_VALUES.OPTOMETRIST, ROLE_VALUES.SALES_ASSISTANT_CASHIER])(
+  it.each([ROLE_VALUES.CUSTOMER, ROLE_VALUES.OPTOMETRIST, ROLE_VALUES.BRANCH_ASSISTANT])(
     'should reject %s without returning Branch data',
     async (role) => {
       await createBranches();

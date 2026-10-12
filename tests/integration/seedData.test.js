@@ -125,7 +125,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
     const staffRoles = staffMembers.map((s) => s.role);
     expect(staffRoles).toContain(ROLE_VALUES.BRANCH_MANAGER);
     expect(staffRoles).toContain(ROLE_VALUES.OPTOMETRIST);
-    expect(staffRoles).toContain(ROLE_VALUES.SALES_ASSISTANT_CASHIER);
+    expect(staffRoles).toContain(ROLE_VALUES.BRANCH_ASSISTANT);
 
     for (const staff of staffMembers) {
       expect(staff.branchId).toBeDefined();

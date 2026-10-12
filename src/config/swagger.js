@@ -228,7 +228,7 @@ const options = {
             address: { type: 'string', example: '12 Main Street, Colombo' },
             role: {
               type: 'string',
-              enum: ['BRANCH_MANAGER', 'OPTOMETRIST', 'SALES_ASSISTANT_CASHIER'],
+              enum: ['BRANCH_MANAGER', 'OPTOMETRIST', 'BRANCH_ASSISTANT'],
             },
             password: { type: 'string', format: 'password', minLength: 8 },
             branchId: {
@@ -249,7 +249,7 @@ const options = {
             address: { type: 'string', example: '12 Main Street, Colombo' },
             role: {
               type: 'string',
-              enum: ['BRANCH_MANAGER', 'OPTOMETRIST', 'SALES_ASSISTANT_CASHIER'],
+              enum: ['BRANCH_MANAGER', 'OPTOMETRIST', 'BRANCH_ASSISTANT'],
             },
             branchId: { type: 'string', nullable: true, example: null },
           },

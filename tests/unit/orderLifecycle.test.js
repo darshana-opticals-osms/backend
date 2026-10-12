@@ -127,8 +127,8 @@ describe('TERMINAL_ORDER_STATUSES', () => {
 // ─── Authorized Roles ─────────────────────────────────────────────────────────
 
 describe('ORDER_STATUS_UPDATE_ROLES', () => {
-  it('includes SALES_ASSISTANT_CASHIER', () => {
-    expect(ORDER_STATUS_UPDATE_ROLES).toContain(ROLE_VALUES.SALES_ASSISTANT_CASHIER);
+  it('includes BRANCH_ASSISTANT', () => {
+    expect(ORDER_STATUS_UPDATE_ROLES).toContain(ROLE_VALUES.BRANCH_ASSISTANT);
   });
 
   it('does not include BRANCH_MANAGER', () => {
@@ -153,8 +153,8 @@ describe('ORDER_STATUS_UPDATE_ROLES', () => {
 });
 
 describe('ORDER_TRACKING_VIEW_ROLES', () => {
-  it('includes SALES_ASSISTANT_CASHIER', () => {
-    expect(ORDER_TRACKING_VIEW_ROLES).toContain(ROLE_VALUES.SALES_ASSISTANT_CASHIER);
+  it('includes BRANCH_ASSISTANT', () => {
+    expect(ORDER_TRACKING_VIEW_ROLES).toContain(ROLE_VALUES.BRANCH_ASSISTANT);
   });
 
   it('does not include BRANCH_MANAGER', () => {

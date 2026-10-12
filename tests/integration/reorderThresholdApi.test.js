@@ -139,8 +139,8 @@ describe('Global Reorder Threshold API (ADR-006)', () => {
       expect(response.status).toBe(403);
     });
 
-    it('should reject SALES_ASSISTANT_CASHIER from updating threshold with 403 Forbidden', async () => {
-      const token = createToken({ role: ROLE_VALUES.SALES_ASSISTANT_CASHIER });
+    it('should reject BRANCH_ASSISTANT from updating threshold with 403 Forbidden', async () => {
+      const token = createToken({ role: ROLE_VALUES.BRANCH_ASSISTANT });
       const response = await request(app)
         .put('/api/inventory/reorder-threshold')
         .set('Authorization', `Bearer ${token}`)

@@ -37,11 +37,11 @@ const SEED_STAFF = [
   },
   {
     branchCodeName: 'GAMPAHA_CENTRAL',
-    name: 'Gampaha Cashier',
-    email: 'sales.gampaha@darshanaopticals.local',
+    name: 'Gampaha Branch Assistant',
+    email: 'assistant.gampaha@darshanaopticals.local',
     phone: '+94 77 100 0005',
     address: '12 Main Street, Gampaha',
-    role: ROLE_VALUES.SALES_ASSISTANT_CASHIER,
+    role: ROLE_VALUES.BRANCH_ASSISTANT,
   },
 ];
 
