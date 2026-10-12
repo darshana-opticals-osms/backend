@@ -10,6 +10,9 @@ const Order = require('../../src/models/order.model');
 const OrderItem = require('../../src/models/orderItem.model');
 const Appointment = require('../../src/models/appointment.model');
 const Payment = require('../../src/models/payment.model');
+const Cart = require('../../src/models/cart.model');
+const ReorderAlert = require('../../src/models/reorderAlert.model');
+const InventoryConfig = require('../../src/models/inventoryConfig.model');
 const { seedDatabase, PRODUCTION_SAFETY_ERROR } = require('../../src/seed/seed');
 const { DEV_DEFAULT_PASSWORD } = require('../../src/seed/data/users.data');
 const { ROLE_VALUES } = require('../../src/constants/roles');
@@ -31,6 +34,9 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
       Order.deleteMany({}),
       Appointment.deleteMany({}),
       Prescription.deleteMany({}),
+      Cart.deleteMany({}),
+      ReorderAlert.deleteMany({}),
+      InventoryConfig.deleteMany({}),
       Inventory.deleteMany({}),
       Staff.deleteMany({}),
       Customer.deleteMany({}),
@@ -46,6 +52,9 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
       Order.deleteMany({}),
       Appointment.deleteMany({}),
       Prescription.deleteMany({}),
+      Cart.deleteMany({}),
+      ReorderAlert.deleteMany({}),
+      InventoryConfig.deleteMany({}),
       Inventory.deleteMany({}),
       Staff.deleteMany({}),
       Customer.deleteMany({}),
@@ -61,6 +70,9 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
       Order.deleteMany({}),
       Appointment.deleteMany({}),
       Prescription.deleteMany({}),
+      Cart.deleteMany({}),
+      ReorderAlert.deleteMany({}),
+      InventoryConfig.deleteMany({}),
       Inventory.deleteMany({}),
       Staff.deleteMany({}),
       Customer.deleteMany({}),
