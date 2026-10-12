@@ -17,6 +17,7 @@ const chatbotRoutes = require('./routes/chatbot.routes');
 const customerLookupRoutes = require('./routes/customerLookup.routes');
 const cartRoutes = require('./routes/cart.routes');
 const checkoutRoutes = require('./routes/checkout.routes');
+const orderRoutes = require('./routes/order.routes');
 const captureCheckoutRequest = require('./middleware/captureCheckoutRequest');
 const notFound = require('./middleware/notFound');
 
@@ -64,6 +65,7 @@ function createApp() {
   app.use('/api', chatbotRoutes);
   app.use('/api', cartRoutes);
   app.use('/api', checkoutRoutes);
+  app.use('/api', orderRoutes);
 
   // Catch-all route handler for non-existent endpoints (404)
 
