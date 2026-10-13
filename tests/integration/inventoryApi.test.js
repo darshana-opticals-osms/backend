@@ -8,6 +8,7 @@ const Inventory = require('../../src/models/inventory.model');
 const ReorderAlert = require('../../src/models/reorderAlert.model');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 const { REORDER_ALERT_STATUS } = require('../../src/constants/inventoryAlert.constants');
+const { ImageUpload } = require('../../src/models/imageUpload.model');
 
 const JWT_SECRET = 'inventory-api-test-secret';
 const JWT_EXPIRES_IN = '1h';
@@ -472,34 +473,51 @@ describe('Inventory management API', () => {
     const branch = await createBranch({ address: 'Image Branch' });
     const token = createToken({ branchId: branch._id.toString() });
 
+    const initialUpload = await ImageUpload.create({
+      publicId: 'osms/inventory/sample-api-test',
+      imageUrl: 'https://res.cloudinary.com/demo/image/upload/osms/inventory/sample.jpg',
+      uploadedBy: new mongoose.Types.ObjectId(),
+      branchId: branch._id,
+      status: 'PENDING',
+    });
+
     const createRes = await request(app)
       .post('/api/inventory')
       .set('Authorization', `Bearer ${token}`)
       .send(
         buildInventoryPayload(branch._id, {
-          imageUrl: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+          imageUrl: initialUpload.imageUrl,
+          imagePublicId: initialUpload.publicId,
         })
       );
 
     expect(createRes.status).toBe(201);
-    expect(createRes.body.data.imageUrl).toBe(
-      'https://res.cloudinary.com/demo/image/upload/sample.jpg'
-    );
+    expect(createRes.body.data.imageUrl).toBe(initialUpload.imageUrl);
+    expect(createRes.body.data.imagePublicId).toBe(initialUpload.publicId);
+
+    const replacementUpload = await ImageUpload.create({
+      publicId: 'osms/inventory/updated-api-test',
+      imageUrl: 'https://res.cloudinary.com/demo/image/upload/osms/inventory/updated.jpg',
+      uploadedBy: new mongoose.Types.ObjectId(),
+      branchId: branch._id,
+      status: 'PENDING',
+    });
 
     const updateRes = await request(app)
       .patch(`/api/inventory/${createRes.body.data._id}`)
       .set('Authorization', `Bearer ${token}`)
       .send({
-        imageUrl: 'https://res.cloudinary.com/demo/image/upload/updated.jpg',
+        imageUrl: replacementUpload.imageUrl,
+        imagePublicId: replacementUpload.publicId,
       });
 
     expect(updateRes.status).toBe(200);
-    expect(updateRes.body.data.imageUrl).toBe(
-      'https://res.cloudinary.com/demo/image/upload/updated.jpg'
-    );
+    expect(updateRes.body.data.imageUrl).toBe(replacementUpload.imageUrl);
+    expect(updateRes.body.data.imagePublicId).toBe(replacementUpload.publicId);
 
     const stored = await Inventory.findById(createRes.body.data._id);
-    expect(stored.imageUrl).toBe('https://res.cloudinary.com/demo/image/upload/updated.jpg');
+    expect(stored.imageUrl).toBe(replacementUpload.imageUrl);
+    expect(stored.imagePublicId).toBe(replacementUpload.publicId);
   });
 
   it('should return 404 when updating an inventory item that does not exist', async () => {

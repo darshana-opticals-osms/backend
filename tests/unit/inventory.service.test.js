@@ -713,5 +713,145 @@ describe('Inventory service', () => {
       expect(Inventory.deleteOne).toHaveBeenCalledWith({ _id: createdItem._id });
       expect(deleteImage).toHaveBeenCalledWith(verifiedUpload.publicId);
     });
+
+    it('should reject createInventory when imageUrl is provided without imagePublicId', async () => {
+      const branchId = new mongoose.Types.ObjectId().toString();
+      Branch.exists.mockResolvedValue({ _id: branchId });
+
+      await expect(
+        createInventory({
+          branchId,
+          itemName: 'Frame',
+          category: 'Men',
+          brand: 'Ray-Ban',
+          price: 1000,
+          quantity: 2,
+          imageUrl: 'https://res.cloudinary.com/test/image/upload/sample.jpg',
+        })
+      ).rejects.toMatchObject({
+        statusCode: 422,
+        errorCode: 'MISSING_IMAGE_PUBLIC_ID',
+      });
+
+      expect(deleteImage).not.toHaveBeenCalled();
+    });
+
+    it('should reject createInventory when imagePublicId is provided without imageUrl', async () => {
+      const branchId = new mongoose.Types.ObjectId().toString();
+      Branch.exists.mockResolvedValue({ _id: branchId });
+
+      await expect(
+        createInventory({
+          branchId,
+          itemName: 'Frame',
+          category: 'Men',
+          brand: 'Ray-Ban',
+          price: 1000,
+          quantity: 2,
+          imagePublicId: 'osms/inventory/sample',
+        })
+      ).rejects.toMatchObject({
+        statusCode: 422,
+        errorCode: 'MISSING_IMAGE_URL',
+      });
+
+      expect(deleteImage).not.toHaveBeenCalled();
+    });
+
+    it('should reject updateInventory when imageUrl is updated without imagePublicId', async () => {
+      const inventoryId = new mongoose.Types.ObjectId().toString();
+      Inventory.findById.mockResolvedValue({
+        _id: inventoryId,
+        itemName: 'Old Frame',
+      });
+
+      await expect(
+        updateInventory(inventoryId, {
+          imageUrl: 'https://res.cloudinary.com/untrusted/image.jpg',
+        })
+      ).rejects.toMatchObject({
+        statusCode: 422,
+        errorCode: 'MISSING_IMAGE_PUBLIC_ID',
+      });
+
+      expect(deleteImage).not.toHaveBeenCalled();
+    });
+
+    it('should reject updateInventory when imageUrl does not match approved upload record', async () => {
+      const inventoryId = new mongoose.Types.ObjectId().toString();
+      const verifiedUpload = {
+        _id: new mongoose.Types.ObjectId(),
+        publicId: 'osms/inventory/real-asset',
+        imageUrl: 'https://res.cloudinary.com/test/image/upload/v1/real.jpg',
+        status: 'PENDING',
+      };
+
+      Inventory.findById.mockResolvedValue({
+        _id: inventoryId,
+        imagePublicId: 'osms/inventory/old-asset',
+        imageUrl: 'https://res.cloudinary.com/test/image/upload/v1/old.jpg',
+      });
+      ImageUpload.findOne.mockResolvedValue(verifiedUpload);
+
+      await expect(
+        updateInventory(inventoryId, {
+          imagePublicId: verifiedUpload.publicId,
+          imageUrl: 'https://res.cloudinary.com/test/image/upload/v1/mismatched.jpg',
+        })
+      ).rejects.toMatchObject({
+        statusCode: 422,
+        errorCode: 'IMAGE_METADATA_MISMATCH',
+      });
+
+      expect(deleteImage).not.toHaveBeenCalled();
+    });
+
+    it('should rollback Inventory metadata and compensate new asset when ImageUpload.updateOne fails during updateInventory', async () => {
+      const inventoryId = new mongoose.Types.ObjectId().toString();
+      const originalInventory = {
+        _id: inventoryId,
+        itemName: 'Classic Frame',
+        imagePublicId: 'osms/inventory/original-asset',
+        imageUrl: 'https://res.cloudinary.com/test/image/upload/v1/original.jpg',
+      };
+      const newUpload = {
+        _id: new mongoose.Types.ObjectId(),
+        publicId: 'osms/inventory/new-replacement-asset',
+        imageUrl: 'https://res.cloudinary.com/test/image/upload/v2/new.jpg',
+        status: 'PENDING',
+      };
+
+      Inventory.findById.mockResolvedValue(originalInventory);
+      ImageUpload.findOne.mockResolvedValue(newUpload);
+
+      Inventory.findByIdAndUpdate.mockResolvedValueOnce({
+        ...originalInventory,
+        imagePublicId: newUpload.publicId,
+        imageUrl: newUpload.imageUrl,
+      });
+
+      ImageUpload.updateOne.mockRejectedValueOnce(new Error('Tracking DB failure'));
+
+      await expect(
+        updateInventory(inventoryId, {
+          imagePublicId: newUpload.publicId,
+          imageUrl: newUpload.imageUrl,
+        })
+      ).rejects.toThrow('Tracking DB failure');
+
+      expect(Inventory.findByIdAndUpdate).toHaveBeenCalledWith(
+        inventoryId,
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            imagePublicId: originalInventory.imagePublicId,
+            imageUrl: originalInventory.imageUrl,
+          }),
+        }),
+        expect.anything()
+      );
+
+      expect(deleteImage).toHaveBeenCalledWith(newUpload.publicId);
+      expect(deleteImage).not.toHaveBeenCalledWith(originalInventory.imagePublicId);
+    });
   });
 });

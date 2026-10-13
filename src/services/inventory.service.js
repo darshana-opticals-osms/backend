@@ -108,8 +108,24 @@ async function validateAndClaimImageUpload({
   branchId,
   currentInventoryId = null,
 }) {
-  if (!imagePublicId) {
+  if (!imagePublicId && !imageUrl) {
     return null;
+  }
+
+  if (imageUrl && !imagePublicId) {
+    throw new ValidationError(
+      'imagePublicId is required when imageUrl is provided.',
+      { field: 'imagePublicId' },
+      'MISSING_IMAGE_PUBLIC_ID'
+    );
+  }
+
+  if (imagePublicId && !imageUrl) {
+    throw new ValidationError(
+      'imageUrl is required when imagePublicId is provided.',
+      { field: 'imageUrl' },
+      'MISSING_IMAGE_URL'
+    );
   }
 
   if (!imagePublicId.startsWith('osms/inventory/')) {
@@ -129,7 +145,7 @@ async function validateAndClaimImageUpload({
     );
   }
 
-  if (imageUrl && uploadRecord.imageUrl !== imageUrl) {
+  if (uploadRecord.imageUrl !== imageUrl) {
     throw new ValidationError(
       'imageUrl does not match the approved upload record.',
       { field: 'imageUrl' },
@@ -221,7 +237,7 @@ async function createInventory(inventoryInput = {}, externalSession = null) {
 
     await validateBranch(branchId);
 
-    if (imagePublicId) {
+    if (imagePublicId || imageUrl) {
       uploadRecord = await validateAndClaimImageUpload({
         imagePublicId,
         imageUrl,
@@ -331,39 +347,102 @@ async function updateInventory(inventoryId, inventoryInput = {}) {
   }
 
   let newUploadRecord = null;
-  if (
-    inventoryInput.imagePublicId &&
-    (!existingInventory || existingInventory.imagePublicId !== inventoryInput.imagePublicId)
-  ) {
-    newUploadRecord = await validateAndClaimImageUpload({
-      imagePublicId: inventoryInput.imagePublicId,
-      imageUrl: inventoryInput.imageUrl,
-      branchId: inventoryInput.branchId || existingInventory?.branchId,
-      currentInventoryId: existingInventory?._id,
-    });
+  if (isImageMutation) {
+    const targetPublicId =
+      inventoryInput.imagePublicId !== undefined
+        ? inventoryInput.imagePublicId
+        : existingInventory?.imagePublicId;
+    const targetUrl =
+      inventoryInput.imageUrl !== undefined ? inventoryInput.imageUrl : existingInventory?.imageUrl;
+
+    const isImageChanged =
+      targetPublicId !== existingInventory?.imagePublicId ||
+      targetUrl !== existingInventory?.imageUrl;
+
+    if (isImageChanged) {
+      newUploadRecord = await validateAndClaimImageUpload({
+        imagePublicId: targetPublicId,
+        imageUrl: targetUrl,
+        branchId: inventoryInput.branchId || existingInventory?.branchId,
+        currentInventoryId: existingInventory?._id,
+      });
+    }
   }
 
+  let updatedInventory;
   try {
-    const updatedInventory = await Inventory.findByIdAndUpdate(
-      inventoryId,
-      { $set: inventoryInput },
-      {
-        new: true,
-        runValidators: true,
-        context: 'query',
+    updatedInventory = await executeWithTransactionOrRecovery(
+      async (session) => {
+        const updated = await Inventory.findByIdAndUpdate(
+          inventoryId,
+          { $set: inventoryInput },
+          {
+            new: true,
+            runValidators: true,
+            context: 'query',
+            session,
+          }
+        );
+
+        if (!updated) {
+          throw new NotFoundError('Inventory item not found.');
+        }
+
+        if (newUploadRecord) {
+          await ImageUpload.updateOne(
+            { _id: newUploadRecord._id },
+            { $set: { status: IMAGE_UPLOAD_STATUS.ATTACHED, inventoryId: updated._id } },
+            { session }
+          );
+        }
+
+        return updated;
+      },
+      async () => {
+        const originalValues = {
+          itemName: existingInventory?.itemName,
+          category: existingInventory?.category,
+          brand: existingInventory?.brand,
+          price: existingInventory?.price,
+          branchId: existingInventory?.branchId,
+          imageUrl: existingInventory?.imageUrl,
+          imagePublicId: existingInventory?.imagePublicId,
+        };
+
+        const updated = await Inventory.findByIdAndUpdate(
+          inventoryId,
+          { $set: inventoryInput },
+          {
+            new: true,
+            runValidators: true,
+            context: 'query',
+          }
+        );
+
+        if (!updated) {
+          throw new NotFoundError('Inventory item not found.');
+        }
+
+        try {
+          if (newUploadRecord) {
+            await ImageUpload.updateOne(
+              { _id: newUploadRecord._id },
+              { $set: { status: IMAGE_UPLOAD_STATUS.ATTACHED, inventoryId: updated._id } }
+            );
+          }
+          return updated;
+        } catch (trackingError) {
+          if (isImageMutation && existingInventory) {
+            await Inventory.findByIdAndUpdate(
+              inventoryId,
+              { $set: originalValues },
+              { context: 'query' }
+            );
+          }
+          throw trackingError;
+        }
       }
     );
-
-    if (!updatedInventory) {
-      throw new NotFoundError('Inventory item not found.');
-    }
-
-    if (newUploadRecord) {
-      await ImageUpload.updateOne(
-        { _id: newUploadRecord._id },
-        { $set: { status: IMAGE_UPLOAD_STATUS.ATTACHED, inventoryId: updatedInventory._id } }
-      );
-    }
 
     // Failure-safe replacement sequencing:
     // Only after new Inventory metadata is safely persisted, cleanup previous provider asset
