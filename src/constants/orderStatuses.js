@@ -47,28 +47,22 @@ const TERMINAL_ORDER_STATUSES = Object.freeze([
 
 // ─── Authorized Status Update Roles (ADR-004 §11, ADR-002 §10) ───────────────
 //
-// Only these canonical staff roles may perform operational Order-status updates.
+// Authorized branch staff (BRANCH_ASSISTANT and BRANCH_MANAGER) may perform operational Order-status updates.
 // CUSTOMER has read-only access and must never update status.
-// Read access (tracking visibility) follows ADR-004 §13 and ADR-002.
+// SYSTEM_ADMIN is restricted from day-to-day order status processing.
 
 const ORDER_STATUS_UPDATE_ROLES = Object.freeze([
-  ROLE_VALUES.INVENTORY_MANAGER,
+  ROLE_VALUES.BRANCH_ASSISTANT,
   ROLE_VALUES.BRANCH_MANAGER,
-  ROLE_VALUES.SYSTEM_ADMIN,
 ]);
 
 // ─── Roles permitted to view Order tracking information ───────────────────────
 //
-// Per ADR-004 §13: INVENTORY_MANAGER and BRANCH_MANAGER may view Order-tracking
-// information where the approved access-control rules allow it. MANAGEMENT is
-// included following the same pattern as other operational read-access grants
-// (see inventory.routes.js). SYSTEM_ADMIN retains full visibility.
+// Authorized branch staff (BRANCH_ASSISTANT and BRANCH_MANAGER) may view Order-tracking information.
 
 const ORDER_TRACKING_VIEW_ROLES = Object.freeze([
-  ROLE_VALUES.INVENTORY_MANAGER,
+  ROLE_VALUES.BRANCH_ASSISTANT,
   ROLE_VALUES.BRANCH_MANAGER,
-  ROLE_VALUES.MANAGEMENT,
-  ROLE_VALUES.SYSTEM_ADMIN,
 ]);
 
 // ─── Helper Functions ─────────────────────────────────────────────────────────

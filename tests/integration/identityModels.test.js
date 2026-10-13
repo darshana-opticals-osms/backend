@@ -86,15 +86,15 @@ describe('Identity models', () => {
     expect(admin.passwordHash).toBe(syntheticHash);
   });
 
-  it('should create a valid SALES_ASSISTANT_CASHIER staff record', async () => {
+  it('should create a valid BRANCH_ASSISTANT staff record', async () => {
     // Arrange
     const staffPayload = {
-      name: 'Cashier Staff',
-      email: 'cashier.staff@example.com',
+      name: 'Assistant Staff',
+      email: 'assistant.staff@example.com',
       phone: '+94710000001',
       address: '7 Counter Lane',
       branchId: new mongoose.Types.ObjectId().toString(),
-      role: ROLE_VALUES.SALES_ASSISTANT_CASHIER,
+      role: ROLE_VALUES.BRANCH_ASSISTANT,
       passwordHash: syntheticHash,
     };
 
@@ -102,7 +102,7 @@ describe('Identity models', () => {
     const staff = await Staff.create(staffPayload);
 
     // Assert
-    expect(staff.role).toBe(ROLE_VALUES.SALES_ASSISTANT_CASHIER);
+    expect(staff.role).toBe(ROLE_VALUES.BRANCH_ASSISTANT);
     expect(staff.passwordHash).toBe(syntheticHash);
   });
 
@@ -202,7 +202,7 @@ describe('Identity models', () => {
       phone: '+94710000009',
       address: '2 Protected Lane',
       branchId: new mongoose.Types.ObjectId().toString(),
-      role: ROLE_VALUES.INVENTORY_MANAGER,
+      role: ROLE_VALUES.BRANCH_MANAGER,
       passwordHash: syntheticHash,
     });
     const admin = await Admin.create({

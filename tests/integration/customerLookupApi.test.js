@@ -93,10 +93,8 @@ describe('Customer Lookup API (GET /api/customers/lookup)', () => {
 
     it.each([
       [ROLE_VALUES.CUSTOMER],
-      [ROLE_VALUES.SALES_ASSISTANT_CASHIER],
-      [ROLE_VALUES.MANAGEMENT],
+      [ROLE_VALUES.BRANCH_ASSISTANT],
       [ROLE_VALUES.BRANCH_MANAGER],
-      [ROLE_VALUES.INVENTORY_MANAGER],
       [ROLE_VALUES.SYSTEM_ADMIN],
     ])('should deny access (403 FORBIDDEN) to role %s (AC2)', async (unauthorizedRole) => {
       const token = createToken({ role: unauthorizedRole });

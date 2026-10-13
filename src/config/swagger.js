@@ -228,14 +228,7 @@ const options = {
             address: { type: 'string', example: '12 Main Street, Colombo' },
             role: {
               type: 'string',
-              enum: [
-                'INVENTORY_MANAGER',
-                'BRANCH_MANAGER',
-                'OPTOMETRIST',
-                'BRANCH_ASSISTANT',
-                'MANAGEMENT',
-                'SALES_ASSISTANT_CASHIER',
-              ],
+              enum: ['BRANCH_MANAGER', 'OPTOMETRIST', 'BRANCH_ASSISTANT'],
             },
             password: { type: 'string', format: 'password', minLength: 8 },
             branchId: {
@@ -256,14 +249,7 @@ const options = {
             address: { type: 'string', example: '12 Main Street, Colombo' },
             role: {
               type: 'string',
-              enum: [
-                'INVENTORY_MANAGER',
-                'BRANCH_MANAGER',
-                'OPTOMETRIST',
-                'BRANCH_ASSISTANT',
-                'MANAGEMENT',
-                'SALES_ASSISTANT_CASHIER',
-              ],
+              enum: ['BRANCH_MANAGER', 'OPTOMETRIST', 'BRANCH_ASSISTANT'],
             },
             branchId: { type: 'string', nullable: true, example: null },
           },
@@ -395,6 +381,11 @@ const options = {
               minimum: 0,
               example: 5,
             },
+            imageUrl: {
+              type: 'string',
+              nullable: true,
+              example: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+            },
             createdAt: {
               type: 'string',
               format: 'date-time',
@@ -437,6 +428,11 @@ const options = {
               minimum: 0,
               example: 5,
             },
+            imageUrl: {
+              type: 'string',
+              nullable: true,
+              example: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+            },
           },
         },
         InventoryUpdateRequest: {
@@ -464,6 +460,11 @@ const options = {
               minimum: 0,
               example: 16000,
             },
+            imageUrl: {
+              type: 'string',
+              nullable: true,
+              example: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+            },
           },
         },
         InventoryQuantityUpdateRequest: {
@@ -474,6 +475,92 @@ const options = {
               type: 'number',
               minimum: 0,
               example: 12,
+            },
+          },
+        },
+        ReorderAlert: {
+          type: 'object',
+          required: [
+            '_id',
+            'inventoryId',
+            'branchId',
+            'currentQuantity',
+            'threshold',
+            'status',
+            'createdAt',
+            'updatedAt',
+          ],
+          properties: {
+            _id: {
+              type: 'string',
+              example: '64d4a3ff3baf9d2b8a33d1a3',
+            },
+            inventoryId: {
+              type: 'object',
+              properties: {
+                _id: { type: 'string' },
+                itemName: { type: 'string' },
+                category: { type: 'string' },
+                brand: { type: 'string' },
+                price: { type: 'number' },
+                quantity: { type: 'number' },
+              },
+            },
+            branchId: {
+              type: 'object',
+              properties: {
+                _id: { type: 'string' },
+                name: { type: 'string' },
+                address: { type: 'string' },
+              },
+            },
+            currentQuantity: {
+              type: 'number',
+              example: 3,
+            },
+            threshold: {
+              type: 'number',
+              example: 5,
+            },
+            status: {
+              type: 'string',
+              enum: ['ACTIVE', 'RESOLVED'],
+              example: 'ACTIVE',
+            },
+            lastReminderSentAt: {
+              type: 'string',
+              format: 'date-time',
+              nullable: true,
+              example: '2026-10-11T10:00:00.000Z',
+            },
+            resolvedAt: {
+              type: 'string',
+              format: 'date-time',
+              nullable: true,
+              example: null,
+            },
+            createdAt: {
+              type: 'string',
+              format: 'date-time',
+              example: '2026-10-11T08:00:00.000Z',
+            },
+            updatedAt: {
+              type: 'string',
+              format: 'date-time',
+              example: '2026-10-11T08:00:00.000Z',
+            },
+          },
+        },
+        ReorderThresholdResponse: {
+          type: 'object',
+          required: ['success', 'data'],
+          properties: {
+            success: { type: 'boolean', example: true },
+            data: {
+              type: 'object',
+              properties: {
+                threshold: { type: 'number', example: 5 },
+              },
             },
           },
         },

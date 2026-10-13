@@ -11,6 +11,9 @@ const OrderItem = require('../../src/models/orderItem.model');
 const Appointment = require('../../src/models/appointment.model');
 const DoctorSession = require('../../src/models/doctorSession.model');
 const Payment = require('../../src/models/payment.model');
+const Cart = require('../../src/models/cart.model');
+const ReorderAlert = require('../../src/models/reorderAlert.model');
+const InventoryConfig = require('../../src/models/inventoryConfig.model');
 const { seedDatabase, PRODUCTION_SAFETY_ERROR } = require('../../src/seed/seed');
 const { DEV_DEFAULT_PASSWORD } = require('../../src/seed/data/users.data');
 const { ROLE_VALUES } = require('../../src/constants/roles');
@@ -33,6 +36,9 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
       Appointment.deleteMany({}),
       DoctorSession.deleteMany({}),
       Prescription.deleteMany({}),
+      Cart.deleteMany({}),
+      ReorderAlert.deleteMany({}),
+      InventoryConfig.deleteMany({}),
       Inventory.deleteMany({}),
       Staff.deleteMany({}),
       Customer.deleteMany({}),
@@ -49,6 +55,9 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
       Appointment.deleteMany({}),
       DoctorSession.deleteMany({}),
       Prescription.deleteMany({}),
+      Cart.deleteMany({}),
+      ReorderAlert.deleteMany({}),
+      InventoryConfig.deleteMany({}),
       Inventory.deleteMany({}),
       Staff.deleteMany({}),
       Customer.deleteMany({}),
@@ -65,6 +74,9 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
       Appointment.deleteMany({}),
       DoctorSession.deleteMany({}),
       Prescription.deleteMany({}),
+      Cart.deleteMany({}),
+      ReorderAlert.deleteMany({}),
+      InventoryConfig.deleteMany({}),
       Inventory.deleteMany({}),
       Staff.deleteMany({}),
       Customer.deleteMany({}),
@@ -112,11 +124,10 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
     expect(admins[0].passwordHash).toMatch(/^\$2[ab]\$12\$/);
 
     const staffMembers = await Staff.find().select('+passwordHash');
-    expect(staffMembers.length).toBeGreaterThanOrEqual(4);
+    expect(staffMembers.length).toBeGreaterThanOrEqual(3);
 
     const staffRoles = staffMembers.map((s) => s.role);
     expect(staffRoles).toContain(ROLE_VALUES.BRANCH_MANAGER);
-    expect(staffRoles).toContain(ROLE_VALUES.INVENTORY_MANAGER);
     expect(staffRoles).toContain(ROLE_VALUES.OPTOMETRIST);
     expect(staffRoles).toContain(ROLE_VALUES.BRANCH_ASSISTANT);
 

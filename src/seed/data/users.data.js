@@ -28,14 +28,6 @@ const SEED_STAFF = [
     role: ROLE_VALUES.BRANCH_MANAGER,
   },
   {
-    branchCodeName: 'COLOMBO_MAIN',
-    name: 'Colombo Inventory Manager',
-    email: 'inventory.colombo@darshanaopticals.local',
-    phone: '+94 77 100 0003',
-    address: '100 Galle Road, Colombo 03',
-    role: ROLE_VALUES.INVENTORY_MANAGER,
-  },
-  {
     branchCodeName: 'KANDY_CITY',
     name: 'Kandy Optometrist',
     email: 'optometrist.kandy@darshanaopticals.local',

@@ -17,10 +17,15 @@ const getJwtConfig = () => {
   return { jwtSecret, jwtExpiresIn };
 };
 
-const createAccessToken = ({ userId, role }) => {
+const createAccessToken = ({ userId, role, branchId = null }) => {
   const { jwtSecret, jwtExpiresIn } = getJwtConfig();
+  const payload = { userId, role };
 
-  return jwt.sign({ userId, role }, jwtSecret, {
+  if (branchId) {
+    payload.branchId = branchId.toString();
+  }
+
+  return jwt.sign(payload, jwtSecret, {
     algorithm: JWT_ALGORITHM,
     expiresIn: jwtExpiresIn,
   });
@@ -40,10 +45,16 @@ const verifyAccessToken = (token) => {
     throw new UnauthorizedError('Invalid authentication token.');
   }
 
-  return {
+  const claims = {
     userId: payload.userId,
     role: payload.role,
   };
+
+  if (payload.branchId && mongoose.isValidObjectId(payload.branchId)) {
+    claims.branchId = payload.branchId;
+  }
+
+  return claims;
 };
 
 module.exports = {

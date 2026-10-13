@@ -177,7 +177,7 @@ describe('Staff provisioning service', () => {
       email: 'jordan.staff@example.com',
       phone: '+94711234567',
       address: '12 Main Street, Colombo',
-      role: ROLE_VALUES.SALES_ASSISTANT_CASHIER,
+      role: ROLE_VALUES.BRANCH_ASSISTANT,
       branchId: null,
       password: PASSWORD,
       passwordHash: PASSWORD_HASH,
@@ -189,7 +189,7 @@ describe('Staff provisioning service', () => {
       email: 'jordan.staff@example.com',
       phone: '+94711234567',
       address: '12 Main Street, Colombo',
-      role: ROLE_VALUES.SALES_ASSISTANT_CASHIER,
+      role: ROLE_VALUES.BRANCH_ASSISTANT,
       branchId: null,
     });
     expect(response).not.toHaveProperty('password');

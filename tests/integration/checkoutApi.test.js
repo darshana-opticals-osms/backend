@@ -9,7 +9,9 @@ const Customer = require('../../src/models/customer.model');
 const Inventory = require('../../src/models/inventory.model');
 const Order = require('../../src/models/order.model');
 const OrderItem = require('../../src/models/orderItem.model');
+const ReorderAlert = require('../../src/models/reorderAlert.model');
 const { ROLE_VALUES } = require('../../src/constants/roles');
+const { REORDER_ALERT_STATUS } = require('../../src/constants/inventoryAlert.constants');
 
 const JWT_SECRET = 'checkout-api-test-secret';
 const PASSWORD_HASH = `$2b$12$${'a'.repeat(53)}`;
@@ -72,6 +74,7 @@ describe('Secure Checkout API', () => {
       Inventory.deleteMany({}),
       Customer.deleteMany({}),
       Branch.deleteMany({}),
+      ReorderAlert.deleteMany({}),
     ]);
   });
 
@@ -255,9 +258,9 @@ describe('Secure Checkout API', () => {
       { inventoryId: secondInventory._id, quantity: 1 },
     ]);
     const token = createToken({ userId: customer._id.toString() });
-    const updateInventory = Inventory.updateOne.bind(Inventory);
+    const updateInventory = Inventory.findOneAndUpdate.bind(Inventory);
     let stockUpdates = 0;
-    jest.spyOn(Inventory, 'updateOne').mockImplementation((...args) => {
+    jest.spyOn(Inventory, 'findOneAndUpdate').mockImplementation((...args) => {
       stockUpdates += 1;
       if (stockUpdates === 2) {
         return Promise.reject(new Error('simulated stock persistence failure'));
@@ -403,5 +406,65 @@ describe('Secure Checkout API', () => {
     expect(response.status).toBe(422);
     expect(await Order.countDocuments({})).toBe(0);
     expect(await Cart.countDocuments({ customerId: customer._id })).toBe(1);
+  });
+
+  describe('Checkout stock deduction and reorder alert integration (ADR-006 / AC5)', () => {
+    it('should automatically evaluate and create a ReorderAlert when checkout stock deduction crosses threshold (quantity <= 5)', async () => {
+      const branch = await Branch.create({ address: 'Colombo', contactNumber: '+94112000000' });
+      // Initial stock: 7. Deduct 3 -> Remaining: 4 (which is <= 5)
+      const inventory = await createInventory(branch._id, { quantity: 7 });
+      const customer = await createCustomer('checkout.alert.low@example.com');
+      await Cart.create({
+        customerId: customer._id,
+        items: [{ inventoryId: inventory._id, quantity: 3 }],
+      });
+      const token = createToken({ userId: customer._id.toString() });
+
+      const response = await request(app)
+        .post('/api/checkout')
+        .set('Authorization', `Bearer ${token}`)
+        .send({});
+
+      expect(response.status).toBe(201);
+
+      // Verify stock was decremented to 4
+      const updatedInventory = await Inventory.findById(inventory._id);
+      expect(updatedInventory.quantity).toBe(4);
+
+      // Verify authoritative ReorderAlert was generated
+      const activeAlert = await ReorderAlert.findOne({
+        inventoryId: inventory._id,
+        status: REORDER_ALERT_STATUS.ACTIVE,
+      });
+      expect(activeAlert).not.toBeNull();
+      expect(activeAlert.currentQuantity).toBe(4);
+      expect(activeAlert.threshold).toBe(5);
+      expect(activeAlert.branchId.toString()).toBe(branch._id.toString());
+    });
+
+    it('should not create a ReorderAlert when checkout stock deduction leaves quantity > 5', async () => {
+      const branch = await Branch.create({ address: 'Colombo', contactNumber: '+94112000000' });
+      // Initial stock: 10. Deduct 2 -> Remaining: 8 (> 5)
+      const inventory = await createInventory(branch._id, { quantity: 10 });
+      const customer = await createCustomer('checkout.alert.normal@example.com');
+      await Cart.create({
+        customerId: customer._id,
+        items: [{ inventoryId: inventory._id, quantity: 2 }],
+      });
+      const token = createToken({ userId: customer._id.toString() });
+
+      const response = await request(app)
+        .post('/api/checkout')
+        .set('Authorization', `Bearer ${token}`)
+        .send({});
+
+      expect(response.status).toBe(201);
+
+      const updatedInventory = await Inventory.findById(inventory._id);
+      expect(updatedInventory.quantity).toBe(8);
+
+      const count = await ReorderAlert.countDocuments({ inventoryId: inventory._id });
+      expect(count).toBe(0);
+    });
   });
 });

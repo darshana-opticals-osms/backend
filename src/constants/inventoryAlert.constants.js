@@ -1,0 +1,18 @@
+const REORDER_ALERT_STATUS = Object.freeze({
+  ACTIVE: 'ACTIVE',
+  RESOLVED: 'RESOLVED',
+});
+
+const DEFAULT_REORDER_THRESHOLD = 5;
+
+const REMINDER_CONFIG = Object.freeze({
+  START_HOUR: 8, // 8:00 AM
+  END_HOUR: 18, // 6:00 PM
+  INTERVAL_HOURS: 3,
+});
+
+module.exports = {
+  REORDER_ALERT_STATUS,
+  DEFAULT_REORDER_THRESHOLD,
+  REMINDER_CONFIG,
+};

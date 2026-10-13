@@ -1091,10 +1091,7 @@ describe('Appointment scheduling API', () => {
   });
 
   it('denies the retired Sales Assistant/Cashier role access to appointment operations', async () => {
-    const retiredRoleToken = tokenFor(
-      new mongoose.Types.ObjectId(),
-      ROLE_VALUES.SALES_ASSISTANT_CASHIER
-    );
+    const retiredRoleToken = tokenFor(new mongoose.Types.ObjectId(), 'SALES_ASSISTANT_CASHIER');
 
     expect(
       (
@@ -1102,14 +1099,14 @@ describe('Appointment scheduling API', () => {
           .get('/api/appointments/providers')
           .set('Authorization', `Bearer ${retiredRoleToken}`)
       ).status
-    ).toBe(403);
+    ).toBe(401);
     expect(
       (
         await request(app)
           .get('/api/appointments')
           .set('Authorization', `Bearer ${retiredRoleToken}`)
       ).status
-    ).toBe(403);
+    ).toBe(401);
     expect(
       (
         await request(app)
@@ -1117,7 +1114,7 @@ describe('Appointment scheduling API', () => {
           .set('Authorization', `Bearer ${retiredRoleToken}`)
           .send({})
       ).status
-    ).toBe(403);
+    ).toBe(401);
   });
 
   it('preserves customer visibility for legacy appointments after staff branch transfer without guessing scope', async () => {

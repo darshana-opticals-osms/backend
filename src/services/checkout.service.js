@@ -6,6 +6,7 @@ const Order = require('../models/order.model');
 const OrderItem = require('../models/orderItem.model');
 const { ORDER_STATUS_VALUES } = require('../constants/orderStatuses');
 const { ConflictError, NotFoundError, ValidationError } = require('../errors/AppError');
+const { deductInventoryStock } = require('./inventory.service');
 
 const CUSTOMER_NOT_FOUND = 'CUSTOMER_NOT_FOUND';
 const CART_NOT_FOUND = 'CART_NOT_FOUND';
@@ -126,18 +127,8 @@ function toCheckoutResponse(order, orderItems) {
   };
 }
 
-async function decrementInventoryStock(items, session) {
-  for (const item of items) {
-    const update = await Inventory.updateOne(
-      { _id: item.inventoryId, quantity: { $gte: item.quantity } },
-      { $inc: { quantity: -item.quantity } },
-      { session, runValidators: true }
-    );
-
-    if (update.matchedCount !== 1) {
-      throw new ConflictError('Inventory stock changed during checkout.', null, INSUFFICIENT_STOCK);
-    }
-  }
+async function decrementInventoryStock(items, session = null) {
+  return deductInventoryStock(items, session);
 }
 
 async function checkoutCustomer(customerId) {
@@ -191,7 +182,7 @@ async function checkoutCustomer(customerId) {
         { session, ordered: true }
       );
 
-      await decrementInventoryStock(cart.items, session);
+      await deductInventoryStock(cart.items, session);
 
       const deletion = await Cart.deleteOne({ _id: cart._id, customerId }).session(session);
       if (deletion.deletedCount !== 1) {

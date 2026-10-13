@@ -5,16 +5,28 @@ const {
   getInventoryByBranch,
   updateInventoryItem,
   updateInventoryItemQuantity,
+  getReorderAlerts,
+  getReorderThreshold,
+  updateReorderThreshold,
 } = require('../controllers/inventory.controller');
+
 const authenticate = require('../middleware/authenticate');
 const { authorizeRoles } = require('../middleware/authorizeRoles');
 const { validate } = require('../middleware/validate');
+const {
+  authorizeCreateInventoryBranch,
+  authorizeBranchInventoryAccess,
+  authorizeInventoryItemBranch,
+  authorizeReorderAlertsBranch,
+  authorizeReorderAlertsBranchParam,
+} = require('../middleware/authorizeBranchInventory');
 const { ROLE_VALUES } = require('../constants/roles');
 const { ForbiddenError } = require('../errors/AppError');
 
-const CREATE_FIELDS = new Set(['branchId', 'itemName', 'category', 'brand', 'price', 'quantity']);
+const REQUIRED_CREATE_FIELDS = ['branchId', 'itemName', 'category', 'brand', 'price', 'quantity'];
+const CREATE_FIELDS = new Set([...REQUIRED_CREATE_FIELDS, 'imageUrl']);
 
-const UPDATE_FIELDS = new Set(['branchId', 'itemName', 'category', 'brand', 'price']);
+const UPDATE_FIELDS = new Set(['branchId', 'itemName', 'category', 'brand', 'price', 'imageUrl']);
 
 const validateObjectBody = (body, errors) => {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -72,7 +84,7 @@ const createInventoryValidation = (req) => {
     }
   }
 
-  for (const field of CREATE_FIELDS) {
+  for (const field of REQUIRED_CREATE_FIELDS) {
     if (
       !Object.prototype.hasOwnProperty.call(body, field) ||
       body[field] === undefined ||
@@ -102,6 +114,14 @@ const createInventoryValidation = (req) => {
 
   if (body.quantity !== undefined && body.quantity !== null && body.quantity !== '') {
     validateNonNegativeNumber(body.quantity, 'quantity', errors);
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(body, 'imageUrl') &&
+    body.imageUrl !== null &&
+    body.imageUrl !== undefined
+  ) {
+    validateStringField(body.imageUrl, 'imageUrl', errors);
   }
 
   return errors;
@@ -159,6 +179,14 @@ const updateInventoryValidation = (req) => {
     validateNonNegativeNumber(body.price, 'price', errors);
   }
 
+  if (
+    Object.prototype.hasOwnProperty.call(body, 'imageUrl') &&
+    body.imageUrl !== null &&
+    body.imageUrl !== undefined
+  ) {
+    validateStringField(body.imageUrl, 'imageUrl', errors);
+  }
+
   return errors;
 };
 
@@ -166,26 +194,15 @@ const authorizeInventoryUpdateFields = (req, _res, next) => {
   const { role } = req.auth;
   const fields = Object.keys(req.body);
 
-  const includesPrice = fields.includes('price');
   const includesNonPriceFields = fields.some((field) => field !== 'price');
 
-  if (role === ROLE_VALUES.INVENTORY_MANAGER) {
-    if (includesPrice) {
-      return next(
-        new ForbiddenError(
-          'Manual price changes require Branch Manager or System Administrator authorization.'
-        )
-      );
-    }
-
+  if (role === ROLE_VALUES.BRANCH_MANAGER) {
     return next();
   }
 
-  if (role === ROLE_VALUES.BRANCH_MANAGER || role === ROLE_VALUES.SYSTEM_ADMIN) {
+  if (role === ROLE_VALUES.SYSTEM_ADMIN) {
     if (includesNonPriceFields) {
-      return next(
-        new ForbiddenError('Only Inventory Managers may update general inventory information.')
-      );
+      return next(new ForbiddenError('System Administrators may only update price overrides.'));
     }
 
     return next();
@@ -227,6 +244,67 @@ const quantityUpdateValidation = (req) => {
   return errors;
 };
 
+const reorderAlertsQueryValidation = (req) => {
+  const errors = [];
+  const branchId = req.params.branchId || req.query.branchId;
+
+  if (branchId) {
+    validateObjectId(branchId, 'branchId', errors);
+  }
+
+  if (req.query.page !== undefined) {
+    const pageNum = Number(req.query.page);
+    if (!Number.isInteger(pageNum) || pageNum < 1) {
+      errors.push({
+        field: 'page',
+        message: 'page must be a positive integer.',
+      });
+    }
+  }
+
+  if (req.query.limit !== undefined) {
+    const limitNum = Number(req.query.limit);
+    if (!Number.isInteger(limitNum) || limitNum < 1) {
+      errors.push({
+        field: 'limit',
+        message: 'limit must be a positive integer.',
+      });
+    }
+  }
+
+  return errors;
+};
+
+const reorderThresholdValidation = (req) => {
+  const { body } = req;
+  const errors = [];
+
+  if (!validateObjectBody(body, errors)) {
+    return errors;
+  }
+
+  for (const field of Object.keys(body)) {
+    if (field !== 'threshold') {
+      errors.push({
+        field,
+        message: `${field} is not allowed for threshold update.`,
+      });
+    }
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(body, 'threshold')) {
+    errors.push({
+      field: 'threshold',
+      message: 'threshold is required.',
+    });
+    return errors;
+  }
+
+  validateNonNegativeNumber(body.threshold, 'threshold', errors);
+
+  return errors;
+};
+
 const router = express.Router();
 
 /**
@@ -234,7 +312,7 @@ const router = express.Router();
  * /inventory:
  *   post:
  *     summary: Create a new inventory item
- *     description: Inventory creation is restricted to INVENTORY_MANAGER. The request must include branchId, itemName, category, brand, price, and quantity.
+ *     description: Inventory creation is restricted to BRANCH_MANAGER. The request must include branchId, itemName, category, brand, price, and quantity.
  *     tags:
  *       - Inventory
  *     security:
@@ -271,8 +349,9 @@ const router = express.Router();
 router.post(
   '/inventory',
   authenticate,
-  authorizeRoles(ROLE_VALUES.INVENTORY_MANAGER),
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER),
   validate(createInventoryValidation),
+  authorizeCreateInventoryBranch,
   createInventoryItem
 );
 
@@ -281,7 +360,7 @@ router.post(
  * /inventory/branch/{branchId}:
  *   get:
  *     summary: Retrieve inventory for a branch
- *     description: Returns all inventory records for a branch. Allowed roles are INVENTORY_MANAGER, BRANCH_MANAGER, and MANAGEMENT.
+ *     description: Returns all inventory records for a branch. Allowed roles are BRANCH_MANAGER and SYSTEM_ADMIN.
  *     tags:
  *       - Inventory
  *     security:
@@ -321,8 +400,9 @@ router.post(
 router.get(
   '/inventory/branch/:branchId',
   authenticate,
-  authorizeRoles(ROLE_VALUES.INVENTORY_MANAGER, ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.MANAGEMENT),
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.SYSTEM_ADMIN),
   validate(branchInventoryValidation),
+  authorizeBranchInventoryAccess,
   getInventoryByBranch
 );
 
@@ -331,7 +411,7 @@ router.get(
  * /inventory/{id}:
  *   patch:
  *     summary: Update inventory metadata or apply an authorized price override
- *     description: Roles are permission-sensitive. INVENTORY_MANAGER may update general fields only; BRANCH_MANAGER and SYSTEM_ADMIN may perform price-only override updates; they cannot update the other general inventory fields in the same request.
+ *     description: Roles are permission-sensitive. BRANCH_MANAGER may update general inventory fields for their branch; SYSTEM_ADMIN may perform price-only override updates.
  *     tags:
  *       - Inventory
  *     security:
@@ -377,13 +457,10 @@ router.get(
 router.patch(
   '/inventory/:id',
   authenticate,
-  authorizeRoles(
-    ROLE_VALUES.INVENTORY_MANAGER,
-    ROLE_VALUES.BRANCH_MANAGER,
-    ROLE_VALUES.SYSTEM_ADMIN
-  ),
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.SYSTEM_ADMIN),
   validate(updateInventoryValidation),
   authorizeInventoryUpdateFields,
+  authorizeInventoryItemBranch,
   updateInventoryItem
 );
 
@@ -392,7 +469,7 @@ router.patch(
  * /inventory/{id}/quantity:
  *   patch:
  *     summary: Update inventory quantity
- *     description: Updates stock quantity for an inventory record. Only INVENTORY_MANAGER can perform this action.
+ *     description: Updates stock quantity for an inventory record. Only BRANCH_MANAGER can perform this action.
  *     tags:
  *       - Inventory
  *     security:
@@ -438,9 +515,170 @@ router.patch(
 router.patch(
   '/inventory/:id/quantity',
   authenticate,
-  authorizeRoles(ROLE_VALUES.INVENTORY_MANAGER),
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER),
   validate(quantityUpdateValidation),
+  authorizeInventoryItemBranch,
   updateInventoryItemQuantity
+);
+
+/**
+ * @openapi
+ * /inventory/reorder-alerts:
+ *   get:
+ *     summary: Retrieve active inventory reorder alerts
+ *     description: Returns paginated active low-stock alerts. Permitted roles are BRANCH_MANAGER and SYSTEM_ADMIN. Optional branchId query parameter filters by branch.
+ *     tags:
+ *       - Inventory
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: branchId
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: Optional MongoDB branch identifier to filter alerts.
+ *       - in: query
+ *         name: page
+ *         required: false
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number for pagination.
+ *       - in: query
+ *         name: limit
+ *         required: false
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *         description: Number of alerts per page.
+ *     responses:
+ *       200:
+ *         description: Active reorder alerts returned successfully.
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
+ */
+router.get(
+  '/inventory/reorder-alerts',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.SYSTEM_ADMIN),
+  validate(reorderAlertsQueryValidation),
+  authorizeReorderAlertsBranch,
+  getReorderAlerts
+);
+
+/**
+ * @openapi
+ * /inventory/reorder-alerts/branch/{branchId}:
+ *   get:
+ *     summary: Retrieve active inventory reorder alerts for a specific branch
+ *     description: Returns active reorder alerts scoped to the specified branchId. Permitted roles are BRANCH_MANAGER and SYSTEM_ADMIN.
+ *     tags:
+ *       - Inventory
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: branchId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: MongoDB branch identifier.
+ *       - in: query
+ *         name: page
+ *         required: false
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         required: false
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *     responses:
+ *       200:
+ *         description: Branch-scoped reorder alerts returned successfully.
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
+ */
+router.get(
+  '/inventory/reorder-alerts/branch/:branchId',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.SYSTEM_ADMIN),
+  validate(reorderAlertsQueryValidation),
+  authorizeReorderAlertsBranchParam,
+  getReorderAlerts
+);
+
+/**
+ * @openapi
+ * /inventory/reorder-threshold:
+ *   get:
+ *     summary: Retrieve the global inventory reorder threshold
+ *     description: Returns the currently configured authoritative reorder threshold. Permitted roles are BRANCH_MANAGER and SYSTEM_ADMIN.
+ *     tags:
+ *       - Inventory
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Global reorder threshold returned successfully.
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *   put:
+ *     summary: Update the global inventory reorder threshold
+ *     description: Updates the authoritative reorder threshold and automatically triggers reconciliation across all existing inventory records. Permitted roles are BRANCH_MANAGER and SYSTEM_ADMIN.
+ *     tags:
+ *       - Inventory
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - threshold
+ *             properties:
+ *               threshold:
+ *                 type: number
+ *                 minimum: 0
+ *                 example: 5
+ *     responses:
+ *       200:
+ *         description: Reorder threshold updated and inventories reconciled successfully.
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
+ */
+router.get(
+  '/inventory/reorder-threshold',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.SYSTEM_ADMIN),
+  getReorderThreshold
+);
+
+router.put(
+  '/inventory/reorder-threshold',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.SYSTEM_ADMIN),
+  validate(reorderThresholdValidation),
+  updateReorderThreshold
 );
 
 module.exports = router;

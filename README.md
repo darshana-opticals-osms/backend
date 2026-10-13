@@ -59,7 +59,6 @@ All seeded development accounts use the default password: **`DevPassword123!`**
 
 - **System Admin:** `admin.dev@darshanaopticals.local` (Role: `SYSTEM_ADMIN`)
 - **Branch Manager:** `manager.colombo@darshanaopticals.local` (Role: `BRANCH_MANAGER`, Branch: Colombo)
-- **Inventory Manager:** `inventory.colombo@darshanaopticals.local` (Role: `INVENTORY_MANAGER`, Branch: Colombo)
 - **Optometrist:** `optometrist.kandy@darshanaopticals.local` (Role: `OPTOMETRIST`, Branch: Kandy)
 - **Gampaha Optometrist:** `optometrist.gampaha@darshanaopticals.local` (Role: `OPTOMETRIST`, Branch: Gampaha)
 - **Branch Assistant:** `sales.gampaha@darshanaopticals.local` (Role: `BRANCH_ASSISTANT`, Branch: Gampaha)
@@ -252,9 +251,9 @@ const { ROLE_VALUES } = require('./src/constants/roles');
 router.get('/admin-report', authenticate, authorizeRoles(ROLE_VALUES.SYSTEM_ADMIN), getAdminReport);
 
 router.get(
-  '/branch-or-management-report',
+  '/branch-or-admin-report',
   authenticate,
-  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.MANAGEMENT),
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.SYSTEM_ADMIN),
   getBranchReport
 );
 ```
@@ -273,7 +272,7 @@ roles only. Example single-role and multi-role checks use:
 
 ```javascript
 authorizeRoles(ROLE_VALUES.OPTOMETRIST);
-authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.MANAGEMENT);
+authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.SYSTEM_ADMIN);
 ```
 
 ## Code Quality & Formatting
