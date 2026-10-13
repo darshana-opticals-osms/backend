@@ -17,6 +17,9 @@ function loadConfig(overrides = {}) {
     GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
     GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-flash-lite-latest',
     CHATBOT_TIMEOUT_MS: process.env.CHATBOT_TIMEOUT_MS || '6000',
+    CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME || '',
+    CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY || '',
+    CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET || '',
   };
 
   Object.assign(env, overrides);
@@ -57,6 +60,9 @@ function loadConfig(overrides = {}) {
     geminiApiKey: env.GEMINI_API_KEY || undefined,
     geminiModel: env.GEMINI_MODEL,
     chatbotTimeoutMs: Number(env.CHATBOT_TIMEOUT_MS) || 6000,
+    cloudinaryCloudName: env.CLOUDINARY_CLOUD_NAME || undefined,
+    cloudinaryApiKey: env.CLOUDINARY_API_KEY || undefined,
+    cloudinaryApiSecret: env.CLOUDINARY_API_SECRET || undefined,
   };
 }
 
