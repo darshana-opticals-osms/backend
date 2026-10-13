@@ -7,6 +7,7 @@ const Inventory = require('../models/inventory.model');
 const Prescription = require('../models/prescription.model');
 const Order = require('../models/order.model');
 const OrderItem = require('../models/orderItem.model');
+const DoctorSession = require('../models/doctorSession.model');
 const Appointment = require('../models/appointment.model');
 const Payment = require('../models/payment.model');
 const KnowledgeArea = require('../models/knowledgeArea.model');
@@ -56,6 +57,7 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
     await Payment.deleteMany({});
     await Order.deleteMany({});
     await Appointment.deleteMany({});
+    await DoctorSession.deleteMany({});
     await Prescription.deleteMany({});
     await Cart.deleteMany({});
     await ReorderAlert.deleteMany({});
@@ -81,13 +83,23 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
 
   // 1. Seed Branches (AC5)
   for (const branchData of SEED_BRANCHES) {
-    let branch = await Branch.findOne({ address: branchData.address });
+    let branch = await Branch.findOne({ codeName: branchData.codeName });
+    if (!branch) {
+      branch = await Branch.findOne({ address: branchData.address });
+    }
     if (!branch) {
       branch = await Branch.create({
+        codeName: branchData.codeName,
         address: branchData.address,
         contactNumber: branchData.contactNumber,
       });
       branchesCreated += 1;
+    } else if (!branch.codeName) {
+      branch = await Branch.findByIdAndUpdate(
+        branch._id,
+        { $set: { codeName: branchData.codeName } },
+        { new: true, runValidators: true }
+      );
     }
     branchMap.set(branchData.codeName, branch._id);
   }

@@ -9,6 +9,7 @@ const Prescription = require('../../src/models/prescription.model');
 const Order = require('../../src/models/order.model');
 const OrderItem = require('../../src/models/orderItem.model');
 const Appointment = require('../../src/models/appointment.model');
+const DoctorSession = require('../../src/models/doctorSession.model');
 const Payment = require('../../src/models/payment.model');
 const Cart = require('../../src/models/cart.model');
 const ReorderAlert = require('../../src/models/reorderAlert.model');
@@ -33,6 +34,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
       Payment.deleteMany({}),
       Order.deleteMany({}),
       Appointment.deleteMany({}),
+      DoctorSession.deleteMany({}),
       Prescription.deleteMany({}),
       Cart.deleteMany({}),
       ReorderAlert.deleteMany({}),
@@ -51,6 +53,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
       Payment.deleteMany({}),
       Order.deleteMany({}),
       Appointment.deleteMany({}),
+      DoctorSession.deleteMany({}),
       Prescription.deleteMany({}),
       Cart.deleteMany({}),
       ReorderAlert.deleteMany({}),
@@ -69,6 +72,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
       Payment.deleteMany({}),
       Order.deleteMany({}),
       Appointment.deleteMany({}),
+      DoctorSession.deleteMany({}),
       Prescription.deleteMany({}),
       Cart.deleteMany({}),
       ReorderAlert.deleteMany({}),

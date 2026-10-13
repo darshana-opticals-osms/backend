@@ -32,6 +32,12 @@ const staffSchema = new mongoose.Schema(
       ref: 'Branch',
       default: null,
     },
+    schedulingVersion: {
+      type: Number,
+      default: 0,
+      min: 0,
+      select: false,
+    },
     role: {
       type: String,
       required: true,

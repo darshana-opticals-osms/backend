@@ -3,7 +3,7 @@
 Backend API and business logic for Darshana Opticals OSMS
 
 [![Backend CI](https://github.com/darshana-opticals-osms/backend/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/darshana-opticals-osms/backend/actions/workflows/ci.yml)
-![Test Coverage](https://img.shields.io/badge/coverage-85.05%25-brightgreen)
+![Test Coverage](https://img.shields.io/badge/coverage-91.14%25-brightgreen)
 
 ## Continuous Integration
 
@@ -17,7 +17,7 @@ The CI pipeline performs:
 - Test coverage generation
 - Dependency vulnerability scanning
 
-The current backend test suite contains 21 passing tests with approximately 85.05% line coverage.
+The backend Jest suite and coverage are generated with the commands in the Testing section below.
 
 ## Prerequisites
 
@@ -60,7 +60,9 @@ All seeded development accounts use the default password: **`DevPassword123!`**
 - **System Admin:** `admin.dev@darshanaopticals.local` (Role: `SYSTEM_ADMIN`)
 - **Branch Manager:** `manager.colombo@darshanaopticals.local` (Role: `BRANCH_MANAGER`, Branch: Colombo)
 - **Optometrist:** `optometrist.kandy@darshanaopticals.local` (Role: `OPTOMETRIST`, Branch: Kandy)
-- **Branch Assistant:** `assistant.gampaha@darshanaopticals.local` (Role: `BRANCH_ASSISTANT`, Branch: Gampaha)
+- **Gampaha Optometrist:** `optometrist.gampaha@darshanaopticals.local` (Role: `OPTOMETRIST`, Branch: Gampaha)
+- **Branch Assistant:** `sales.gampaha@darshanaopticals.local` (Role: `BRANCH_ASSISTANT`, Branch: Gampaha)
+- **Gampaha Branch Manager:** `manager.gampaha@darshanaopticals.local` (Role: `BRANCH_MANAGER`, Branch: Gampaha)
 - **Customer 1:** `kamal.customer@example.com` (Role: `CUSTOMER`)
 - **Customer 2:** `alice.customer@example.com` (Role: `CUSTOMER`)
 - **Customer 3:** `nimal.customer@example.com` (Role: `CUSTOMER`)
@@ -81,6 +83,8 @@ Seed operations are strictly prohibited when `NODE_ENV=production`. Attempting t
 
 - Checkout uses MongoDB multi-document transactions. Development and deployed MongoDB
   configurations must therefore support transactions through a replica set or sharded cluster.
+- Appointment booking, cancellation, reassignment, and doctor-session writes also require transaction support;
+  standalone MongoDB deployments are not supported for these operations.
 - For a local MongoDB server, configure the replica set name `osms-dev-rs`, start `mongod`
   with `--replSet osms-dev-rs`, then initialize it once with
   `mongosh --eval "rs.initiate({_id:'osms-dev-rs',members:[{_id:0,host:'127.0.0.1:27017'}]})"`.
@@ -276,3 +280,60 @@ authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.SYSTEM_ADMIN);
 - Run linter: `npm run lint`
 - Check formatting: `npm run format:check`
 - Fix formatting: `npm run format`
+
+## Appointment booking and management
+
+Online doctor scheduling is restricted to the approved Gampaha Main Branch, identified by the persisted branch code `GAMPAHA_CENTRAL`. Only currently eligible Gampaha `OPTOMETRIST` staff may be scheduled. Customers choose an available session and submit only its `sessionId`; the server assigns the customer, provider, session time, confirmed status, and queue position. The server requires the session to begin at least 24 hours after its current time (the exact 24-hour boundary is allowed) and rechecks capacity at booking.
+
+### Roles and lifecycle
+
+- A `BRANCH_ASSISTANT` assigned to Gampaha creates and reschedules sessions, and can cancel or reassign appointments.
+- A Gampaha Branch Assistant can use `GET /appointments/providers` to discover eligible Optometrists and receive the provider and approved branch IDs needed for session creation. This is not a general Staff or Branch directory.
+- Branch Assistant appointment list/detail responses include only customer ID, name, and phone for rescheduling contact. Customers do not receive customer contact data in their appointment response; Branch Managers do not receive customer contact fields.
+- A Gampaha `BRANCH_MANAGER` can read Gampaha sessions and appointments only. Managers cannot write appointment or session changes.
+- A `CUSTOMER` can view only their own appointments, book available sessions, and cancel their own confirmed appointment before its session begins.
+- `SYSTEM_ADMIN` and `OPTOMETRIST` do not have appointment-management access under the implemented API.
+- Cancellation preserves the record, releases capacity, and compacts active queue positions. Reassignment atomically updates both sessions and positions.
+- Session timestamps must be real ISO-8601 timestamps with `Z` or a numeric `±HH:MM` offset. Date-only, timezone-free, and impossible calendar dates are rejected.
+- Legacy appointments remain visible to their owning customer. Staff-wide branch visibility uses a session or persisted branch snapshot; a legacy record without either is deliberately not attributed to a branch based on the staff member's current assignment.
+
+Appointment and doctor-session endpoints reject all query parameters with `422 Unprocessable Entity`. Frontend clients must not append pagination, filtering, or cache-busting query strings to these endpoints.
+
+### Production branch backfill
+
+Do not run `seed:reset` or rely on development seed execution to identify the production branch. Before applying the backfill, compare a candidate's branch ID, exact address, and contact number with the authoritative production branch register. The script never creates branches or changes unrelated branch IDs, defaults to dry-run, and refuses to assign `GAMPAHA_CENTRAL` when another record already owns it.
+
+1. Configure the production MongoDB URI and credentials through deployment secrets, then list existing branch records:
+
+```powershell
+node scripts/backfillGampahaBranchCode.js --list
+```
+
+2. Identify the correct existing Branch record using the official branch register. Preview the proposed update by passing that exact existing ID and exact address:
+
+```powershell
+node scripts/backfillGampahaBranchCode.js --branch-id <existing-branch-id> --confirm-address "<exact verified address>"
+```
+
+3. Review the dry-run output and confirm the address and contact number with the production owner. Apply only to that record:
+
+```powershell
+node scripts/backfillGampahaBranchCode.js --branch-id <existing-branch-id> --confirm-address "<exact verified address>" --apply
+```
+
+4. Rerun `--list` and verify exactly one Branch record has `codeName` equal to `GAMPAHA_CENTRAL`. The operation is idempotent for the same record.
+
+### Swagger Try it out guide
+
+Start the backend with `npm run dev` and open `http://localhost:5000/api-docs`. This section describes a manual workflow; it is not a claim that Swagger Try it out was manually exercised.
+
+1. Obtain a JWT by logging in as the Branch Assistant `sales.gampaha@darshanaopticals.local` with the development password `DevPassword123!`; click **Authorize** and enter the token.
+2. Use `node scripts/backfillGampahaBranchCode.js --list` or an approved database inventory to find the verified `GAMPAHA_CENTRAL` Branch ID. The public `GET /branches` endpoint intentionally omits `codeName` and is not available to Branch Assistants.
+3. As the Branch Assistant, use `GET /appointments/providers` to obtain an eligible provider ID and the approved branch ID, then use `POST /doctor-sessions` with those IDs, timezone-aware `startAt` and `endAt`, and positive integer `capacity`. Choose a start at least 24 hours ahead.
+4. Log in as `kamal.customer@example.com` with the development password, authorize with that JWT, then call `GET /appointments/providers` and `GET /doctor-sessions/available`.
+5. Use `POST /appointments` with only `{ "sessionId": "<available-session-id>" }`. The response includes the server-assigned queue position.
+6. As the customer, use `GET /appointments` and `PATCH /appointments/{id}/cancel` before the session begins. The cancellation endpoint accepts no body.
+7. As the Branch Assistant, use `GET /appointments` and `PATCH /appointments/{id}/reassign` with `{ "sessionId": "<other-available-session-id>" }` when reassignment is needed.
+8. Log in as `manager.gampaha@darshanaopticals.local` and verify read-only access to `GET /doctor-sessions`, `GET /appointments`, and `GET /appointments/{id}`. Write operations are rejected.
+
+For repeatable automated verification, run `npx jest tests/integration/appointmentApi.test.js --runInBand` and `npx jest --runInBand --coverage` from `backend`.
