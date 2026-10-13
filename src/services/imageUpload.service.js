@@ -36,6 +36,9 @@ async function uploadImage(fileOrBuffer, customOptions = {}) {
       },
       (error, result) => {
         if (error || !result) {
+          if (error) {
+            console.error('Cloudinary upload failure reason:', error.message || error);
+          }
           return reject(
             new AppError(
               'Image upload failed. Upload provider unavailable.',
