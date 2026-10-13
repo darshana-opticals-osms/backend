@@ -386,6 +386,11 @@ const options = {
               nullable: true,
               example: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
             },
+            imagePublicId: {
+              type: 'string',
+              nullable: true,
+              example: 'osms/inventory/sample',
+            },
             createdAt: {
               type: 'string',
               format: 'date-time',
@@ -395,6 +400,21 @@ const options = {
               type: 'string',
               format: 'date-time',
               example: '2024-05-01T10:00:00.000Z',
+            },
+          },
+        },
+        InventoryImageUploadResponse: {
+          type: 'object',
+          required: ['imageUrl', 'imagePublicId'],
+          properties: {
+            imageUrl: {
+              type: 'string',
+              example:
+                'https://res.cloudinary.com/test-cloud/image/upload/v1234/osms/inventory/sample.jpg',
+            },
+            imagePublicId: {
+              type: 'string',
+              example: 'osms/inventory/sample',
             },
           },
         },
@@ -433,6 +453,11 @@ const options = {
               nullable: true,
               example: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
             },
+            imagePublicId: {
+              type: 'string',
+              nullable: true,
+              example: 'osms/inventory/sample',
+            },
           },
         },
         InventoryUpdateRequest: {
@@ -464,6 +489,11 @@ const options = {
               type: 'string',
               nullable: true,
               example: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+            },
+            imagePublicId: {
+              type: 'string',
+              nullable: true,
+              example: 'osms/inventory/sample',
             },
           },
         },

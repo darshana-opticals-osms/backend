@@ -362,6 +362,58 @@ const reorderThresholdValidation = (req) => {
 
 const router = express.Router();
 
+/**
+ * @openapi
+ * /inventory/images:
+ *   post:
+ *     summary: Upload an inventory item image to Cloudinary
+ *     description: Authenticated upload of an image file (JPEG, PNG, or WebP up to 5MB). Restricted to BRANCH_MANAGER.
+ *     tags:
+ *       - Inventory
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - image
+ *             properties:
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *                 description: Image file to upload (JPEG, PNG, or WebP, max 5MB).
+ *     responses:
+ *       200:
+ *         description: Image uploaded successfully to Cloudinary.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required:
+ *                 - success
+ *                 - data
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/InventoryImageUploadResponse'
+ *       400:
+ *         $ref: '#/components/responses/BadRequest'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       502:
+ *         description: Image upload provider unavailable.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
 router.post(
   '/inventory/images',
   authenticate,
@@ -584,6 +636,44 @@ router.patch(
   updateInventoryItemQuantity
 );
 
+/**
+ * @openapi
+ * /inventory/{id}/image:
+ *   delete:
+ *     summary: Remove an inventory item image
+ *     description: Clears image metadata from an authorized inventory item and deletes the hosted Cloudinary asset. Restricted to BRANCH_MANAGER.
+ *     tags:
+ *       - Inventory
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: MongoDB inventory item identifier.
+ *     responses:
+ *       200:
+ *         description: Inventory image removed successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Inventory image removed successfully.
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ */
 router.delete(
   '/inventory/:id/image',
   authenticate,
