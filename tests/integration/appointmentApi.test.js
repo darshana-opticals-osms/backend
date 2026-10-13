@@ -19,7 +19,7 @@ describe('Appointment scheduling API', () => {
   let originalEnv;
   let gampahaBranch;
   let optometrist;
-  let cashier;
+  let branchAssistant;
   let customer;
 
   beforeAll(async () => {
@@ -77,13 +77,13 @@ describe('Appointment scheduling API', () => {
       passwordHash,
     });
 
-    cashier = await Staff.create({
-      name: 'Gampaha Cashier',
-      email: 'gampaha.cashier@example.com',
+    branchAssistant = await Staff.create({
+      name: 'Gampaha Branch Assistant',
+      email: 'gampaha.branchAssistant@example.com',
       phone: '+94 77 100 0101',
       address: '12 Main Street, Gampaha',
       branchId: gampahaBranch._id,
-      role: ROLE_VALUES.SALES_ASSISTANT_CASHIER,
+      role: ROLE_VALUES.BRANCH_ASSISTANT,
       passwordHash,
     });
 
@@ -155,16 +155,16 @@ describe('Appointment scheduling API', () => {
     const sessionStart = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
     const sessionEnd = new Date(sessionStart.getTime() + 60 * 60 * 1000);
 
-    const cashierToken = createAccessToken({
-      userId: cashier._id.toString(),
-      role: ROLE_VALUES.SALES_ASSISTANT_CASHIER,
+    const branchAssistantToken = createAccessToken({
+      userId: branchAssistant._id.toString(),
+      role: ROLE_VALUES.BRANCH_ASSISTANT,
     });
 
-    const cashierProvidersResponse = await request(app)
+    const branchAssistantProvidersResponse = await request(app)
       .get('/api/appointments/providers')
-      .set('Authorization', `Bearer ${cashierToken}`);
-    expect(cashierProvidersResponse.status).toBe(200);
-    const discoveredProvider = cashierProvidersResponse.body.data.find(
+      .set('Authorization', `Bearer ${branchAssistantToken}`);
+    expect(branchAssistantProvidersResponse.status).toBe(200);
+    const discoveredProvider = branchAssistantProvidersResponse.body.data.find(
       (provider) => provider.id === optometrist._id.toString()
     );
     expect(discoveredProvider).toMatchObject({
@@ -177,7 +177,7 @@ describe('Appointment scheduling API', () => {
 
     const createSessionResponse = await request(app)
       .post('/api/doctor-sessions')
-      .set('Authorization', `Bearer ${cashierToken}`)
+      .set('Authorization', `Bearer ${branchAssistantToken}`)
       .send({
         staffId: discoveredProvider.id,
         branchId: discoveredProvider.branchId,
@@ -241,22 +241,22 @@ describe('Appointment scheduling API', () => {
     expect(bookingResponse.body.data).not.toHaveProperty('passwordHash');
     expect(bookingResponse.body.data).not.toHaveProperty('customer');
 
-    const cashierAppointments = await request(app)
+    const branchAssistantAppointments = await request(app)
       .get('/api/appointments')
-      .set('Authorization', `Bearer ${cashierToken}`);
-    expect(cashierAppointments.body.data[0].customer).toEqual({
+      .set('Authorization', `Bearer ${branchAssistantToken}`);
+    expect(branchAssistantAppointments.body.data[0].customer).toEqual({
       id: customer._id.toString(),
       name: customer.name,
       phone: customer.phone,
     });
-    expect(cashierAppointments.body.data[0].customer).not.toHaveProperty('email');
-    expect(cashierAppointments.body.data[0].customer).not.toHaveProperty('address');
+    expect(branchAssistantAppointments.body.data[0].customer).not.toHaveProperty('email');
+    expect(branchAssistantAppointments.body.data[0].customer).not.toHaveProperty('address');
 
-    const cashierAppointment = await request(app)
+    const branchAssistantAppointment = await request(app)
       .get(`/api/appointments/${bookingResponse.body.data.id}`)
-      .set('Authorization', `Bearer ${cashierToken}`);
-    expect(cashierAppointment.body.data.customer).toEqual(
-      cashierAppointments.body.data[0].customer
+      .set('Authorization', `Bearer ${branchAssistantToken}`);
+    expect(branchAssistantAppointment.body.data.customer).toEqual(
+      branchAssistantAppointments.body.data[0].customer
     );
 
     const customerAppointments = await request(app)
@@ -317,7 +317,7 @@ describe('Appointment scheduling API', () => {
         .patch(`/api/appointments/${canceledAppointmentId}/cancel`)
         .set(
           'Authorization',
-          `Bearer ${tokenFor(cashier._id, ROLE_VALUES.SALES_ASSISTANT_CASHIER)}`
+          `Bearer ${tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT)}`
         )
         .send();
 
@@ -375,6 +375,30 @@ describe('Appointment scheduling API', () => {
       .set('Authorization', `Bearer ${customerToken}`)
       .send();
     expect(alreadyCancelled.status).toBe(409);
+  });
+
+  it('allows customer cancellation shortly before the session starts', async () => {
+    const fixedNow = Date.now();
+    jest.spyOn(Date, 'now').mockReturnValue(fixedNow);
+    const sessionStart = new Date(fixedNow + 3 * 24 * 60 * 60 * 1000);
+    const session = await DoctorSession.create({
+      staffId: optometrist._id,
+      branchId: gampahaBranch._id,
+      startAt: sessionStart,
+      endAt: new Date(sessionStart.getTime() + 60 * 60 * 1000),
+      capacity: 1,
+    });
+    const booking = await book(session, customer);
+    expect(booking.status).toBe(201);
+    Date.now.mockReturnValue(sessionStart.getTime() - 60_000);
+
+    const response = await request(app)
+      .patch(`/api/appointments/${booking.body.data.id}/cancel`)
+      .set('Authorization', `Bearer ${tokenFor(customer._id)}`)
+      .send();
+
+    expect(response.status).toBe(200);
+    expect((await Appointment.findById(booking.body.data.id)).status).toBe('CANCELLED');
   });
 
   it('rejects customer cancellation at the exact session start instant', async () => {
@@ -482,7 +506,7 @@ describe('Appointment scheduling API', () => {
           .patch('/api/doctor-sessions/abcdefghijkl')
           .set(
             'Authorization',
-            `Bearer ${tokenFor(cashier._id, ROLE_VALUES.SALES_ASSISTANT_CASHIER)}`
+            `Bearer ${tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT)}`
           )
           .send({ capacity: 2 })
       ).status
@@ -494,7 +518,7 @@ describe('Appointment scheduling API', () => {
             .patch(`/api/appointments/${new mongoose.Types.ObjectId()}/reassign`)
             .set(
               'Authorization',
-              `Bearer ${tokenFor(cashier._id, ROLE_VALUES.SALES_ASSISTANT_CASHIER)}`
+              `Bearer ${tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT)}`
             )
             .send({ sessionId })
         ).status
@@ -503,7 +527,7 @@ describe('Appointment scheduling API', () => {
   });
 
   it('rejects array, unsafe, unknown, and invalid-ID doctor-session payloads', async () => {
-    const token = tokenFor(cashier._id, ROLE_VALUES.SALES_ASSISTANT_CASHIER);
+    const token = tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT);
     const startAt = new Date(Date.now() + 4 * 24 * 60 * 60 * 1000);
     const payload = {
       staffId: optometrist._id.toString(),
@@ -542,7 +566,7 @@ describe('Appointment scheduling API', () => {
 
     const response = await request(app)
       .patch(`/api/appointments/${appointment._id}/cancel`)
-      .set('Authorization', `Bearer ${tokenFor(cashier._id, ROLE_VALUES.SALES_ASSISTANT_CASHIER)}`)
+      .set('Authorization', `Bearer ${tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT)}`)
       .send();
 
     expect(response.status).toBe(500);
@@ -562,10 +586,10 @@ describe('Appointment scheduling API', () => {
     const thirdCustomer = await createCustomer('cancel-race.third@example.com');
     const bookings = await Promise.all([book(session, customer), book(session, secondCustomer)]);
     expect(bookings.map((response) => response.status)).toEqual([201, 201]);
-    const cashierToken = tokenFor(cashier._id, ROLE_VALUES.SALES_ASSISTANT_CASHIER);
+    const branchAssistantToken = tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT);
     const cancelRequest = request(app)
       .patch(`/api/appointments/${bookings[0].body.data.id}/cancel`)
-      .set('Authorization', `Bearer ${cashierToken}`)
+      .set('Authorization', `Bearer ${branchAssistantToken}`)
       .send();
 
     const [cancelResponse, bookingResponse] = await Promise.all([
@@ -680,11 +704,11 @@ describe('Appointment scheduling API', () => {
     const target = await createSession({ capacity: 2, daysAhead: 5 });
     const booking = await book(source, customer);
     expect(booking.status).toBe(201);
-    const cashierToken = tokenFor(cashier._id, ROLE_VALUES.SALES_ASSISTANT_CASHIER);
+    const branchAssistantToken = tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT);
 
     const response = await request(app)
       .patch(`/api/appointments/${booking.body.data.id}/reassign`)
-      .set('Authorization', `Bearer ${cashierToken}`)
+      .set('Authorization', `Bearer ${branchAssistantToken}`)
       .send({ sessionId: target._id.toString() });
     expect(response.status).toBe(200);
 
@@ -698,7 +722,7 @@ describe('Appointment scheduling API', () => {
 
     const sameSession = await request(app)
       .patch(`/api/appointments/${booking.body.data.id}/reassign`)
-      .set('Authorization', `Bearer ${cashierToken}`)
+      .set('Authorization', `Bearer ${branchAssistantToken}`)
       .send({ sessionId: target._id.toString() });
     expect(sameSession.status).toBe(409);
   });
@@ -716,7 +740,7 @@ describe('Appointment scheduling API', () => {
 
     const response = await request(app)
       .patch(`/api/appointments/${bookings[1].body.data.id}/reassign`)
-      .set('Authorization', `Bearer ${tokenFor(cashier._id, ROLE_VALUES.SALES_ASSISTANT_CASHIER)}`)
+      .set('Authorization', `Bearer ${tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT)}`)
       .send({ sessionId: target._id.toString() });
 
     expect(response.status).toBe(200);
@@ -739,11 +763,11 @@ describe('Appointment scheduling API', () => {
     const otherCustomer = await createCustomer('reassign.race@example.com');
     const bookings = await Promise.all([book(sourceA, customer), book(sourceB, otherCustomer)]);
     expect(bookings.map((response) => response.status)).toEqual([201, 201]);
-    const cashierToken = tokenFor(cashier._id, ROLE_VALUES.SALES_ASSISTANT_CASHIER);
+    const branchAssistantToken = tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT);
     const reassign = (booking) =>
       request(app)
         .patch(`/api/appointments/${booking.body.data.id}/reassign`)
-        .set('Authorization', `Bearer ${cashierToken}`)
+        .set('Authorization', `Bearer ${branchAssistantToken}`)
         .send({ sessionId: target._id.toString() });
 
     const responses = await Promise.all(bookings.map(reassign));
@@ -766,7 +790,7 @@ describe('Appointment scheduling API', () => {
 
     const response = await request(app)
       .patch(`/api/appointments/${booking.body.data.id}/reassign`)
-      .set('Authorization', `Bearer ${tokenFor(cashier._id, ROLE_VALUES.SALES_ASSISTANT_CASHIER)}`)
+      .set('Authorization', `Bearer ${tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT)}`)
       .send({ sessionId: target._id.toString() });
 
     expect(response.status).toBe(500);
@@ -788,11 +812,11 @@ describe('Appointment scheduling API', () => {
     expect([sourceBooking.status, targetOccupant.status, duplicateBooking.status]).toEqual([
       201, 201, 201,
     ]);
-    const cashierToken = tokenFor(cashier._id, ROLE_VALUES.SALES_ASSISTANT_CASHIER);
+    const branchAssistantToken = tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT);
     const reassign = (appointmentId, targetSessionId) =>
       request(app)
         .patch(`/api/appointments/${appointmentId}/reassign`)
-        .set('Authorization', `Bearer ${cashierToken}`)
+        .set('Authorization', `Bearer ${branchAssistantToken}`)
         .send({ sessionId: targetSessionId.toString() });
 
     const fullResponse = await reassign(sourceBooking.body.data.id, fullTarget._id);
@@ -807,7 +831,7 @@ describe('Appointment scheduling API', () => {
     const invalidProviderTarget = await createSession({ capacity: 2, daysAhead: 7 });
     await Staff.updateOne(
       { _id: optometrist._id },
-      { $set: { role: ROLE_VALUES.SALES_ASSISTANT_CASHIER } }
+      { $set: { role: ROLE_VALUES.BRANCH_ASSISTANT } }
     );
     const invalidProviderResponse = await reassign(
       sourceBooking.body.data.id,
@@ -971,23 +995,23 @@ describe('Appointment scheduling API', () => {
     ).toBe(403);
   });
 
-  it('denies cashiers assigned to another branch from Gampaha appointment management', async () => {
+  it('denies Branch Assistants assigned to another branch from Gampaha appointment management', async () => {
     const session = await createSession({ capacity: 1 });
     const booking = await book(session, customer);
     const otherBranch = await Branch.create({
-      address: 'Cashier Other Branch',
+      address: 'Branch Assistant Other Branch',
       contactNumber: '+94 11 222 0001',
     });
-    const otherCashier = await Staff.create({
-      name: 'Other Branch Cashier',
-      email: 'cashier.other@example.com',
+    const otherBranchAssistant = await Staff.create({
+      name: 'Other Branch Assistant',
+      email: 'branch-assistant.other@example.com',
       phone: '+94 77 100 0301',
       address: 'Other Branch',
       branchId: otherBranch._id,
-      role: ROLE_VALUES.SALES_ASSISTANT_CASHIER,
+      role: ROLE_VALUES.BRANCH_ASSISTANT,
       passwordHash: '$2b$12$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     });
-    const token = tokenFor(otherCashier._id, ROLE_VALUES.SALES_ASSISTANT_CASHIER);
+    const token = tokenFor(otherBranchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT);
 
     expect(
       (
@@ -1066,6 +1090,36 @@ describe('Appointment scheduling API', () => {
     }
   });
 
+  it('denies the retired Sales Assistant/Cashier role access to appointment operations', async () => {
+    const retiredRoleToken = tokenFor(
+      new mongoose.Types.ObjectId(),
+      ROLE_VALUES.SALES_ASSISTANT_CASHIER
+    );
+
+    expect(
+      (
+        await request(app)
+          .get('/api/appointments/providers')
+          .set('Authorization', `Bearer ${retiredRoleToken}`)
+      ).status
+    ).toBe(403);
+    expect(
+      (
+        await request(app)
+          .get('/api/appointments')
+          .set('Authorization', `Bearer ${retiredRoleToken}`)
+      ).status
+    ).toBe(403);
+    expect(
+      (
+        await request(app)
+          .post('/api/doctor-sessions')
+          .set('Authorization', `Bearer ${retiredRoleToken}`)
+          .send({})
+      ).status
+    ).toBe(403);
+  });
+
   it('preserves customer visibility for legacy appointments after staff branch transfer without guessing scope', async () => {
     const otherBranch = await Branch.create({
       address: 'Transferred Staff Branch',
@@ -1124,11 +1178,11 @@ describe('Appointment scheduling API', () => {
   });
 
   it('rejects impossible ISO dates and excludes providers who are no longer eligible', async () => {
-    const cashierToken = tokenFor(cashier._id, ROLE_VALUES.SALES_ASSISTANT_CASHIER);
+    const branchAssistantToken = tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT);
     const createSessionRequest = (startAt, endAt) =>
       request(app)
         .post('/api/doctor-sessions')
-        .set('Authorization', `Bearer ${cashierToken}`)
+        .set('Authorization', `Bearer ${branchAssistantToken}`)
         .send({
           staffId: optometrist._id.toString(),
           branchId: gampahaBranch._id.toString(),
@@ -1150,7 +1204,7 @@ describe('Appointment scheduling API', () => {
     const session = await createSession({ capacity: 1 });
     await Staff.updateOne(
       { _id: optometrist._id },
-      { $set: { role: ROLE_VALUES.SALES_ASSISTANT_CASHIER } }
+      { $set: { role: ROLE_VALUES.BRANCH_ASSISTANT } }
     );
     const available = await request(app)
       .get('/api/doctor-sessions/available')
@@ -1202,7 +1256,7 @@ describe('Appointment scheduling API', () => {
         .post('/api/doctor-sessions')
         .set(
           'Authorization',
-          `Bearer ${tokenFor(cashier._id, ROLE_VALUES.SALES_ASSISTANT_CASHIER)}`
+          `Bearer ${tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT)}`
         )
         .send({
           staffId: optometrist._id.toString(),
@@ -1234,7 +1288,7 @@ describe('Appointment scheduling API', () => {
       startAt: new Date(baseline + 3 * 60 * 60 * 1000),
       endAt: new Date(baseline + 4 * 60 * 60 * 1000),
     });
-    const token = tokenFor(cashier._id, ROLE_VALUES.SALES_ASSISTANT_CASHIER);
+    const token = tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT);
     const update = (session, startOffset, endOffset) =>
       request(app)
         .patch(`/api/doctor-sessions/${session._id}`)
@@ -1280,7 +1334,7 @@ describe('Appointment scheduling API', () => {
 
     const response = await request(app)
       .patch(`/api/doctor-sessions/${session._id}`)
-      .set('Authorization', `Bearer ${tokenFor(cashier._id, ROLE_VALUES.SALES_ASSISTANT_CASHIER)}`)
+      .set('Authorization', `Bearer ${tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT)}`)
       .send({ staffId: replacementDoctor._id.toString() });
 
     expect(response.status).toBe(200);
@@ -1308,7 +1362,7 @@ describe('Appointment scheduling API', () => {
         eligibilityChanged = true;
         await updateStaff(
           { _id: optometrist._id },
-          { $set: { role: ROLE_VALUES.SALES_ASSISTANT_CASHIER, branchId: otherBranch._id } }
+          { $set: { role: ROLE_VALUES.BRANCH_ASSISTANT, branchId: otherBranch._id } }
         );
       }
       return updateStaff(filter, update, options);
@@ -1347,7 +1401,7 @@ describe('Appointment scheduling API', () => {
 
     const response = await request(app)
       .patch(`/api/appointments/${booking.body.data.id}/reassign`)
-      .set('Authorization', `Bearer ${tokenFor(cashier._id, ROLE_VALUES.SALES_ASSISTANT_CASHIER)}`)
+      .set('Authorization', `Bearer ${tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT)}`)
       .send({ sessionId: target._id.toString() });
 
     expect(eligibilityChanged).toBe(true);
@@ -1366,12 +1420,12 @@ describe('Appointment scheduling API', () => {
     ]);
     const response = await request(app)
       .patch(`/api/doctor-sessions/${session._id}`)
-      .set('Authorization', `Bearer ${tokenFor(cashier._id, ROLE_VALUES.SALES_ASSISTANT_CASHIER)}`)
+      .set('Authorization', `Bearer ${tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT)}`)
       .send({ capacity: 0 });
     expect(response.status).toBe(422);
     const belowConfirmed = await request(app)
       .patch(`/api/doctor-sessions/${session._id}`)
-      .set('Authorization', `Bearer ${tokenFor(cashier._id, ROLE_VALUES.SALES_ASSISTANT_CASHIER)}`)
+      .set('Authorization', `Bearer ${tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT)}`)
       .send({ capacity: 1 });
     expect(belowConfirmed.status).toBe(409);
   });
@@ -1406,7 +1460,7 @@ describe('Appointment scheduling API', () => {
 
     const response = await request(app)
       .patch(`/api/doctor-sessions/${session._id}`)
-      .set('Authorization', `Bearer ${tokenFor(cashier._id, ROLE_VALUES.SALES_ASSISTANT_CASHIER)}`)
+      .set('Authorization', `Bearer ${tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT)}`)
       .send({
         startAt: newStartAt.toISOString(),
         endAt: new Date(newStartAt.getTime() + 60 * 60 * 1000).toISOString(),

@@ -99,7 +99,7 @@ const router = express.Router();
 router.get(
   '/appointments/providers',
   authenticate,
-  authorizeRoles(ROLE_VALUES.CUSTOMER, ROLE_VALUES.SALES_ASSISTANT_CASHIER),
+  authorizeRoles(ROLE_VALUES.CUSTOMER, ROLE_VALUES.BRANCH_ASSISTANT),
   getProviders
 );
 
@@ -113,7 +113,7 @@ router.get(
 router.post(
   '/doctor-sessions',
   authenticate,
-  authorizeRoles(ROLE_VALUES.SALES_ASSISTANT_CASHIER),
+  authorizeRoles(ROLE_VALUES.BRANCH_ASSISTANT),
   validate(ensureDoctorSessionBody),
   createDoctorSessionHandler
 );
@@ -121,14 +121,14 @@ router.post(
 router.get(
   '/doctor-sessions',
   authenticate,
-  authorizeRoles(ROLE_VALUES.SALES_ASSISTANT_CASHIER, ROLE_VALUES.BRANCH_MANAGER),
+  authorizeRoles(ROLE_VALUES.BRANCH_ASSISTANT, ROLE_VALUES.BRANCH_MANAGER),
   getAvailableSessions
 );
 
 router.patch(
   '/doctor-sessions/:id',
   authenticate,
-  authorizeRoles(ROLE_VALUES.SALES_ASSISTANT_CASHIER),
+  authorizeRoles(ROLE_VALUES.BRANCH_ASSISTANT),
   validate(ensureIdParam),
   validate((req) => {
     const errors = [];
@@ -180,22 +180,14 @@ router.post(
 router.get(
   '/appointments',
   authenticate,
-  authorizeRoles(
-    ROLE_VALUES.CUSTOMER,
-    ROLE_VALUES.SALES_ASSISTANT_CASHIER,
-    ROLE_VALUES.BRANCH_MANAGER
-  ),
+  authorizeRoles(ROLE_VALUES.CUSTOMER, ROLE_VALUES.BRANCH_ASSISTANT, ROLE_VALUES.BRANCH_MANAGER),
   listAppointmentsHandler
 );
 
 router.get(
   '/appointments/:id',
   authenticate,
-  authorizeRoles(
-    ROLE_VALUES.CUSTOMER,
-    ROLE_VALUES.SALES_ASSISTANT_CASHIER,
-    ROLE_VALUES.BRANCH_MANAGER
-  ),
+  authorizeRoles(ROLE_VALUES.CUSTOMER, ROLE_VALUES.BRANCH_ASSISTANT, ROLE_VALUES.BRANCH_MANAGER),
   validate(ensureIdParam),
   getAppointmentHandler
 );
@@ -203,7 +195,7 @@ router.get(
 router.patch(
   '/appointments/:id/cancel',
   authenticate,
-  authorizeRoles(ROLE_VALUES.CUSTOMER, ROLE_VALUES.SALES_ASSISTANT_CASHIER),
+  authorizeRoles(ROLE_VALUES.CUSTOMER, ROLE_VALUES.BRANCH_ASSISTANT),
   validate(ensureIdParam),
   validate(ensureEmptyBody),
   cancelAppointmentHandler
@@ -212,7 +204,7 @@ router.patch(
 router.patch(
   '/appointments/:id/reassign',
   authenticate,
-  authorizeRoles(ROLE_VALUES.SALES_ASSISTANT_CASHIER),
+  authorizeRoles(ROLE_VALUES.BRANCH_ASSISTANT),
   validate((req) => {
     const errors = [];
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {

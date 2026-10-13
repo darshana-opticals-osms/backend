@@ -70,7 +70,7 @@ describe('Appointment service validation and response mapping', () => {
     expect(appointment).not.toHaveProperty('customerId');
     expect(appointment).not.toHaveProperty('email');
     expect(appointment).not.toHaveProperty('customer');
-    const cashierAppointment = toPublicAppointment(
+    const branchAssistantAppointment = toPublicAppointment(
       {
         customerId: {
           _id: new mongoose.Types.ObjectId(),
@@ -83,33 +83,33 @@ describe('Appointment service validation and response mapping', () => {
       },
       { includeCustomerContact: true }
     );
-    expect(cashierAppointment.customer).toMatchObject({
+    expect(branchAssistantAppointment.customer).toMatchObject({
       name: 'Customer Example',
       phone: '+94 77 100 0000',
     });
-    expect(cashierAppointment.customer).not.toHaveProperty('email');
-    expect(cashierAppointment.customer).not.toHaveProperty('address');
+    expect(branchAssistantAppointment.customer).not.toHaveProperty('email');
+    expect(branchAssistantAppointment.customer).not.toHaveProperty('address');
     expect(session).toMatchObject({ capacity: 4, confirmedCount: 2, remainingCapacity: 2 });
   });
 
-  it('allows an authenticated same-branch cashier and rejects invalid role or branch', async () => {
+  it('allows an authenticated same-branch Branch Assistant and rejects invalid role or branch', async () => {
     const branchId = new mongoose.Types.ObjectId();
     const staffId = new mongoose.Types.ObjectId();
     Staff.findById.mockReturnValue({
-      lean: async () => ({ _id: staffId, role: ROLE_VALUES.SALES_ASSISTANT_CASHIER, branchId }),
+      lean: async () => ({ _id: staffId, role: ROLE_VALUES.BRANCH_ASSISTANT, branchId }),
     });
     Branch.findOne.mockReturnValue({ lean: async () => ({ _id: branchId }) });
 
     await expect(
       assertAuthorizedStaffAccess(
-        { userId: staffId.toString(), role: ROLE_VALUES.SALES_ASSISTANT_CASHIER },
-        [ROLE_VALUES.SALES_ASSISTANT_CASHIER]
+        { userId: staffId.toString(), role: ROLE_VALUES.BRANCH_ASSISTANT },
+        [ROLE_VALUES.BRANCH_ASSISTANT]
       )
-    ).resolves.toMatchObject({ role: ROLE_VALUES.SALES_ASSISTANT_CASHIER });
+    ).resolves.toMatchObject({ role: ROLE_VALUES.BRANCH_ASSISTANT });
 
     await expect(
       assertAuthorizedStaffAccess(
-        { userId: staffId.toString(), role: ROLE_VALUES.SALES_ASSISTANT_CASHIER },
+        { userId: staffId.toString(), role: ROLE_VALUES.BRANCH_ASSISTANT },
         [ROLE_VALUES.BRANCH_MANAGER]
       )
     ).rejects.toMatchObject({ statusCode: 403 });
@@ -117,14 +117,14 @@ describe('Appointment service validation and response mapping', () => {
     Staff.findById.mockReturnValue({
       lean: async () => ({
         _id: staffId,
-        role: ROLE_VALUES.SALES_ASSISTANT_CASHIER,
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
         branchId: new mongoose.Types.ObjectId(),
       }),
     });
     await expect(
       assertAuthorizedStaffAccess(
-        { userId: staffId.toString(), role: ROLE_VALUES.SALES_ASSISTANT_CASHIER },
-        [ROLE_VALUES.SALES_ASSISTANT_CASHIER]
+        { userId: staffId.toString(), role: ROLE_VALUES.BRANCH_ASSISTANT },
+        [ROLE_VALUES.BRANCH_ASSISTANT]
       )
     ).rejects.toMatchObject({ statusCode: 403 });
   });

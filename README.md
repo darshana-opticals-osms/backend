@@ -62,7 +62,7 @@ All seeded development accounts use the default password: **`DevPassword123!`**
 - **Inventory Manager:** `inventory.colombo@darshanaopticals.local` (Role: `INVENTORY_MANAGER`, Branch: Colombo)
 - **Optometrist:** `optometrist.kandy@darshanaopticals.local` (Role: `OPTOMETRIST`, Branch: Kandy)
 - **Gampaha Optometrist:** `optometrist.gampaha@darshanaopticals.local` (Role: `OPTOMETRIST`, Branch: Gampaha)
-- **Cashier:** `sales.gampaha@darshanaopticals.local` (Role: `SALES_ASSISTANT_CASHIER`, Branch: Gampaha)
+- **Branch Assistant:** `sales.gampaha@darshanaopticals.local` (Role: `BRANCH_ASSISTANT`, Branch: Gampaha)
 - **Gampaha Branch Manager:** `manager.gampaha@darshanaopticals.local` (Role: `BRANCH_MANAGER`, Branch: Gampaha)
 - **Customer 1:** `kamal.customer@example.com` (Role: `CUSTOMER`)
 - **Customer 2:** `alice.customer@example.com` (Role: `CUSTOMER`)
@@ -288,15 +288,17 @@ Online doctor scheduling is restricted to the approved Gampaha Main Branch, iden
 
 ### Roles and lifecycle
 
-- A `SALES_ASSISTANT_CASHIER` assigned to Gampaha creates and reschedules sessions, and can cancel or reassign appointments.
-- A Gampaha cashier can use `GET /appointments/providers` to discover eligible Optometrists and receive the provider and approved branch IDs needed for session creation. This is not a general Staff or Branch directory.
-- Cashier appointment list/detail responses include only customer ID, name, and phone for rescheduling contact. Customers do not receive customer contact data in their appointment response; Branch Managers do not receive customer contact fields.
+- A `BRANCH_ASSISTANT` assigned to Gampaha creates and reschedules sessions, and can cancel or reassign appointments.
+- A Gampaha Branch Assistant can use `GET /appointments/providers` to discover eligible Optometrists and receive the provider and approved branch IDs needed for session creation. This is not a general Staff or Branch directory.
+- Branch Assistant appointment list/detail responses include only customer ID, name, and phone for rescheduling contact. Customers do not receive customer contact data in their appointment response; Branch Managers do not receive customer contact fields.
 - A Gampaha `BRANCH_MANAGER` can read Gampaha sessions and appointments only. Managers cannot write appointment or session changes.
 - A `CUSTOMER` can view only their own appointments, book available sessions, and cancel their own confirmed appointment before its session begins.
 - `SYSTEM_ADMIN` and `OPTOMETRIST` do not have appointment-management access under the implemented API.
 - Cancellation preserves the record, releases capacity, and compacts active queue positions. Reassignment atomically updates both sessions and positions.
 - Session timestamps must be real ISO-8601 timestamps with `Z` or a numeric `±HH:MM` offset. Date-only, timezone-free, and impossible calendar dates are rejected.
 - Legacy appointments remain visible to their owning customer. Staff-wide branch visibility uses a session or persisted branch snapshot; a legacy record without either is deliberately not attributed to a branch based on the staff member's current assignment.
+
+Appointment and doctor-session endpoints reject all query parameters with `422 Unprocessable Entity`. Frontend clients must not append pagination, filtering, or cache-busting query strings to these endpoints.
 
 ### Production branch backfill
 
@@ -326,13 +328,13 @@ node scripts/backfillGampahaBranchCode.js --branch-id <existing-branch-id> --con
 
 Start the backend with `npm run dev` and open `http://localhost:5000/api-docs`. This section describes a manual workflow; it is not a claim that Swagger Try it out was manually exercised.
 
-1. Obtain a JWT by logging in as `sales.gampaha@darshanaopticals.local` with the development password `DevPassword123!`; click **Authorize** and enter the token.
-2. Use `node scripts/backfillGampahaBranchCode.js --list` or an approved database inventory to find the verified `GAMPAHA_CENTRAL` Branch ID. The public `GET /branches` endpoint intentionally omits `codeName` and is not available to cashiers.
-3. As the cashier, use `GET /appointments/providers` to obtain an eligible provider ID and the approved branch ID, then use `POST /doctor-sessions` with those IDs, timezone-aware `startAt` and `endAt`, and positive integer `capacity`. Choose a start at least 24 hours ahead.
+1. Obtain a JWT by logging in as the Branch Assistant `sales.gampaha@darshanaopticals.local` with the development password `DevPassword123!`; click **Authorize** and enter the token.
+2. Use `node scripts/backfillGampahaBranchCode.js --list` or an approved database inventory to find the verified `GAMPAHA_CENTRAL` Branch ID. The public `GET /branches` endpoint intentionally omits `codeName` and is not available to Branch Assistants.
+3. As the Branch Assistant, use `GET /appointments/providers` to obtain an eligible provider ID and the approved branch ID, then use `POST /doctor-sessions` with those IDs, timezone-aware `startAt` and `endAt`, and positive integer `capacity`. Choose a start at least 24 hours ahead.
 4. Log in as `kamal.customer@example.com` with the development password, authorize with that JWT, then call `GET /appointments/providers` and `GET /doctor-sessions/available`.
 5. Use `POST /appointments` with only `{ "sessionId": "<available-session-id>" }`. The response includes the server-assigned queue position.
 6. As the customer, use `GET /appointments` and `PATCH /appointments/{id}/cancel` before the session begins. The cancellation endpoint accepts no body.
-7. As the cashier, use `GET /appointments` and `PATCH /appointments/{id}/reassign` with `{ "sessionId": "<other-available-session-id>" }` when reassignment is needed.
+7. As the Branch Assistant, use `GET /appointments` and `PATCH /appointments/{id}/reassign` with `{ "sessionId": "<other-available-session-id>" }` when reassignment is needed.
 8. Log in as `manager.gampaha@darshanaopticals.local` and verify read-only access to `GET /doctor-sessions`, `GET /appointments`, and `GET /appointments/{id}`. Write operations are rejected.
 
 For repeatable automated verification, run `npx jest tests/integration/appointmentApi.test.js --runInBand` and `npx jest --runInBand --coverage` from `backend`.

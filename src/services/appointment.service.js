@@ -15,7 +15,7 @@ const {
 } = require('../errors/AppError');
 
 const APPROVED_GAMPHA_BRANCH_CODE = 'GAMPAHA_CENTRAL';
-const CUSTOMER_CAN_CANCEL_BEFORE_START_MS = 24 * 60 * 60 * 1000;
+const MIN_BOOKING_LEAD_TIME_MS = 24 * 60 * 60 * 1000;
 const TX_RETRY_LIMIT = 5;
 
 const parseIsoDate = (value, fieldName) => {
@@ -358,8 +358,8 @@ async function compactSessionPositions(sessionId, excludedId, mongoSession) {
 }
 
 async function listProviders(authUser) {
-  if (authUser?.role === ROLE_VALUES.SALES_ASSISTANT_CASHIER) {
-    await assertAuthorizedStaffAccess(authUser, [ROLE_VALUES.SALES_ASSISTANT_CASHIER]);
+  if (authUser?.role === ROLE_VALUES.BRANCH_ASSISTANT) {
+    await assertAuthorizedStaffAccess(authUser, [ROLE_VALUES.BRANCH_ASSISTANT]);
   } else if (!authUser || authUser.role !== ROLE_VALUES.CUSTOMER) {
     throw new ForbiddenError('Access forbidden.');
   }
@@ -382,7 +382,7 @@ async function listAvailableSessions(authUser = null) {
 
   if (
     authUser &&
-    [ROLE_VALUES.SALES_ASSISTANT_CASHIER, ROLE_VALUES.BRANCH_MANAGER].includes(authUser.role)
+    [ROLE_VALUES.BRANCH_ASSISTANT, ROLE_VALUES.BRANCH_MANAGER].includes(authUser.role)
   ) {
     await assertAuthorizedStaffAccess(authUser, [authUser.role]);
     const sessions = await DoctorSession.find({ branchId: approvedBranch._id })
@@ -397,7 +397,7 @@ async function listAvailableSessions(authUser = null) {
   })
     .select('_id')
     .lean();
-  const earliestBookable = new Date(now.getTime() + CUSTOMER_CAN_CANCEL_BEFORE_START_MS);
+  const earliestBookable = new Date(now.getTime() + MIN_BOOKING_LEAD_TIME_MS);
   const sessions = await DoctorSession.find({
     branchId: approvedBranch._id,
     staffId: { $in: eligibleProviders.map((provider) => provider._id) },
@@ -411,16 +411,12 @@ async function listAvailableSessions(authUser = null) {
 }
 
 async function createDoctorSession(input, authUser) {
-  if (!authUser || authUser.role !== ROLE_VALUES.SALES_ASSISTANT_CASHIER) {
-    throw new ForbiddenError('Only sales assistants may create doctor sessions.');
+  if (!authUser || authUser.role !== ROLE_VALUES.BRANCH_ASSISTANT) {
+    throw new ForbiddenError('Only branch assistants may create doctor sessions.');
   }
 
   return withRetryTransaction(async (mongoSession) => {
-    await assertAuthorizedStaffAccess(
-      authUser,
-      [ROLE_VALUES.SALES_ASSISTANT_CASHIER],
-      mongoSession
-    );
+    await assertAuthorizedStaffAccess(authUser, [ROLE_VALUES.BRANCH_ASSISTANT], mongoSession);
 
     const body = { ...input };
     const allowedKeys = new Set(['staffId', 'branchId', 'startAt', 'endAt', 'capacity']);
@@ -508,16 +504,12 @@ async function createDoctorSession(input, authUser) {
 }
 
 async function updateDoctorSession(sessionId, input, authUser) {
-  if (!authUser || authUser.role !== ROLE_VALUES.SALES_ASSISTANT_CASHIER) {
-    throw new ForbiddenError('Only sales assistants may update doctor sessions.');
+  if (!authUser || authUser.role !== ROLE_VALUES.BRANCH_ASSISTANT) {
+    throw new ForbiddenError('Only branch assistants may update doctor sessions.');
   }
 
   return withRetryTransaction(async (mongoSession) => {
-    await assertAuthorizedStaffAccess(
-      authUser,
-      [ROLE_VALUES.SALES_ASSISTANT_CASHIER],
-      mongoSession
-    );
+    await assertAuthorizedStaffAccess(authUser, [ROLE_VALUES.BRANCH_ASSISTANT], mongoSession);
 
     if (!mongoose.isValidObjectId(sessionId)) {
       throw new ValidationError('sessionId must be a valid MongoDB ObjectId.');
@@ -681,9 +673,7 @@ async function createAppointment(input, authUser) {
     await lockOptometristScheduling(staff, approvedBranch._id, mongoSession);
 
     const now = new Date(Date.now());
-    const earliestAllowed = new Date(
-      session.startAt.getTime() - CUSTOMER_CAN_CANCEL_BEFORE_START_MS
-    );
+    const earliestAllowed = new Date(session.startAt.getTime() - MIN_BOOKING_LEAD_TIME_MS);
     if (now.getTime() > earliestAllowed.getTime()) {
       throw new ConflictError(
         'Appointments must be booked at least 24 hours before the session starts.',
@@ -770,7 +760,7 @@ async function listAppointments(authUser) {
     return appointments.map((appointment) => toPublicAppointment(appointment));
   }
 
-  if ([ROLE_VALUES.SALES_ASSISTANT_CASHIER, ROLE_VALUES.BRANCH_MANAGER].includes(authUser.role)) {
+  if ([ROLE_VALUES.BRANCH_ASSISTANT, ROLE_VALUES.BRANCH_MANAGER].includes(authUser.role)) {
     await assertAuthorizedStaffAccess(authUser, [authUser.role]);
     const approvedBranch = await getApprovedGampahaBranch();
     const sessionIds = await DoctorSession.find({ branchId: approvedBranch._id }).distinct('_id');
@@ -780,7 +770,7 @@ async function listAppointments(authUser) {
       .sort({ createdAt: -1 })
       .populate('staffId', 'name')
       .lean();
-    if (authUser.role === ROLE_VALUES.SALES_ASSISTANT_CASHIER) {
+    if (authUser.role === ROLE_VALUES.BRANCH_ASSISTANT) {
       await Appointment.populate(appointments, { path: 'customerId', select: 'name phone' });
       return appointments.map((appointment) =>
         toPublicAppointment(appointment, { includeCustomerContact: true })
@@ -798,7 +788,7 @@ async function getAppointmentById(appointmentId, authUser) {
   }
 
   const appointmentQuery = Appointment.findById(appointmentId).populate('staffId', 'name');
-  if (authUser?.role === ROLE_VALUES.SALES_ASSISTANT_CASHIER) {
+  if (authUser?.role === ROLE_VALUES.BRANCH_ASSISTANT) {
     appointmentQuery.populate('customerId', 'name phone');
   }
   const appointment = await appointmentQuery.lean();
@@ -810,17 +800,17 @@ async function getAppointmentById(appointmentId, authUser) {
     return assertCustomerOwnsAppointment(authUser.userId, appointment);
   }
 
-  if ([ROLE_VALUES.SALES_ASSISTANT_CASHIER, ROLE_VALUES.BRANCH_MANAGER].includes(authUser.role)) {
+  if ([ROLE_VALUES.BRANCH_ASSISTANT, ROLE_VALUES.BRANCH_MANAGER].includes(authUser.role)) {
     if (!(await appointmentBelongsToBranch(appointment, (await getApprovedGampahaBranch())._id))) {
       throw new ForbiddenError('Access forbidden.');
     }
     if (authUser.role === ROLE_VALUES.BRANCH_MANAGER) {
       await assertAuthorizedStaffAccess(authUser, [ROLE_VALUES.BRANCH_MANAGER]);
     } else {
-      await assertAuthorizedStaffAccess(authUser, [ROLE_VALUES.SALES_ASSISTANT_CASHIER]);
+      await assertAuthorizedStaffAccess(authUser, [ROLE_VALUES.BRANCH_ASSISTANT]);
     }
     return toPublicAppointment(appointment, {
-      includeCustomerContact: authUser.role === ROLE_VALUES.SALES_ASSISTANT_CASHIER,
+      includeCustomerContact: authUser.role === ROLE_VALUES.BRANCH_ASSISTANT,
     });
   }
 
@@ -846,8 +836,8 @@ async function cancelAppointment(appointmentId, authUser) {
       if (String(appointment.customerId) !== String(authUser.userId)) {
         throw new ForbiddenError('Customer cannot cancel another customer appointment.');
       }
-    } else if (authUser.role === ROLE_VALUES.SALES_ASSISTANT_CASHIER) {
-      await assertAuthorizedStaffAccess(authUser, [ROLE_VALUES.SALES_ASSISTANT_CASHIER]);
+    } else if (authUser.role === ROLE_VALUES.BRANCH_ASSISTANT) {
+      await assertAuthorizedStaffAccess(authUser, [ROLE_VALUES.BRANCH_ASSISTANT]);
     } else {
       throw new ForbiddenError('Access forbidden.');
     }
@@ -867,10 +857,10 @@ async function cancelAppointment(appointmentId, authUser) {
       throw new NotFoundError('Doctor session not found for this appointment.');
     }
     const approvedBranch = await getApprovedGampahaBranch(mongoSession);
-    if (session && authUser.role === ROLE_VALUES.SALES_ASSISTANT_CASHIER) {
+    if (session && authUser.role === ROLE_VALUES.BRANCH_ASSISTANT) {
       await ensureSessionScope(session, 'Access forbidden.', mongoSession);
     } else if (
-      authUser.role === ROLE_VALUES.SALES_ASSISTANT_CASHIER &&
+      authUser.role === ROLE_VALUES.BRANCH_ASSISTANT &&
       !(await appointmentBelongsToBranch(appointment, approvedBranch._id))
     ) {
       throw new ForbiddenError('Access forbidden.');
@@ -912,8 +902,8 @@ async function cancelAppointment(appointmentId, authUser) {
 }
 
 async function reassignAppointment(appointmentId, sessionId, authUser) {
-  if (!authUser || ![ROLE_VALUES.SALES_ASSISTANT_CASHIER].includes(authUser.role)) {
-    throw new ForbiddenError('Only sales assistants may reassign appointments.');
+  if (!authUser || authUser.role !== ROLE_VALUES.BRANCH_ASSISTANT) {
+    throw new ForbiddenError('Only branch assistants may reassign appointments.');
   }
 
   if (!mongoose.isValidObjectId(appointmentId) || !mongoose.isValidObjectId(sessionId)) {
@@ -921,11 +911,7 @@ async function reassignAppointment(appointmentId, sessionId, authUser) {
   }
 
   return withRetryTransaction(async (mongoSession) => {
-    await assertAuthorizedStaffAccess(
-      authUser,
-      [ROLE_VALUES.SALES_ASSISTANT_CASHIER],
-      mongoSession
-    );
+    await assertAuthorizedStaffAccess(authUser, [ROLE_VALUES.BRANCH_ASSISTANT], mongoSession);
 
     const appointment = await Appointment.findById(appointmentId).session(mongoSession).lean();
     if (!appointment) {
@@ -980,7 +966,7 @@ async function reassignAppointment(appointmentId, sessionId, authUser) {
       );
     }
 
-    const earliestAllowed = Date.now() + CUSTOMER_CAN_CANCEL_BEFORE_START_MS;
+    const earliestAllowed = Date.now() + MIN_BOOKING_LEAD_TIME_MS;
     if (targetSession.startAt.getTime() < earliestAllowed) {
       throw new ConflictError(
         'The target session must begin at least 24 hours from now.',

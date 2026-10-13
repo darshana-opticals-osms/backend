@@ -9,6 +9,7 @@ const Prescription = require('../../src/models/prescription.model');
 const Order = require('../../src/models/order.model');
 const OrderItem = require('../../src/models/orderItem.model');
 const Appointment = require('../../src/models/appointment.model');
+const DoctorSession = require('../../src/models/doctorSession.model');
 const Payment = require('../../src/models/payment.model');
 const { seedDatabase, PRODUCTION_SAFETY_ERROR } = require('../../src/seed/seed');
 const { DEV_DEFAULT_PASSWORD } = require('../../src/seed/data/users.data');
@@ -30,6 +31,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
       Payment.deleteMany({}),
       Order.deleteMany({}),
       Appointment.deleteMany({}),
+      DoctorSession.deleteMany({}),
       Prescription.deleteMany({}),
       Inventory.deleteMany({}),
       Staff.deleteMany({}),
@@ -45,6 +47,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
       Payment.deleteMany({}),
       Order.deleteMany({}),
       Appointment.deleteMany({}),
+      DoctorSession.deleteMany({}),
       Prescription.deleteMany({}),
       Inventory.deleteMany({}),
       Staff.deleteMany({}),
@@ -60,6 +63,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
       Payment.deleteMany({}),
       Order.deleteMany({}),
       Appointment.deleteMany({}),
+      DoctorSession.deleteMany({}),
       Prescription.deleteMany({}),
       Inventory.deleteMany({}),
       Staff.deleteMany({}),
@@ -114,7 +118,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
     expect(staffRoles).toContain(ROLE_VALUES.BRANCH_MANAGER);
     expect(staffRoles).toContain(ROLE_VALUES.INVENTORY_MANAGER);
     expect(staffRoles).toContain(ROLE_VALUES.OPTOMETRIST);
-    expect(staffRoles).toContain(ROLE_VALUES.SALES_ASSISTANT_CASHIER);
+    expect(staffRoles).toContain(ROLE_VALUES.BRANCH_ASSISTANT);
 
     for (const staff of staffMembers) {
       expect(staff.branchId).toBeDefined();

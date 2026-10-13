@@ -10,7 +10,7 @@
  *         name: { type: string, example: Dr. Gampaha }
  *         role: { type: string, enum: [OPTOMETRIST] }
  *         branchId: { type: string, example: 66c5d2a9d7e2b8f2d7c4ff13 }
- *       description: Returned to CUSTOMERS and authorized Gampaha SALES_ASSISTANT_CASHIER staff so staff can create doctor sessions. Email, phone, address, and credentials are not exposed.
+ *       description: Returned to CUSTOMERS and authorized Gampaha BRANCH_ASSISTANT staff so staff can create doctor sessions. Email, phone, address, and credentials are not exposed.
  *     AppointmentCustomerContact:
  *       type: object
  *       required: [id, name, phone]
@@ -18,7 +18,7 @@
  *         id: { type: string }
  *         name: { type: string }
  *         phone: { type: string }
- *       description: Included only for authorized Gampaha cashiers on appointment list/detail responses. Not returned to customers or Branch Managers.
+ *       description: Included only for authorized Gampaha Branch Assistants on appointment list/detail responses. Not returned to customers or Branch Managers.
  *     DoctorSession:
  *       type: object
  *       required: [id, staffId, branchId, startAt, endAt, capacity, confirmedCount, remainingCapacity]
@@ -34,7 +34,7 @@
  *       description: Bookable scheduling period at the approved Gampaha Main Branch.
  *     Appointment:
  *       type: object
- *       description: Privacy-safe appointment fields. The optional customer contact projection is present only for authorized Gampaha cashiers; it is omitted for customers and Branch Managers.
+ *       description: Privacy-safe appointment fields. The optional customer contact projection is present only for authorized Gampaha Branch Assistants; it is omitted for customers and Branch Managers.
  *       required: [id, staffId, dateTime, status]
  *       properties:
  *         id: { type: string }
@@ -45,7 +45,7 @@
  *         dateTime: { type: string, format: date-time, description: Mirrors the authoritative session startAt when session-linked. }
  *         status: { type: string, enum: [CONFIRMED, CANCELLED] }
  *         position: { type: integer, minimum: 1, nullable: true, description: Active queue position; null when cancelled. }
- *         customer: { $ref: '#/components/schemas/AppointmentCustomerContact', description: Cashier-only contact projection; omitted from customer and Branch Manager responses. }
+ *         customer: { $ref: '#/components/schemas/AppointmentCustomerContact', description: Branch-Assistant-only contact projection; omitted from customer and Branch Manager responses. }
  *         createdAt: { type: string, format: date-time }
  *         updatedAt: { type: string, format: date-time }
  *     DoctorSessionCreateRequest:
@@ -124,7 +124,7 @@
  *   /appointments/providers:
  *     get:
  *       summary: List eligible Gampaha Optometrists
- *       description: CUSTOMER and SALES_ASSISTANT_CASHIER assigned to the approved Gampaha branch. Returns eligible Gampaha Optometrists with provider ID and approved branch ID. Cashiers use these IDs to create doctor sessions. No staff directory access is granted.
+ *       description: CUSTOMER and BRANCH_ASSISTANT assigned to the approved Gampaha branch. Returns eligible Gampaha Optometrists with provider ID and approved branch ID. Branch Assistants use these IDs to create doctor sessions. No staff directory access is granted.
  *       tags: [Appointments]
  *       security: [{ bearerAuth: [] }]
  *       responses:
@@ -162,7 +162,7 @@
  *   /doctor-sessions:
  *     get:
  *       summary: List branch doctor sessions
- *       description: SALES_ASSISTANT_CASHIER and same-branch BRANCH_MANAGER. Managers have read-only visibility. Only the approved Gampaha branch is supported. Query parameters are rejected.
+ *       description: BRANCH_ASSISTANT and same-branch BRANCH_MANAGER. Managers have read-only visibility. Only the approved Gampaha branch is supported. Query parameters are rejected.
  *       tags: [Appointments]
  *       security: [{ bearerAuth: [] }]
  *       responses:
@@ -177,7 +177,7 @@
  *         '500': { $ref: '#/components/responses/InternalServerError' }
  *     post:
  *       summary: Create a doctor session
- *       description: SALES_ASSISTANT_CASHIER only. Requires an eligible Gampaha Optometrist, non-overlapping ISO-8601 interval, positive capacity, explicit timezone, and GAMPAHA_CENTRAL branch. Scheduling writes are transactional.
+ *       description: BRANCH_ASSISTANT only. Requires an eligible Gampaha Optometrist, non-overlapping ISO-8601 interval, positive capacity, explicit timezone, and GAMPAHA_CENTRAL branch. Scheduling writes are transactional.
  *       tags: [Appointments]
  *       security: [{ bearerAuth: [] }]
  *       requestBody:
@@ -202,7 +202,7 @@
  *   /doctor-sessions/{id}:
  *     patch:
  *       summary: Update or reschedule a doctor session
- *       description: SALES_ASSISTANT_CASHIER only. Rejects overlapping sessions and capacity below active bookings. Existing linked records, including cancelled appointments, follow the authoritative provider, timing, and branch snapshot.
+ *       description: BRANCH_ASSISTANT only. Rejects overlapping sessions and capacity below active bookings. Existing linked records, including cancelled appointments, follow the authoritative provider, timing, and branch snapshot.
  *       tags: [Appointments]
  *       security: [{ bearerAuth: [] }]
  *       parameters:
@@ -232,7 +232,7 @@
  *   /appointments:
  *     get:
  *       summary: List appointments visible to the authenticated user
- *       description: CUSTOMER sees only their own records, including legacy history, without unnecessary customer contact data. Authorized Gampaha SALES_ASSISTANT_CASHIER staff receive only customer ID, name, and phone to support rescheduling contact. BRANCH_MANAGER receives read-only appointment data without customer contact details. Staff scope requires authoritative Gampaha session or branch provenance; unscoped legacy records are not assigned a branch by inference.
+ *       description: CUSTOMER sees only their own records, including legacy history, without unnecessary customer contact data. Authorized Gampaha BRANCH_ASSISTANT staff receive only customer ID, name, and phone to support rescheduling contact. BRANCH_MANAGER receives read-only appointment data without customer contact details. Staff scope requires authoritative Gampaha session or branch provenance; unscoped legacy records are not assigned a branch by inference.
  *       tags: [Appointments]
  *       security: [{ bearerAuth: [] }]
  *       responses:
@@ -272,7 +272,7 @@
  *   /appointments/{id}:
  *     get:
  *       summary: Retrieve one appointment
- *       description: CUSTOMER may read only their own appointment without customer contact fields. Authorized Gampaha cashiers receive minimum customer ID, name, and phone for operational contact. Branch Managers remain read-only and receive no customer contact details. System Admin and Optometrist access is not granted by this API.
+ *       description: CUSTOMER may read only their own appointment without customer contact fields. Authorized Gampaha Branch Assistants receive minimum customer ID, name, and phone for operational contact. Branch Managers remain read-only and receive no customer contact details. System Admin and Optometrist access is not granted by this API.
  *       tags: [Appointments]
  *       security: [{ bearerAuth: [] }]
  *       parameters:
@@ -294,7 +294,7 @@
  *   /appointments/{id}/cancel:
  *     patch:
  *       summary: Cancel a confirmed appointment
- *       description: Customer may cancel only their own booking before the session starts; SALES_ASSISTANT_CASHIER may cancel within Gampaha scope. Branch Manager is read-only. Cancellation preserves the record, releases capacity, and compacts positions transactionally. The endpoint accepts no request body or query parameters.
+ *       description: Customer may cancel only their own booking before the session starts; BRANCH_ASSISTANT may cancel within Gampaha scope. Branch Manager is read-only. Cancellation preserves the record, releases capacity, and compacts positions transactionally. The endpoint accepts no request body or query parameters.
  *       tags: [Appointments]
  *       security: [{ bearerAuth: [] }]
  *       parameters:
@@ -322,7 +322,7 @@
  *   /appointments/{id}/reassign:
  *     patch:
  *       summary: Reassign an appointment to another session
- *       description: SALES_ASSISTANT_CASHIER only. Source and target must be approved Gampaha sessions; target requires an eligible Gampaha Optometrist, at least 24 hours lead time, available capacity, and no duplicate customer booking. Source and target positions and counters are updated atomically. No query parameters are accepted.
+ *       description: BRANCH_ASSISTANT only. Source and target must be approved Gampaha sessions; target requires an eligible Gampaha Optometrist, at least 24 hours lead time, available capacity, and no duplicate customer booking. Source and target positions and counters are updated atomically. No query parameters are accepted.
  *       tags: [Appointments]
  *       security: [{ bearerAuth: [] }]
  *       parameters:

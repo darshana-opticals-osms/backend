@@ -237,7 +237,7 @@ describe('Swagger documentation integrity', () => {
     expect(booking.responses['503']).toBeDefined();
     expect(cancellation.description).toMatch(/before the session starts/);
     expect(cancellation.description).toMatch(/no request body/);
-    expect(reassignment.description).toMatch(/SALES_ASSISTANT_CASHIER only/);
+    expect(reassignment.description).toMatch(/BRANCH_ASSISTANT only/);
     expect(sessionUpdate.description).toMatch(/including cancelled appointments/);
     expect(swaggerSpec.components.schemas.DoctorSessionCreateRequest.additionalProperties).toBe(
       false
@@ -246,7 +246,7 @@ describe('Swagger documentation integrity', () => {
       sessionId: expect.any(Object),
     });
     expect(swaggerSpec.paths['/appointments/providers'].get.description).toMatch(
-      /SALES_ASSISTANT_CASHIER/
+      /BRANCH_ASSISTANT/
     );
     expect(swaggerSpec.paths['/appointments/providers'].get.description).toMatch(
       /approved Gampaha branch/
