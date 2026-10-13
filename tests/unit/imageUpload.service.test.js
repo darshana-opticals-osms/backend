@@ -81,6 +81,8 @@ describe('ImageUpload Service Unit Tests', () => {
     });
 
     it('should handle Cloudinary upload failure safely without exposing sensitive details', async () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
       cloudinary.uploader.upload_stream.mockImplementation((options, callback) => {
         return {
           end: () =>
@@ -95,6 +97,17 @@ describe('ImageUpload Service Unit Tests', () => {
         errorCode: 'PROVIDER_ERROR',
         message: 'Image upload failed. Upload provider unavailable.',
       });
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Cloudinary upload failure reason:',
+        expect.stringContaining('api_secret=[REDACTED]')
+      );
+      expect(consoleErrorSpy).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.stringContaining('xyz')
+      );
+
+      consoleErrorSpy.mockRestore();
     });
   });
 

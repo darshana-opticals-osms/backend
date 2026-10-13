@@ -1,5 +1,6 @@
 const cloudinary = require('../config/cloudinary');
 const { AppError } = require('../errors/AppError');
+const { sanitizeLogMessage } = require('../utils/sanitizer');
 
 const INVENTORY_IMAGE_FOLDER = 'osms/inventory';
 
@@ -37,7 +38,11 @@ async function uploadImage(fileOrBuffer, customOptions = {}) {
       (error, result) => {
         if (error || !result) {
           if (error) {
-            console.error('Cloudinary upload failure reason:', error.message || error);
+            const rawReason =
+              typeof error === 'string'
+                ? error
+                : error?.message || 'Unknown Cloudinary upload error';
+            console.error('Cloudinary upload failure reason:', sanitizeLogMessage(rawReason));
           }
           return reject(
             new AppError(

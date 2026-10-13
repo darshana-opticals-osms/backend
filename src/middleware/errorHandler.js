@@ -37,29 +37,7 @@ const handleJWTError = () =>
 const handleJWTExpiredError = () =>
   new AppError('Your token has expired! Please log in again.', 401, null, 'UNAUTHORIZED');
 
-/**
- * Sanitizes error messages to strip passwords, secrets, tokens, DB URIs, and credentials before logging.
- *
- * @param {string} message
- * @returns {string}
- */
-const sanitizeLogMessage = (message) => {
-  if (typeof message !== 'string') {
-    return '';
-  }
-
-  return message
-    .replace(/mongodb(?:\+srv)?:\/\/[^\s]+/gi, 'mongodb://[REDACTED]')
-    .replace(/\b[A-Za-z]:\\[^,;)}\r\n]*?\.[A-Za-z0-9]{1,12}(?=$|[\s,;)}])/g, '[PATH REDACTED]')
-    .replace(/(?<![:/])\/[^,;)}\r\n]*?\.[A-Za-z0-9]{1,12}(?=$|[\s,;)}])/g, '[PATH REDACTED]')
-    .replace(/\b[A-Za-z]:\\[^\s,;)}]+/g, '[PATH REDACTED]')
-    .replace(/(?<![:/])\/[^\s,;)}]+/g, '[PATH REDACTED]')
-    .replace(
-      /(password|passwd|pwd|secret|token|bearer|key|api_key|authorization|auth|passwordHash)=([^\s&,{}]+)/gi,
-      '$1=[REDACTED]'
-    )
-    .replace(/(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, '$1[REDACTED]');
-};
+const { sanitizeLogMessage } = require('../utils/sanitizer');
 
 /**
  * Centralized Error Handling Middleware
