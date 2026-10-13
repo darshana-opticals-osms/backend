@@ -8,11 +8,13 @@ const {
   getReorderAlerts,
   getReorderThreshold,
   updateReorderThreshold,
+  uploadInventoryImage,
 } = require('../controllers/inventory.controller');
 
 const authenticate = require('../middleware/authenticate');
 const { authorizeRoles } = require('../middleware/authorizeRoles');
 const { validate } = require('../middleware/validate');
+const { uploadImageMiddleware } = require('../middleware/uploadImage');
 const {
   authorizeCreateInventoryBranch,
   authorizeBranchInventoryAccess,
@@ -306,6 +308,14 @@ const reorderThresholdValidation = (req) => {
 };
 
 const router = express.Router();
+
+router.post(
+  '/inventory/images',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER),
+  uploadImageMiddleware,
+  uploadInventoryImage
+);
 
 /**
  * @openapi

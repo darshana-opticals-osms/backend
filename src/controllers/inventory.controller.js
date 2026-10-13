@@ -5,6 +5,19 @@ const {
   updateInventory,
   updateInventoryQuantity,
 } = require('../services/inventory.service');
+const { uploadImage } = require('../services/imageUpload.service');
+
+const uploadInventoryImage = catchAsync(async (req, res) => {
+  const result = await uploadImage(req.file);
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      imageUrl: result.imageUrl,
+      imagePublicId: result.imagePublicId,
+    },
+  });
+});
 
 const createInventoryItem = catchAsync(async (req, res) => {
   const inventory = await createInventory(req.body);
@@ -89,4 +102,5 @@ module.exports = {
   getReorderAlerts,
   getReorderThreshold,
   updateReorderThreshold,
+  uploadInventoryImage,
 };

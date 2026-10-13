@@ -41,7 +41,8 @@ async function uploadImage(fileOrBuffer, customOptions = {}) {
               'Image upload failed. Upload provider unavailable.',
               502,
               null,
-              'PROVIDER_ERROR'
+              'PROVIDER_ERROR',
+              true
             )
           );
         }
@@ -95,7 +96,8 @@ async function deleteImage(publicId) {
       'Image deletion failed. Upload provider unavailable.',
       502,
       null,
-      'PROVIDER_ERROR'
+      'PROVIDER_ERROR',
+      true
     );
   }
 }
