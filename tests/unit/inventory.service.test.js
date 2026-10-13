@@ -8,9 +8,17 @@ const {
   createInventory,
   getBranchInventory,
   updateInventory,
+  removeInventoryImage,
   updateInventoryQuantity,
   deductInventoryStock,
 } = require('../../src/services/inventory.service');
+const { deleteImage } = require('../../src/services/imageUpload.service');
+
+jest.mock('../../src/services/imageUpload.service', () => ({
+  uploadImage: jest.fn(),
+  deleteImage: jest.fn().mockResolvedValue({ success: true, result: 'ok' }),
+  INVENTORY_IMAGE_FOLDER: 'osms/inventory',
+}));
 
 jest.mock('../../src/services/reorderAlert.service', () => ({
   evaluateReorderAlert: jest.fn().mockResolvedValue(null),
@@ -210,6 +218,89 @@ describe('Inventory service', () => {
       ).rejects.toMatchObject({
         statusCode: 404,
       });
+    });
+
+    it('should delete previous image only after successfully persisting replacement image (AC15)', async () => {
+      const inventoryId = new mongoose.Types.ObjectId().toString();
+      const existingItem = {
+        _id: inventoryId,
+        itemName: 'Frame',
+        imageUrl: 'https://res.cloudinary.com/test/image/upload/v1/osms/inventory/old.jpg',
+        imagePublicId: 'osms/inventory/old',
+      };
+      const updatedItem = {
+        _id: inventoryId,
+        itemName: 'Frame',
+        imageUrl: 'https://res.cloudinary.com/test/image/upload/v2/osms/inventory/new.jpg',
+        imagePublicId: 'osms/inventory/new',
+      };
+
+      Inventory.findById.mockResolvedValue(existingItem);
+      Inventory.findByIdAndUpdate.mockResolvedValue(updatedItem);
+
+      const result = await updateInventory(inventoryId, {
+        imageUrl: updatedItem.imageUrl,
+        imagePublicId: updatedItem.imagePublicId,
+      });
+
+      expect(result).toEqual(updatedItem);
+      expect(deleteImage).toHaveBeenCalledWith('osms/inventory/old');
+    });
+
+    it('should not delete old image if replacement update fails, and should compensate new image (AC15, AC17)', async () => {
+      const inventoryId = new mongoose.Types.ObjectId().toString();
+      const existingItem = {
+        _id: inventoryId,
+        imageUrl: 'https://res.cloudinary.com/test/image/upload/v1/osms/inventory/old.jpg',
+        imagePublicId: 'osms/inventory/old',
+      };
+
+      Inventory.findById.mockResolvedValue(existingItem);
+      Inventory.findByIdAndUpdate.mockRejectedValue(new Error('DB failure during update'));
+
+      await expect(
+        updateInventory(inventoryId, {
+          imageUrl: 'https://res.cloudinary.com/test/image/upload/v2/osms/inventory/new.jpg',
+          imagePublicId: 'osms/inventory/new',
+        })
+      ).rejects.toThrow('DB failure during update');
+
+      // Old image must NOT have been deleted
+      expect(deleteImage).not.toHaveBeenCalledWith('osms/inventory/old');
+      // New orphaned image MUST be compensated
+      expect(deleteImage).toHaveBeenCalledWith('osms/inventory/new');
+    });
+  });
+
+  describe('removeInventoryImage', () => {
+    it('should clear imageUrl and imagePublicId and delete provider asset (AC16)', async () => {
+      const inventoryId = new mongoose.Types.ObjectId().toString();
+      const mockInventory = {
+        _id: inventoryId,
+        imageUrl: 'https://res.cloudinary.com/test/image/upload/v1/osms/inventory/item.jpg',
+        imagePublicId: 'osms/inventory/item',
+        save: jest.fn().mockResolvedValue(true),
+      };
+
+      Inventory.findById.mockResolvedValue(mockInventory);
+
+      const result = await removeInventoryImage(inventoryId);
+
+      expect(mockInventory.imageUrl).toBeNull();
+      expect(mockInventory.imagePublicId).toBeNull();
+      expect(mockInventory.save).toHaveBeenCalled();
+      expect(deleteImage).toHaveBeenCalledWith('osms/inventory/item');
+      expect(result).toBe(mockInventory);
+    });
+
+    it('should throw NotFoundError if item does not exist during removal', async () => {
+      const inventoryId = new mongoose.Types.ObjectId().toString();
+      Inventory.findById.mockResolvedValue(null);
+
+      await expect(removeInventoryImage(inventoryId)).rejects.toMatchObject({
+        statusCode: 404,
+      });
+      expect(deleteImage).not.toHaveBeenCalled();
     });
   });
 

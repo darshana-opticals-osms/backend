@@ -9,6 +9,7 @@ const {
   getReorderThreshold,
   updateReorderThreshold,
   uploadInventoryImage,
+  removeInventoryImage,
 } = require('../controllers/inventory.controller');
 
 const authenticate = require('../middleware/authenticate');
@@ -26,9 +27,17 @@ const { ROLE_VALUES } = require('../constants/roles');
 const { ForbiddenError } = require('../errors/AppError');
 
 const REQUIRED_CREATE_FIELDS = ['branchId', 'itemName', 'category', 'brand', 'price', 'quantity'];
-const CREATE_FIELDS = new Set([...REQUIRED_CREATE_FIELDS, 'imageUrl']);
+const CREATE_FIELDS = new Set([...REQUIRED_CREATE_FIELDS, 'imageUrl', 'imagePublicId']);
 
-const UPDATE_FIELDS = new Set(['branchId', 'itemName', 'category', 'brand', 'price', 'imageUrl']);
+const UPDATE_FIELDS = new Set([
+  'branchId',
+  'itemName',
+  'category',
+  'brand',
+  'price',
+  'imageUrl',
+  'imagePublicId',
+]);
 
 const validateObjectBody = (body, errors) => {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -65,6 +74,44 @@ const validateNonNegativeNumber = (value, field, errors) => {
     errors.push({
       field,
       message: `${field} must be a non-negative number.`,
+    });
+  }
+};
+
+const validateImageUrl = (value, errors) => {
+  if (value === null || value === undefined || value === '') {
+    return;
+  }
+  if (typeof value !== 'string' || !value.trim()) {
+    errors.push({
+      field: 'imageUrl',
+      message: 'imageUrl must be a valid string.',
+    });
+    return;
+  }
+  if (!value.trim().startsWith('https://')) {
+    errors.push({
+      field: 'imageUrl',
+      message: 'imageUrl must be a secure HTTPS URL.',
+    });
+  }
+};
+
+const validateImagePublicId = (value, errors) => {
+  if (value === null || value === undefined || value === '') {
+    return;
+  }
+  if (typeof value !== 'string' || !value.trim()) {
+    errors.push({
+      field: 'imagePublicId',
+      message: 'imagePublicId must be a valid string.',
+    });
+    return;
+  }
+  if (!value.trim().startsWith('osms/inventory')) {
+    errors.push({
+      field: 'imagePublicId',
+      message: 'imagePublicId must belong to the osms/inventory namespace.',
     });
   }
 };
@@ -118,12 +165,12 @@ const createInventoryValidation = (req) => {
     validateNonNegativeNumber(body.quantity, 'quantity', errors);
   }
 
-  if (
-    Object.prototype.hasOwnProperty.call(body, 'imageUrl') &&
-    body.imageUrl !== null &&
-    body.imageUrl !== undefined
-  ) {
-    validateStringField(body.imageUrl, 'imageUrl', errors);
+  if (Object.prototype.hasOwnProperty.call(body, 'imageUrl')) {
+    validateImageUrl(body.imageUrl, errors);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'imagePublicId')) {
+    validateImagePublicId(body.imagePublicId, errors);
   }
 
   return errors;
@@ -181,12 +228,12 @@ const updateInventoryValidation = (req) => {
     validateNonNegativeNumber(body.price, 'price', errors);
   }
 
-  if (
-    Object.prototype.hasOwnProperty.call(body, 'imageUrl') &&
-    body.imageUrl !== null &&
-    body.imageUrl !== undefined
-  ) {
-    validateStringField(body.imageUrl, 'imageUrl', errors);
+  if (Object.prototype.hasOwnProperty.call(body, 'imageUrl')) {
+    validateImageUrl(body.imageUrl, errors);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'imagePublicId')) {
+    validateImagePublicId(body.imagePublicId, errors);
   }
 
   return errors;
@@ -243,6 +290,12 @@ const quantityUpdateValidation = (req) => {
 
   validateNonNegativeNumber(body.quantity, 'quantity', errors);
 
+  return errors;
+};
+
+const inventoryIdParamValidation = (req) => {
+  const errors = [];
+  validateObjectId(req.params.id, 'inventoryId', errors);
   return errors;
 };
 
@@ -529,6 +582,15 @@ router.patch(
   validate(quantityUpdateValidation),
   authorizeInventoryItemBranch,
   updateInventoryItemQuantity
+);
+
+router.delete(
+  '/inventory/:id/image',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER),
+  validate(inventoryIdParamValidation),
+  authorizeInventoryItemBranch,
+  removeInventoryImage
 );
 
 /**

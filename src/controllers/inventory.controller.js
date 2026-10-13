@@ -4,6 +4,7 @@ const {
   getBranchInventory,
   updateInventory,
   updateInventoryQuantity,
+  removeInventoryImage: removeInventoryImageService,
 } = require('../services/inventory.service');
 const { uploadImage } = require('../services/imageUpload.service');
 
@@ -16,6 +17,16 @@ const uploadInventoryImage = catchAsync(async (req, res) => {
       imageUrl: result.imageUrl,
       imagePublicId: result.imagePublicId,
     },
+  });
+});
+
+const removeInventoryImage = catchAsync(async (req, res) => {
+  const inventory = await removeInventoryImageService(req.params.id);
+
+  return res.status(200).json({
+    success: true,
+    data: inventory,
+    message: 'Inventory image removed successfully.',
   });
 });
 
@@ -103,4 +114,5 @@ module.exports = {
   getReorderThreshold,
   updateReorderThreshold,
   uploadInventoryImage,
+  removeInventoryImage,
 };

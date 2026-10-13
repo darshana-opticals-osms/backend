@@ -4,12 +4,21 @@ const Inventory = require('../models/inventory.model');
 const { NotFoundError, ValidationError, ConflictError } = require('../errors/AppError');
 
 const reorderAlertService = require('./reorderAlert.service');
+const { deleteImage } = require('./imageUpload.service');
 
 const INVALID_BRANCH_REFERENCE = 'INVALID_BRANCH_REFERENCE';
 const INVALID_INVENTORY_REFERENCE = 'INVALID_INVENTORY_REFERENCE';
 const INSUFFICIENT_STOCK = 'INSUFFICIENT_STOCK';
 
-const INVENTORY_UPDATE_FIELDS = ['branchId', 'itemName', 'category', 'brand', 'price', 'imageUrl'];
+const INVENTORY_UPDATE_FIELDS = [
+  'branchId',
+  'itemName',
+  'category',
+  'brand',
+  'price',
+  'imageUrl',
+  'imagePublicId',
+];
 
 function validateInventoryId(inventoryId) {
   if (!mongoose.isValidObjectId(inventoryId)) {
@@ -81,37 +90,51 @@ async function executeWithTransactionOrRecovery(transactionFn, recoveryFn) {
 }
 
 async function createInventory(inventoryInput = {}, externalSession = null) {
-  const { branchId } = inventoryInput;
+  try {
+    const { branchId } = inventoryInput;
 
-  await validateBranch(branchId);
+    await validateBranch(branchId);
 
-  if (externalSession) {
-    const [createdInventory] = await Inventory.create([inventoryInput], {
-      session: externalSession,
-    });
-    await reorderAlertService.evaluateReorderAlert(createdInventory, null, externalSession);
-    return createdInventory;
-  }
-
-  return executeWithTransactionOrRecovery(
-    async (session) => {
-      const [createdInventory] = await Inventory.create([inventoryInput], { session });
-      await reorderAlertService.evaluateReorderAlert(createdInventory, null, session);
+    if (externalSession) {
+      const [createdInventory] = await Inventory.create([inventoryInput], {
+        session: externalSession,
+      });
+      await reorderAlertService.evaluateReorderAlert(createdInventory, null, externalSession);
       return createdInventory;
-    },
-    async () => {
-      const createdInventory = await Inventory.create(inventoryInput);
-      try {
-        await reorderAlertService.evaluateReorderAlert(createdInventory);
+    }
+
+    return await executeWithTransactionOrRecovery(
+      async (session) => {
+        const [createdInventory] = await Inventory.create([inventoryInput], { session });
+        await reorderAlertService.evaluateReorderAlert(createdInventory, null, session);
         return createdInventory;
-      } catch (alertError) {
-        if (createdInventory && createdInventory._id && Inventory.deleteOne) {
-          await Inventory.deleteOne({ _id: createdInventory._id });
+      },
+      async () => {
+        const createdInventory = await Inventory.create(inventoryInput);
+        try {
+          await reorderAlertService.evaluateReorderAlert(createdInventory);
+          return createdInventory;
+        } catch (alertError) {
+          if (createdInventory && createdInventory._id && Inventory.deleteOne) {
+            await Inventory.deleteOne({ _id: createdInventory._id });
+          }
+          throw alertError;
         }
-        throw alertError;
+      }
+    );
+  } catch (createError) {
+    if (inventoryInput && inventoryInput.imagePublicId) {
+      try {
+        await deleteImage(inventoryInput.imagePublicId);
+      } catch (cleanupErr) {
+        console.warn(
+          `Immediate compensation failed for orphan asset: ${inventoryInput.imagePublicId}`,
+          cleanupErr.message
+        );
       }
     }
-  );
+    throw createError;
+  }
 }
 
 async function getBranchInventory(branchId) {
@@ -144,21 +167,97 @@ async function updateInventory(inventoryId, inventoryInput = {}) {
     await validateBranch(inventoryInput.branchId);
   }
 
-  const updatedInventory = await Inventory.findByIdAndUpdate(
-    inventoryId,
-    { $set: inventoryInput },
-    {
-      new: true,
-      runValidators: true,
-      context: 'query',
-    }
-  );
+  let existingInventory = null;
+  const isImageMutation =
+    Object.prototype.hasOwnProperty.call(inventoryInput, 'imageUrl') ||
+    Object.prototype.hasOwnProperty.call(inventoryInput, 'imagePublicId');
 
-  if (!updatedInventory) {
+  if (isImageMutation) {
+    existingInventory = await Inventory.findById(inventoryId);
+    if (!existingInventory) {
+      throw new NotFoundError('Inventory item not found.');
+    }
+  }
+
+  try {
+    const updatedInventory = await Inventory.findByIdAndUpdate(
+      inventoryId,
+      { $set: inventoryInput },
+      {
+        new: true,
+        runValidators: true,
+        context: 'query',
+      }
+    );
+
+    if (!updatedInventory) {
+      throw new NotFoundError('Inventory item not found.');
+    }
+
+    // AC15: Failure-safe replacement sequencing
+    // Only after new Inventory metadata is safely persisted, cleanup previous provider asset:
+    if (
+      existingInventory &&
+      existingInventory.imagePublicId &&
+      inventoryInput.imagePublicId !== undefined &&
+      existingInventory.imagePublicId !== updatedInventory.imagePublicId
+    ) {
+      try {
+        await deleteImage(existingInventory.imagePublicId);
+      } catch (cleanupErr) {
+        console.warn(
+          `Previous image cleanup failed: ${existingInventory.imagePublicId}`,
+          cleanupErr.message
+        );
+      }
+    }
+
+    return updatedInventory;
+  } catch (updateError) {
+    // AC17: Immediate compensation if the update failed and a new image was passed
+    if (
+      isImageMutation &&
+      inventoryInput.imagePublicId &&
+      (!existingInventory || inventoryInput.imagePublicId !== existingInventory.imagePublicId)
+    ) {
+      try {
+        await deleteImage(inventoryInput.imagePublicId);
+      } catch (compErr) {
+        console.warn(
+          `Immediate compensation failed for orphan asset: ${inventoryInput.imagePublicId}`,
+          compErr.message
+        );
+      }
+    }
+    throw updateError;
+  }
+}
+
+async function removeInventoryImage(inventoryId) {
+  validateInventoryId(inventoryId);
+
+  const inventory = await Inventory.findById(inventoryId);
+  if (!inventory) {
     throw new NotFoundError('Inventory item not found.');
   }
 
-  return updatedInventory;
+  const previousPublicId = inventory.imagePublicId;
+
+  // Clear Inventory image metadata
+  inventory.imageUrl = null;
+  inventory.imagePublicId = null;
+  await inventory.save();
+
+  // Safely delete Cloudinary asset using trusted persisted imagePublicId
+  if (previousPublicId) {
+    try {
+      await deleteImage(previousPublicId);
+    } catch (cleanupErr) {
+      console.warn(`Failed to delete removed image asset: ${previousPublicId}`, cleanupErr.message);
+    }
+  }
+
+  return inventory;
 }
 
 async function updateInventoryQuantity(inventoryId, quantity, externalSession = null) {
@@ -296,6 +395,7 @@ module.exports = {
   createInventory,
   getBranchInventory,
   updateInventory,
+  removeInventoryImage,
   updateInventoryQuantity,
   deductInventoryStock,
 };
