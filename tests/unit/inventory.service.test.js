@@ -13,6 +13,7 @@ const {
   deductInventoryStock,
 } = require('../../src/services/inventory.service');
 const { deleteImage } = require('../../src/services/imageUpload.service');
+const { ImageUpload } = require('../../src/models/imageUpload.model');
 
 jest.mock('../../src/services/imageUpload.service', () => ({
   uploadImage: jest.fn(),
@@ -36,9 +37,31 @@ jest.mock('../../src/models/inventory.model', () => ({
   findById: jest.fn(),
 }));
 
+jest.mock('../../src/models/imageUpload.model', () => ({
+  ImageUpload: {
+    findOne: jest.fn(),
+    updateOne: jest.fn().mockResolvedValue({ acknowledged: true }),
+  },
+  IMAGE_UPLOAD_STATUS: {
+    PENDING: 'PENDING',
+    ATTACHED: 'ATTACHED',
+    FAILED_CLEANUP: 'FAILED_CLEANUP',
+    DELETED: 'DELETED',
+  },
+}));
+
 describe('Inventory service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    ImageUpload.findOne.mockImplementation(async ({ publicId }) => ({
+      _id: new mongoose.Types.ObjectId(),
+      publicId,
+      imageUrl:
+        publicId === 'osms/inventory/new'
+          ? 'https://res.cloudinary.com/test/image/upload/v2/osms/inventory/new.jpg'
+          : 'https://res.cloudinary.com/test-cloud/image/upload/sample.jpg',
+      status: 'PENDING',
+    }));
   });
 
   describe('createInventory', () => {

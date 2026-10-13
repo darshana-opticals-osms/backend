@@ -108,10 +108,10 @@ const validateImagePublicId = (value, errors) => {
     });
     return;
   }
-  if (!value.trim().startsWith('osms/inventory')) {
+  if (!value.trim().startsWith('osms/inventory/')) {
     errors.push({
       field: 'imagePublicId',
-      message: 'imagePublicId must belong to the osms/inventory namespace.',
+      message: 'imagePublicId must belong to the osms/inventory/ namespace.',
     });
   }
 };

@@ -1,9 +1,11 @@
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const request = require('supertest');
 const { createApp } = require('../../src/app');
 const { connectDatabase, disconnectDatabase } = require('../../src/config/database');
 const Branch = require('../../src/models/branch.model');
 const Inventory = require('../../src/models/inventory.model');
+const { ImageUpload, IMAGE_UPLOAD_STATUS } = require('../../src/models/imageUpload.model');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 const { deleteImage } = require('../../src/services/imageUpload.service');
 
@@ -50,6 +52,7 @@ describe('Inventory Image Lifecycle & Persistence Integration Tests (DDP-076)', 
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    await ImageUpload.deleteMany({});
     await Inventory.deleteMany({});
     await Branch.deleteMany({});
 
@@ -71,6 +74,14 @@ describe('Inventory Image Lifecycle & Persistence Integration Tests (DDP-076)', 
       imageUrl: 'https://res.cloudinary.com/test-cloud/image/upload/v1/osms/inventory/sample.jpg',
       imagePublicId: 'osms/inventory/sample',
     };
+
+    await ImageUpload.create({
+      publicId: payload.imagePublicId,
+      imageUrl: payload.imageUrl,
+      uploadedBy: new mongoose.Types.ObjectId(),
+      branchId: branch._id,
+      status: IMAGE_UPLOAD_STATUS.PENDING,
+    });
 
     const res = await request(app)
       .post('/api/inventory')
@@ -131,6 +142,129 @@ describe('Inventory Image Lifecycle & Persistence Integration Tests (DDP-076)', 
     expect(res.body.success).toBe(false);
   });
 
+  it('Blocker 1: Rejects imagePublicId without exact trailing slash boundary (e.g. osms/inventory_prefix)', async () => {
+    const token = createToken({ role: ROLE_VALUES.BRANCH_MANAGER });
+    const payload = {
+      branchId: branch._id.toString(),
+      itemName: 'Ray-Ban Wayfarer',
+      category: 'Sunglasses',
+      brand: 'Ray-Ban',
+      price: 35000,
+      quantity: 10,
+      imageUrl: 'https://res.cloudinary.com/test-cloud/image/upload/v1/osms/inventory/sample.jpg',
+      imagePublicId: 'osms/inventory_malicious/sample',
+    };
+
+    const res = await request(app)
+      .post('/api/inventory')
+      .set('Authorization', `Bearer ${token}`)
+      .send(payload);
+
+    expect(res.status).toBe(422);
+    expect(res.body.success).toBe(false);
+  });
+
+  it('Blocker 1: Rejects untrusted imagePublicId that was never uploaded via backend workflow', async () => {
+    const token = createToken({ role: ROLE_VALUES.BRANCH_MANAGER });
+    const payload = {
+      branchId: branch._id.toString(),
+      itemName: 'Ray-Ban Wayfarer',
+      category: 'Sunglasses',
+      brand: 'Ray-Ban',
+      price: 35000,
+      quantity: 10,
+      imageUrl:
+        'https://res.cloudinary.com/test-cloud/image/upload/v1/osms/inventory/untrusted.jpg',
+      imagePublicId: 'osms/inventory/untrusted',
+    };
+
+    const res = await request(app)
+      .post('/api/inventory')
+      .set('Authorization', `Bearer ${token}`)
+      .send(payload);
+
+    expect(res.status).toBe(422);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.message).toContain('untrusted');
+  });
+
+  it('Blocker 1: Rejects image upload metadata belonging to another branch', async () => {
+    const otherBranch = await Branch.create({
+      address: 'Kandy Branch',
+      contactNumber: '+94 81 234 5678',
+    });
+
+    await ImageUpload.create({
+      publicId: 'osms/inventory/other-branch-image',
+      imageUrl: 'https://res.cloudinary.com/test-cloud/image/upload/v1/osms/inventory/other.jpg',
+      uploadedBy: new mongoose.Types.ObjectId(),
+      branchId: otherBranch._id,
+      status: IMAGE_UPLOAD_STATUS.PENDING,
+    });
+
+    const token = createToken({ role: ROLE_VALUES.BRANCH_MANAGER });
+    const payload = {
+      branchId: branch._id.toString(),
+      itemName: 'Ray-Ban Wayfarer',
+      category: 'Sunglasses',
+      brand: 'Ray-Ban',
+      price: 35000,
+      quantity: 10,
+      imageUrl: 'https://res.cloudinary.com/test-cloud/image/upload/v1/osms/inventory/other.jpg',
+      imagePublicId: 'osms/inventory/other-branch-image',
+    };
+
+    const res = await request(app)
+      .post('/api/inventory')
+      .set('Authorization', `Bearer ${token}`)
+      .send(payload);
+
+    expect(res.status).toBe(422);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.message).toContain('authorized branch');
+  });
+
+  it('Blocker 1: Rejects image already claimed by another inventory item', async () => {
+    const otherInventory = await Inventory.create({
+      branchId: branch._id,
+      itemName: 'Existing Item',
+      category: 'Eyeglasses',
+      brand: 'Vogue',
+      price: 15000,
+      quantity: 5,
+    });
+
+    await ImageUpload.create({
+      publicId: 'osms/inventory/already-attached',
+      imageUrl: 'https://res.cloudinary.com/test-cloud/image/upload/v1/osms/inventory/attached.jpg',
+      uploadedBy: new mongoose.Types.ObjectId(),
+      branchId: branch._id,
+      status: IMAGE_UPLOAD_STATUS.ATTACHED,
+      inventoryId: otherInventory._id,
+    });
+
+    const token = createToken({ role: ROLE_VALUES.BRANCH_MANAGER });
+    const payload = {
+      branchId: branch._id.toString(),
+      itemName: 'Ray-Ban Wayfarer',
+      category: 'Sunglasses',
+      brand: 'Ray-Ban',
+      price: 35000,
+      quantity: 10,
+      imageUrl: 'https://res.cloudinary.com/test-cloud/image/upload/v1/osms/inventory/attached.jpg',
+      imagePublicId: 'osms/inventory/already-attached',
+    };
+
+    const res = await request(app)
+      .post('/api/inventory')
+      .set('Authorization', `Bearer ${token}`)
+      .send(payload);
+
+    expect(res.status).toBe(409);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.message).toContain('already associated');
+  });
+
   it('AC14, AC15: Branch Manager updates inventory image (replacement) and deletes old provider asset', async () => {
     const token = createToken({ role: ROLE_VALUES.BRANCH_MANAGER });
     const initialItem = await Inventory.create({
@@ -145,11 +279,29 @@ describe('Inventory Image Lifecycle & Persistence Integration Tests (DDP-076)', 
       imagePublicId: 'osms/inventory/old-asset',
     });
 
+    await ImageUpload.create({
+      publicId: 'osms/inventory/old-asset',
+      imageUrl:
+        'https://res.cloudinary.com/test-cloud/image/upload/v1/osms/inventory/old-asset.jpg',
+      uploadedBy: new mongoose.Types.ObjectId(),
+      branchId: branch._id,
+      status: IMAGE_UPLOAD_STATUS.ATTACHED,
+      inventoryId: initialItem._id,
+    });
+
     const updatePayload = {
       imageUrl:
         'https://res.cloudinary.com/test-cloud/image/upload/v2/osms/inventory/new-asset.jpg',
       imagePublicId: 'osms/inventory/new-asset',
     };
+
+    await ImageUpload.create({
+      publicId: updatePayload.imagePublicId,
+      imageUrl: updatePayload.imageUrl,
+      uploadedBy: new mongoose.Types.ObjectId(),
+      branchId: branch._id,
+      status: IMAGE_UPLOAD_STATUS.PENDING,
+    });
 
     const res = await request(app)
       .patch(`/api/inventory/${initialItem._id}`)

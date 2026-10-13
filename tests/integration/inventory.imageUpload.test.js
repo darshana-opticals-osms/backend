@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const request = require('supertest');
 const { createApp } = require('../../src/app');
+const { connectDatabase, disconnectDatabase } = require('../../src/config/database');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 const cloudinary = require('../../src/config/cloudinary');
 
@@ -28,17 +29,19 @@ describe('POST /api/inventory/images - Image Upload Integration Tests', () => {
   let app;
   let originalEnv;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     originalEnv = { ...process.env };
     process.env.NODE_ENV = 'test';
     process.env.JWT_SECRET = JWT_SECRET;
     process.env.JWT_EXPIRES_IN = JWT_EXPIRES_IN;
     delete process.env.MONGODB_URI;
 
+    await connectDatabase();
     app = createApp();
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    await disconnectDatabase();
     process.env = originalEnv;
   });
 
@@ -85,6 +88,13 @@ describe('POST /api/inventory/images - Image Upload Integration Tests', () => {
     // Ensure sensitive secrets are not leaked in the payload
     expect(res.body.data.api_key).toBeUndefined();
     expect(res.text).not.toContain('SUPER_SECRET_KEY');
+
+    // Provenance check: record created in ImageUpload collection
+    const { ImageUpload, IMAGE_UPLOAD_STATUS } = require('../../src/models/imageUpload.model');
+    const recordedUpload = await ImageUpload.findOne({ publicId: mockCloudinaryResult.public_id });
+    expect(recordedUpload).not.toBeNull();
+    expect(recordedUpload.status).toBe(IMAGE_UPLOAD_STATUS.PENDING);
+    expect(recordedUpload.imageUrl).toBe(mockCloudinaryResult.secure_url);
   });
 
   it('AC3: Rejects unauthenticated request with 401 Unauthorized', async () => {

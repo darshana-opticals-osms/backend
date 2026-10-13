@@ -5,6 +5,8 @@ const { NotFoundError, ValidationError, ConflictError } = require('../errors/App
 
 const reorderAlertService = require('./reorderAlert.service');
 const { deleteImage } = require('./imageUpload.service');
+const { ImageUpload, IMAGE_UPLOAD_STATUS } = require('../models/imageUpload.model');
+const { sanitizeLogMessage } = require('../utils/sanitizer');
 
 const INVALID_BRANCH_REFERENCE = 'INVALID_BRANCH_REFERENCE';
 const INVALID_INVENTORY_REFERENCE = 'INVALID_INVENTORY_REFERENCE';
@@ -89,49 +91,156 @@ async function executeWithTransactionOrRecovery(transactionFn, recoveryFn) {
   return recoveryFn();
 }
 
-async function createInventory(inventoryInput = {}, externalSession = null) {
+/**
+ * Validates that an image metadata reference originates from an approved upload,
+ * belongs to the authorized branch, and is not already claimed by another inventory item.
+ *
+ * @param {object} params
+ * @param {string} params.imagePublicId - Cloudinary publicId to validate.
+ * @param {string} [params.imageUrl] - Corresponding image URL.
+ * @param {string} [params.branchId] - Branch context for ownership check.
+ * @param {string} [params.currentInventoryId] - Current inventory item ID if updating.
+ * @returns {Promise<object|null>} The matched ImageUpload document or null.
+ */
+async function validateAndClaimImageUpload({
+  imagePublicId,
+  imageUrl,
+  branchId,
+  currentInventoryId = null,
+}) {
+  if (!imagePublicId) {
+    return null;
+  }
+
+  if (!imagePublicId.startsWith('osms/inventory/')) {
+    throw new ValidationError(
+      'imagePublicId must belong to the osms/inventory/ namespace.',
+      { field: 'imagePublicId' },
+      'INVALID_ASSET_NAMESPACE'
+    );
+  }
+
+  const uploadRecord = await ImageUpload.findOne({ publicId: imagePublicId });
+  if (!uploadRecord) {
+    throw new ValidationError(
+      'Image metadata is untrusted or does not originate from an approved upload.',
+      { field: 'imagePublicId' },
+      'UNTRUSTED_IMAGE_METADATA'
+    );
+  }
+
+  if (imageUrl && uploadRecord.imageUrl !== imageUrl) {
+    throw new ValidationError(
+      'imageUrl does not match the approved upload record.',
+      { field: 'imageUrl' },
+      'IMAGE_METADATA_MISMATCH'
+    );
+  }
+
+  if (
+    uploadRecord.branchId &&
+    branchId &&
+    uploadRecord.branchId.toString() !== branchId.toString()
+  ) {
+    throw new ValidationError(
+      'Image does not belong to the authorized branch.',
+      { field: 'imagePublicId' },
+      'UNAUTHORIZED_IMAGE_OWNERSHIP'
+    );
+  }
+
+  if (
+    uploadRecord.status === IMAGE_UPLOAD_STATUS.ATTACHED &&
+    (!currentInventoryId || uploadRecord.inventoryId?.toString() !== currentInventoryId.toString())
+  ) {
+    throw new ConflictError('Image is already associated with another inventory item.');
+  }
+
+  return uploadRecord;
+}
+
+/**
+ * Deletes a Cloudinary asset safely and updates the ImageUpload tracking record status.
+ *
+ * @param {string} publicId - Cloudinary publicId to delete.
+ */
+async function safeDeleteAssetWithTracking(publicId) {
+  if (!publicId) return;
+
   try {
-    const { branchId } = inventoryInput;
+    await deleteImage(publicId);
+    await ImageUpload.updateOne(
+      { publicId },
+      { $set: { status: IMAGE_UPLOAD_STATUS.DELETED, inventoryId: null } }
+    ).catch(() => {});
+  } catch (cleanupErr) {
+    const safeError = sanitizeLogMessage(cleanupErr.message || '');
+    console.warn(`Image cleanup failed: ${publicId}`, safeError);
+    await ImageUpload.updateOne(
+      { publicId },
+      {
+        $set: { status: IMAGE_UPLOAD_STATUS.FAILED_CLEANUP, lastCleanupError: safeError },
+        $inc: { cleanupAttempts: 1 },
+      }
+    ).catch(() => {});
+  }
+}
+
+async function createInventory(inventoryInput = {}, externalSession = null) {
+  let uploadRecord = null;
+  try {
+    const { branchId, imagePublicId, imageUrl } = inventoryInput;
 
     await validateBranch(branchId);
 
-    if (externalSession) {
-      const [createdInventory] = await Inventory.create([inventoryInput], {
-        session: externalSession,
+    if (imagePublicId) {
+      uploadRecord = await validateAndClaimImageUpload({
+        imagePublicId,
+        imageUrl,
+        branchId,
       });
-      await reorderAlertService.evaluateReorderAlert(createdInventory, null, externalSession);
-      return createdInventory;
     }
 
-    return await executeWithTransactionOrRecovery(
-      async (session) => {
-        const [createdInventory] = await Inventory.create([inventoryInput], { session });
-        await reorderAlertService.evaluateReorderAlert(createdInventory, null, session);
-        return createdInventory;
-      },
-      async () => {
-        const createdInventory = await Inventory.create(inventoryInput);
-        try {
-          await reorderAlertService.evaluateReorderAlert(createdInventory);
-          return createdInventory;
-        } catch (alertError) {
-          if (createdInventory && createdInventory._id && Inventory.deleteOne) {
-            await Inventory.deleteOne({ _id: createdInventory._id });
+    let createdInventory;
+    if (externalSession) {
+      const [created] = await Inventory.create([inventoryInput], {
+        session: externalSession,
+      });
+      createdInventory = created;
+      await reorderAlertService.evaluateReorderAlert(createdInventory, null, externalSession);
+    } else {
+      createdInventory = await executeWithTransactionOrRecovery(
+        async (session) => {
+          const [created] = await Inventory.create([inventoryInput], { session });
+          await reorderAlertService.evaluateReorderAlert(created, null, session);
+          return created;
+        },
+        async () => {
+          const created = await Inventory.create(inventoryInput);
+          try {
+            await reorderAlertService.evaluateReorderAlert(created);
+            return created;
+          } catch (alertError) {
+            if (created && created._id && Inventory.deleteOne) {
+              await Inventory.deleteOne({ _id: created._id });
+            }
+            throw alertError;
           }
-          throw alertError;
         }
-      }
-    );
+      );
+    }
+
+    if (uploadRecord && createdInventory) {
+      await ImageUpload.updateOne(
+        { _id: uploadRecord._id },
+        { $set: { status: IMAGE_UPLOAD_STATUS.ATTACHED, inventoryId: createdInventory._id } }
+      ).catch(() => {});
+    }
+
+    return createdInventory;
   } catch (createError) {
     if (inventoryInput && inventoryInput.imagePublicId) {
-      try {
-        await deleteImage(inventoryInput.imagePublicId);
-      } catch (cleanupErr) {
-        console.warn(
-          `Immediate compensation failed for orphan asset: ${inventoryInput.imagePublicId}`,
-          cleanupErr.message
-        );
-      }
+      await safeDeleteAssetWithTracking(inventoryInput.imagePublicId);
     }
     throw createError;
   }
@@ -179,6 +288,19 @@ async function updateInventory(inventoryId, inventoryInput = {}) {
     }
   }
 
+  let newUploadRecord = null;
+  if (
+    inventoryInput.imagePublicId &&
+    (!existingInventory || existingInventory.imagePublicId !== inventoryInput.imagePublicId)
+  ) {
+    newUploadRecord = await validateAndClaimImageUpload({
+      imagePublicId: inventoryInput.imagePublicId,
+      imageUrl: inventoryInput.imageUrl,
+      branchId: inventoryInput.branchId || existingInventory?.branchId,
+      currentInventoryId: existingInventory?._id,
+    });
+  }
+
   try {
     const updatedInventory = await Inventory.findByIdAndUpdate(
       inventoryId,
@@ -194,40 +316,33 @@ async function updateInventory(inventoryId, inventoryInput = {}) {
       throw new NotFoundError('Inventory item not found.');
     }
 
-    // AC15: Failure-safe replacement sequencing
-    // Only after new Inventory metadata is safely persisted, cleanup previous provider asset:
+    if (newUploadRecord) {
+      await ImageUpload.updateOne(
+        { _id: newUploadRecord._id },
+        { $set: { status: IMAGE_UPLOAD_STATUS.ATTACHED, inventoryId: updatedInventory._id } }
+      ).catch(() => {});
+    }
+
+    // Failure-safe replacement sequencing:
+    // Only after new Inventory metadata is safely persisted, cleanup previous provider asset
     if (
       existingInventory &&
       existingInventory.imagePublicId &&
       inventoryInput.imagePublicId !== undefined &&
       existingInventory.imagePublicId !== updatedInventory.imagePublicId
     ) {
-      try {
-        await deleteImage(existingInventory.imagePublicId);
-      } catch (cleanupErr) {
-        console.warn(
-          `Previous image cleanup failed: ${existingInventory.imagePublicId}`,
-          cleanupErr.message
-        );
-      }
+      await safeDeleteAssetWithTracking(existingInventory.imagePublicId);
     }
 
     return updatedInventory;
   } catch (updateError) {
-    // AC17: Immediate compensation if the update failed and a new image was passed
+    // Immediate compensation if the update failed and a new image was passed
     if (
       isImageMutation &&
       inventoryInput.imagePublicId &&
       (!existingInventory || inventoryInput.imagePublicId !== existingInventory.imagePublicId)
     ) {
-      try {
-        await deleteImage(inventoryInput.imagePublicId);
-      } catch (compErr) {
-        console.warn(
-          `Immediate compensation failed for orphan asset: ${inventoryInput.imagePublicId}`,
-          compErr.message
-        );
-      }
+      await safeDeleteAssetWithTracking(inventoryInput.imagePublicId);
     }
     throw updateError;
   }
@@ -250,11 +365,7 @@ async function removeInventoryImage(inventoryId) {
 
   // Safely delete Cloudinary asset using trusted persisted imagePublicId
   if (previousPublicId) {
-    try {
-      await deleteImage(previousPublicId);
-    } catch (cleanupErr) {
-      console.warn(`Failed to delete removed image asset: ${previousPublicId}`, cleanupErr.message);
-    }
+    await safeDeleteAssetWithTracking(previousPublicId);
   }
 
   return inventory;

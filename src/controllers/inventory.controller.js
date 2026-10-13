@@ -7,9 +7,19 @@ const {
   removeInventoryImage: removeInventoryImageService,
 } = require('../services/inventory.service');
 const { uploadImage } = require('../services/imageUpload.service');
+const { ImageUpload, IMAGE_UPLOAD_STATUS } = require('../models/imageUpload.model');
 
 const uploadInventoryImage = catchAsync(async (req, res) => {
   const result = await uploadImage(req.file);
+
+  const authUser = req.auth || req.user || {};
+  await ImageUpload.create({
+    publicId: result.imagePublicId,
+    imageUrl: result.imageUrl,
+    uploadedBy: authUser.userId || authUser.id || authUser._id,
+    branchId: authUser.branchId || null,
+    status: IMAGE_UPLOAD_STATUS.PENDING,
+  });
 
   return res.status(200).json({
     success: true,
