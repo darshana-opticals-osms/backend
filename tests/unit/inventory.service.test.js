@@ -469,4 +469,249 @@ describe('Inventory service', () => {
       });
     });
   });
+
+  describe('Image provenance, tracking, and compensation regression tests', () => {
+    it('should NOT trigger provider deletion when createInventory rejects untrusted imagePublicId', async () => {
+      const branchId = new mongoose.Types.ObjectId().toString();
+      Branch.exists.mockResolvedValue({ _id: branchId });
+      ImageUpload.findOne.mockResolvedValue(null); // Untrusted / not found
+
+      const input = {
+        branchId,
+        itemName: 'Eyewear Frame',
+        category: 'Men',
+        brand: 'Ray-Ban',
+        price: 15000,
+        quantity: 10,
+        imagePublicId: 'osms/inventory/untrusted-asset-id',
+        imageUrl: 'https://res.cloudinary.com/test/image/upload/sample.jpg',
+      };
+
+      await expect(createInventory(input)).rejects.toMatchObject({
+        statusCode: 422,
+        errorCode: 'UNTRUSTED_IMAGE_METADATA',
+      });
+
+      expect(deleteImage).not.toHaveBeenCalled();
+    });
+
+    it('should NOT trigger provider deletion when createInventory rejects cross-branch imagePublicId', async () => {
+      const branchId = new mongoose.Types.ObjectId().toString();
+      const otherBranchId = new mongoose.Types.ObjectId().toString();
+      Branch.exists.mockResolvedValue({ _id: branchId });
+      ImageUpload.findOne.mockResolvedValue({
+        _id: new mongoose.Types.ObjectId(),
+        publicId: 'osms/inventory/cross-branch-asset',
+        imageUrl: 'https://res.cloudinary.com/test/image/upload/sample.jpg',
+        branchId: otherBranchId,
+        status: 'PENDING',
+      });
+
+      const input = {
+        branchId,
+        itemName: 'Eyewear Frame',
+        category: 'Men',
+        brand: 'Ray-Ban',
+        price: 15000,
+        quantity: 10,
+        imagePublicId: 'osms/inventory/cross-branch-asset',
+        imageUrl: 'https://res.cloudinary.com/test/image/upload/sample.jpg',
+      };
+
+      await expect(createInventory(input)).rejects.toMatchObject({
+        statusCode: 422,
+        errorCode: 'UNAUTHORIZED_IMAGE_OWNERSHIP',
+      });
+
+      expect(deleteImage).not.toHaveBeenCalled();
+    });
+
+    it('should NOT trigger provider deletion when updateInventory rejects untrusted imagePublicId', async () => {
+      const inventoryId = new mongoose.Types.ObjectId().toString();
+      Inventory.findById.mockResolvedValue({
+        _id: inventoryId,
+        imagePublicId: 'osms/inventory/original-image',
+      });
+      ImageUpload.findOne.mockResolvedValue(null); // Untrusted
+
+      await expect(
+        updateInventory(inventoryId, {
+          imagePublicId: 'osms/inventory/malicious-untrusted-target',
+          imageUrl: 'https://res.cloudinary.com/test/image/upload/sample.jpg',
+        })
+      ).rejects.toMatchObject({
+        statusCode: 422,
+        errorCode: 'UNTRUSTED_IMAGE_METADATA',
+      });
+
+      expect(deleteImage).not.toHaveBeenCalled();
+    });
+
+    it('should trigger provider deletion ONLY of verified upload when subsequent database creation fails', async () => {
+      const branchId = new mongoose.Types.ObjectId().toString();
+      const verifiedUpload = {
+        _id: new mongoose.Types.ObjectId(),
+        publicId: 'osms/inventory/verified-upload-123',
+        imageUrl: 'https://res.cloudinary.com/test/image/upload/v1/sample.jpg',
+        branchId,
+        status: 'PENDING',
+      };
+
+      Branch.exists.mockResolvedValue({ _id: branchId });
+      ImageUpload.findOne.mockResolvedValue(verifiedUpload);
+      Inventory.create.mockRejectedValue(new Error('Mongo connection timed out'));
+
+      const input = {
+        branchId,
+        itemName: 'Frame',
+        category: 'Men',
+        brand: 'Ray-Ban',
+        price: 1000,
+        quantity: 2,
+        imagePublicId: verifiedUpload.publicId,
+        imageUrl: verifiedUpload.imageUrl,
+      };
+
+      await expect(createInventory(input)).rejects.toThrow('Mongo connection timed out');
+
+      expect(deleteImage).toHaveBeenCalledWith(verifiedUpload.publicId);
+      expect(ImageUpload.updateOne).toHaveBeenCalledWith(
+        { publicId: verifiedUpload.publicId },
+        expect.objectContaining({
+          $set: expect.objectContaining({ status: 'DELETED' }),
+        })
+      );
+    });
+
+    it('should mark tracking record as FAILED_CLEANUP when deleteImage returns success: false', async () => {
+      const branchId = new mongoose.Types.ObjectId().toString();
+      const verifiedUpload = {
+        _id: new mongoose.Types.ObjectId(),
+        publicId: 'osms/inventory/unsuccessful-deletion-asset',
+        imageUrl: 'https://res.cloudinary.com/test/image/upload/v1/sample.jpg',
+        branchId,
+        status: 'PENDING',
+      };
+
+      Branch.exists.mockResolvedValue({ _id: branchId });
+      ImageUpload.findOne.mockResolvedValue(verifiedUpload);
+      Inventory.create.mockRejectedValue(new Error('DB failure'));
+      deleteImage.mockResolvedValueOnce({ success: false, result: 'not found on cloud' });
+
+      const input = {
+        branchId,
+        itemName: 'Frame',
+        category: 'Men',
+        brand: 'Ray-Ban',
+        price: 1000,
+        quantity: 2,
+        imagePublicId: verifiedUpload.publicId,
+        imageUrl: verifiedUpload.imageUrl,
+      };
+
+      await expect(createInventory(input)).rejects.toThrow('DB failure');
+
+      expect(deleteImage).toHaveBeenCalledWith(verifiedUpload.publicId);
+      expect(ImageUpload.updateOne).toHaveBeenCalledWith(
+        { publicId: verifiedUpload.publicId },
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            status: 'FAILED_CLEANUP',
+            lastCleanupError: expect.stringContaining('not found on cloud'),
+          }),
+          $inc: { cleanupAttempts: 1 },
+        })
+      );
+    });
+
+    it('should reject image metadata if upload status is DELETED or FAILED_CLEANUP', async () => {
+      const branchId = new mongoose.Types.ObjectId().toString();
+      Branch.exists.mockResolvedValue({ _id: branchId });
+
+      ImageUpload.findOne.mockResolvedValueOnce({
+        _id: new mongoose.Types.ObjectId(),
+        publicId: 'osms/inventory/deleted-asset',
+        imageUrl: 'https://res.cloudinary.com/test/image/upload/sample.jpg',
+        branchId,
+        status: 'DELETED',
+      });
+
+      await expect(
+        createInventory({
+          branchId,
+          itemName: 'Frame',
+          category: 'Men',
+          brand: 'Ray-Ban',
+          price: 1000,
+          quantity: 2,
+          imagePublicId: 'osms/inventory/deleted-asset',
+          imageUrl: 'https://res.cloudinary.com/test/image/upload/sample.jpg',
+        })
+      ).rejects.toMatchObject({
+        statusCode: 422,
+        errorCode: 'INVALID_IMAGE_STATUS',
+      });
+
+      ImageUpload.findOne.mockResolvedValueOnce({
+        _id: new mongoose.Types.ObjectId(),
+        publicId: 'osms/inventory/failed-cleanup-asset',
+        imageUrl: 'https://res.cloudinary.com/test/image/upload/sample.jpg',
+        branchId,
+        status: 'FAILED_CLEANUP',
+      });
+
+      await expect(
+        createInventory({
+          branchId,
+          itemName: 'Frame',
+          category: 'Men',
+          brand: 'Ray-Ban',
+          price: 1000,
+          quantity: 2,
+          imagePublicId: 'osms/inventory/failed-cleanup-asset',
+          imageUrl: 'https://res.cloudinary.com/test/image/upload/sample.jpg',
+        })
+      ).rejects.toMatchObject({
+        statusCode: 422,
+        errorCode: 'INVALID_IMAGE_STATUS',
+      });
+    });
+
+    it('should throw and rollback inventory if ImageUpload.updateOne fails during createInventory', async () => {
+      const branchId = new mongoose.Types.ObjectId().toString();
+      const verifiedUpload = {
+        _id: new mongoose.Types.ObjectId(),
+        publicId: 'osms/inventory/verified-1',
+        imageUrl: 'https://res.cloudinary.com/test/image/upload/v1/sample.jpg',
+        branchId,
+        status: 'PENDING',
+      };
+      const createdItem = {
+        _id: new mongoose.Types.ObjectId(),
+        branchId,
+        itemName: 'Frame',
+      };
+
+      Branch.exists.mockResolvedValue({ _id: branchId });
+      ImageUpload.findOne.mockResolvedValue(verifiedUpload);
+      Inventory.create.mockResolvedValue(createdItem);
+      Inventory.deleteOne = jest.fn().mockResolvedValue({ deletedCount: 1 });
+      ImageUpload.updateOne.mockRejectedValueOnce(new Error('ImageUpload DB update error'));
+
+      const input = {
+        branchId,
+        itemName: 'Frame',
+        category: 'Men',
+        brand: 'Ray-Ban',
+        price: 1000,
+        quantity: 2,
+        imagePublicId: verifiedUpload.publicId,
+        imageUrl: verifiedUpload.imageUrl,
+      };
+
+      await expect(createInventory(input)).rejects.toThrow('ImageUpload DB update error');
+      expect(Inventory.deleteOne).toHaveBeenCalledWith({ _id: createdItem._id });
+      expect(deleteImage).toHaveBeenCalledWith(verifiedUpload.publicId);
+    });
+  });
 });

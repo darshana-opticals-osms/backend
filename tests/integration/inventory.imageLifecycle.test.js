@@ -186,6 +186,7 @@ describe('Inventory Image Lifecycle & Persistence Integration Tests (DDP-076)', 
     expect(res.status).toBe(422);
     expect(res.body.success).toBe(false);
     expect(res.body.error.message).toContain('untrusted');
+    expect(deleteImage).not.toHaveBeenCalled();
   });
 
   it('Blocker 1: Rejects image upload metadata belonging to another branch', async () => {
@@ -222,6 +223,7 @@ describe('Inventory Image Lifecycle & Persistence Integration Tests (DDP-076)', 
     expect(res.status).toBe(422);
     expect(res.body.success).toBe(false);
     expect(res.body.error.message).toContain('authorized branch');
+    expect(deleteImage).not.toHaveBeenCalled();
   });
 
   it('Blocker 1: Rejects image already claimed by another inventory item', async () => {

@@ -1,4 +1,5 @@
 const { ImageUpload, IMAGE_UPLOAD_STATUS } = require('../models/imageUpload.model');
+const Inventory = require('../models/inventory.model');
 const { deleteImage } = require('./imageUpload.service');
 const { sanitizeLogMessage } = require('../utils/sanitizer');
 
@@ -72,6 +73,17 @@ async function reconcileAbandonedUploads(thresholdAgeMs = DEFAULT_ABANDONED_THRE
   let failed = 0;
 
   for (const record of abandonedUploads) {
+    // Defense-in-depth safety net:
+    // If an active Inventory record references this publicId, heal state to ATTACHED instead of deleting
+    const referencedInventory = await Inventory.findOne({ imagePublicId: record.publicId });
+    if (referencedInventory) {
+      record.status = IMAGE_UPLOAD_STATUS.ATTACHED;
+      record.inventoryId = referencedInventory._id;
+      record.lastCleanupError = null;
+      await record.save();
+      continue;
+    }
+
     try {
       const deleteResult = await deleteImage(record.publicId);
       if (deleteResult.success) {

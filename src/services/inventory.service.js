@@ -150,10 +150,21 @@ async function validateAndClaimImageUpload({
   }
 
   if (
-    uploadRecord.status === IMAGE_UPLOAD_STATUS.ATTACHED &&
-    (!currentInventoryId || uploadRecord.inventoryId?.toString() !== currentInventoryId.toString())
+    uploadRecord.status !== IMAGE_UPLOAD_STATUS.PENDING &&
+    !(
+      uploadRecord.status === IMAGE_UPLOAD_STATUS.ATTACHED &&
+      currentInventoryId &&
+      uploadRecord.inventoryId?.toString() === currentInventoryId.toString()
+    )
   ) {
-    throw new ConflictError('Image is already associated with another inventory item.');
+    if (uploadRecord.status === IMAGE_UPLOAD_STATUS.ATTACHED) {
+      throw new ConflictError('Image is already associated with another inventory item.');
+    }
+    throw new ValidationError(
+      `Image is in invalid state (${uploadRecord.status}) and cannot be attached.`,
+      { field: 'imagePublicId' },
+      'INVALID_IMAGE_STATUS'
+    );
   }
 
   return uploadRecord;
@@ -168,21 +179,38 @@ async function safeDeleteAssetWithTracking(publicId) {
   if (!publicId) return;
 
   try {
-    await deleteImage(publicId);
-    await ImageUpload.updateOne(
-      { publicId },
-      { $set: { status: IMAGE_UPLOAD_STATUS.DELETED, inventoryId: null } }
-    ).catch(() => {});
+    const deleteResult = await deleteImage(publicId);
+    if (deleteResult && deleteResult.success) {
+      await ImageUpload.updateOne(
+        { publicId },
+        {
+          $set: { status: IMAGE_UPLOAD_STATUS.DELETED, inventoryId: null },
+          $unset: { lastCleanupError: 1 },
+        }
+      );
+    } else {
+      const safeError = sanitizeLogMessage(
+        deleteResult?.result || 'Provider deletion unsuccessful'
+      );
+      console.warn(`Image cleanup unsuccessful for ${publicId}:`, safeError);
+      await ImageUpload.updateOne(
+        { publicId },
+        {
+          $set: { status: IMAGE_UPLOAD_STATUS.FAILED_CLEANUP, lastCleanupError: safeError },
+          $inc: { cleanupAttempts: 1 },
+        }
+      );
+    }
   } catch (cleanupErr) {
-    const safeError = sanitizeLogMessage(cleanupErr.message || '');
-    console.warn(`Image cleanup failed: ${publicId}`, safeError);
+    const safeError = sanitizeLogMessage(cleanupErr?.message || 'Provider deletion failed');
+    console.warn(`Image cleanup failed for ${publicId}:`, safeError);
     await ImageUpload.updateOne(
       { publicId },
       {
         $set: { status: IMAGE_UPLOAD_STATUS.FAILED_CLEANUP, lastCleanupError: safeError },
         $inc: { cleanupAttempts: 1 },
       }
-    ).catch(() => {});
+    );
   }
 }
 
@@ -208,39 +236,53 @@ async function createInventory(inventoryInput = {}, externalSession = null) {
       });
       createdInventory = created;
       await reorderAlertService.evaluateReorderAlert(createdInventory, null, externalSession);
+
+      if (uploadRecord) {
+        await ImageUpload.updateOne(
+          { _id: uploadRecord._id },
+          { $set: { status: IMAGE_UPLOAD_STATUS.ATTACHED, inventoryId: createdInventory._id } },
+          { session: externalSession }
+        );
+      }
     } else {
       createdInventory = await executeWithTransactionOrRecovery(
         async (session) => {
           const [created] = await Inventory.create([inventoryInput], { session });
           await reorderAlertService.evaluateReorderAlert(created, null, session);
+          if (uploadRecord) {
+            await ImageUpload.updateOne(
+              { _id: uploadRecord._id },
+              { $set: { status: IMAGE_UPLOAD_STATUS.ATTACHED, inventoryId: created._id } },
+              { session }
+            );
+          }
           return created;
         },
         async () => {
           const created = await Inventory.create(inventoryInput);
           try {
             await reorderAlertService.evaluateReorderAlert(created);
+            if (uploadRecord) {
+              await ImageUpload.updateOne(
+                { _id: uploadRecord._id },
+                { $set: { status: IMAGE_UPLOAD_STATUS.ATTACHED, inventoryId: created._id } }
+              );
+            }
             return created;
-          } catch (alertError) {
+          } catch (recoveryError) {
             if (created && created._id && Inventory.deleteOne) {
               await Inventory.deleteOne({ _id: created._id });
             }
-            throw alertError;
+            throw recoveryError;
           }
         }
       );
     }
 
-    if (uploadRecord && createdInventory) {
-      await ImageUpload.updateOne(
-        { _id: uploadRecord._id },
-        { $set: { status: IMAGE_UPLOAD_STATUS.ATTACHED, inventoryId: createdInventory._id } }
-      ).catch(() => {});
-    }
-
     return createdInventory;
   } catch (createError) {
-    if (inventoryInput && inventoryInput.imagePublicId) {
-      await safeDeleteAssetWithTracking(inventoryInput.imagePublicId);
+    if (uploadRecord && uploadRecord.publicId) {
+      await safeDeleteAssetWithTracking(uploadRecord.publicId);
     }
     throw createError;
   }
@@ -320,7 +362,7 @@ async function updateInventory(inventoryId, inventoryInput = {}) {
       await ImageUpload.updateOne(
         { _id: newUploadRecord._id },
         { $set: { status: IMAGE_UPLOAD_STATUS.ATTACHED, inventoryId: updatedInventory._id } }
-      ).catch(() => {});
+      );
     }
 
     // Failure-safe replacement sequencing:
@@ -336,13 +378,9 @@ async function updateInventory(inventoryId, inventoryInput = {}) {
 
     return updatedInventory;
   } catch (updateError) {
-    // Immediate compensation if the update failed and a new image was passed
-    if (
-      isImageMutation &&
-      inventoryInput.imagePublicId &&
-      (!existingInventory || inventoryInput.imagePublicId !== existingInventory.imagePublicId)
-    ) {
-      await safeDeleteAssetWithTracking(inventoryInput.imagePublicId);
+    // Immediate compensation only if a verified new upload was claimed by this operation
+    if (newUploadRecord && newUploadRecord.publicId) {
+      await safeDeleteAssetWithTracking(newUploadRecord.publicId);
     }
     throw updateError;
   }

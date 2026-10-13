@@ -6,6 +6,7 @@ const {
   MAX_CLEANUP_ATTEMPTS,
 } = require('../../src/services/imageReconciliation.service');
 const { ImageUpload, IMAGE_UPLOAD_STATUS } = require('../../src/models/imageUpload.model');
+const Inventory = require('../../src/models/inventory.model');
 const { deleteImage } = require('../../src/services/imageUpload.service');
 const { connectDatabase, disconnectDatabase } = require('../../src/config/database');
 
@@ -33,6 +34,7 @@ describe('Image Reconciliation Service Unit Tests', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     await ImageUpload.deleteMany({});
+    await Inventory.deleteMany({});
   });
 
   describe('reconcileFailedCleanups', () => {
@@ -182,6 +184,39 @@ describe('Image Reconciliation Service Unit Tests', () => {
       const updatedRecord = await ImageUpload.findById(record._id);
       expect(updatedRecord.status).toBe(IMAGE_UPLOAD_STATUS.FAILED_CLEANUP);
       expect(updatedRecord.cleanupAttempts).toBe(1);
+    });
+
+    it('heals status to ATTACHED and does not delete if upload is referenced by an active Inventory item', async () => {
+      const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
+      const publicId = 'osms/inventory/active-referenced-image';
+
+      const record = await ImageUpload.create({
+        publicId,
+        imageUrl: 'https://res.cloudinary.com/test/image/upload/osms/inventory/active.jpg',
+        uploadedBy: new mongoose.Types.ObjectId(),
+        status: IMAGE_UPLOAD_STATUS.PENDING,
+        createdAt: threeHoursAgo,
+      });
+
+      const inventoryItem = await Inventory.create({
+        branchId: new mongoose.Types.ObjectId(),
+        itemName: 'Active Frame',
+        category: 'Eyeglasses',
+        brand: 'Gucci',
+        price: 25000,
+        quantity: 5,
+        imagePublicId: publicId,
+        imageUrl: record.imageUrl,
+      });
+
+      const result = await reconcileAbandonedUploads(2 * 60 * 60 * 1000);
+
+      expect(deleteImage).not.toHaveBeenCalled();
+      expect(result).toEqual({ attempted: 1, purged: 0, failed: 0 });
+
+      const updatedRecord = await ImageUpload.findById(record._id);
+      expect(updatedRecord.status).toBe(IMAGE_UPLOAD_STATUS.ATTACHED);
+      expect(updatedRecord.inventoryId.toString()).toBe(inventoryItem._id.toString());
     });
   });
 
