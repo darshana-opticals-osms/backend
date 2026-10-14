@@ -8,11 +8,14 @@ const {
   getReorderAlerts,
   getReorderThreshold,
   updateReorderThreshold,
+  uploadInventoryImage,
+  removeInventoryImage,
 } = require('../controllers/inventory.controller');
 
 const authenticate = require('../middleware/authenticate');
 const { authorizeRoles } = require('../middleware/authorizeRoles');
 const { validate } = require('../middleware/validate');
+const { uploadImageMiddleware } = require('../middleware/uploadImage');
 const {
   authorizeCreateInventoryBranch,
   authorizeBranchInventoryAccess,
@@ -24,9 +27,17 @@ const { ROLE_VALUES } = require('../constants/roles');
 const { ForbiddenError } = require('../errors/AppError');
 
 const REQUIRED_CREATE_FIELDS = ['branchId', 'itemName', 'category', 'brand', 'price', 'quantity'];
-const CREATE_FIELDS = new Set([...REQUIRED_CREATE_FIELDS, 'imageUrl']);
+const CREATE_FIELDS = new Set([...REQUIRED_CREATE_FIELDS, 'imageUrl', 'imagePublicId']);
 
-const UPDATE_FIELDS = new Set(['branchId', 'itemName', 'category', 'brand', 'price', 'imageUrl']);
+const UPDATE_FIELDS = new Set([
+  'branchId',
+  'itemName',
+  'category',
+  'brand',
+  'price',
+  'imageUrl',
+  'imagePublicId',
+]);
 
 const validateObjectBody = (body, errors) => {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -63,6 +74,44 @@ const validateNonNegativeNumber = (value, field, errors) => {
     errors.push({
       field,
       message: `${field} must be a non-negative number.`,
+    });
+  }
+};
+
+const validateImageUrl = (value, errors) => {
+  if (value === null || value === undefined || value === '') {
+    return;
+  }
+  if (typeof value !== 'string' || !value.trim()) {
+    errors.push({
+      field: 'imageUrl',
+      message: 'imageUrl must be a valid string.',
+    });
+    return;
+  }
+  if (!value.trim().startsWith('https://')) {
+    errors.push({
+      field: 'imageUrl',
+      message: 'imageUrl must be a secure HTTPS URL.',
+    });
+  }
+};
+
+const validateImagePublicId = (value, errors) => {
+  if (value === null || value === undefined || value === '') {
+    return;
+  }
+  if (typeof value !== 'string' || !value.trim()) {
+    errors.push({
+      field: 'imagePublicId',
+      message: 'imagePublicId must be a valid string.',
+    });
+    return;
+  }
+  if (!value.trim().startsWith('osms/inventory/')) {
+    errors.push({
+      field: 'imagePublicId',
+      message: 'imagePublicId must belong to the osms/inventory/ namespace.',
     });
   }
 };
@@ -116,12 +165,12 @@ const createInventoryValidation = (req) => {
     validateNonNegativeNumber(body.quantity, 'quantity', errors);
   }
 
-  if (
-    Object.prototype.hasOwnProperty.call(body, 'imageUrl') &&
-    body.imageUrl !== null &&
-    body.imageUrl !== undefined
-  ) {
-    validateStringField(body.imageUrl, 'imageUrl', errors);
+  if (Object.prototype.hasOwnProperty.call(body, 'imageUrl')) {
+    validateImageUrl(body.imageUrl, errors);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'imagePublicId')) {
+    validateImagePublicId(body.imagePublicId, errors);
   }
 
   return errors;
@@ -179,12 +228,12 @@ const updateInventoryValidation = (req) => {
     validateNonNegativeNumber(body.price, 'price', errors);
   }
 
-  if (
-    Object.prototype.hasOwnProperty.call(body, 'imageUrl') &&
-    body.imageUrl !== null &&
-    body.imageUrl !== undefined
-  ) {
-    validateStringField(body.imageUrl, 'imageUrl', errors);
+  if (Object.prototype.hasOwnProperty.call(body, 'imageUrl')) {
+    validateImageUrl(body.imageUrl, errors);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'imagePublicId')) {
+    validateImagePublicId(body.imagePublicId, errors);
   }
 
   return errors;
@@ -241,6 +290,12 @@ const quantityUpdateValidation = (req) => {
 
   validateNonNegativeNumber(body.quantity, 'quantity', errors);
 
+  return errors;
+};
+
+const inventoryIdParamValidation = (req) => {
+  const errors = [];
+  validateObjectId(req.params.id, 'inventoryId', errors);
   return errors;
 };
 
@@ -306,6 +361,66 @@ const reorderThresholdValidation = (req) => {
 };
 
 const router = express.Router();
+
+/**
+ * @openapi
+ * /inventory/images:
+ *   post:
+ *     summary: Upload an inventory item image to Cloudinary
+ *     description: Authenticated upload of an image file (JPEG, PNG, or WebP up to 5MB). Restricted to BRANCH_MANAGER.
+ *     tags:
+ *       - Inventory
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - image
+ *             properties:
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *                 description: Image file to upload (JPEG, PNG, or WebP, max 5MB).
+ *     responses:
+ *       200:
+ *         description: Image uploaded successfully to Cloudinary.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required:
+ *                 - success
+ *                 - data
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/InventoryImageUploadResponse'
+ *       400:
+ *         $ref: '#/components/responses/BadRequest'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       502:
+ *         description: Image upload provider unavailable.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post(
+  '/inventory/images',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER),
+  uploadImageMiddleware,
+  uploadInventoryImage
+);
 
 /**
  * @openapi
@@ -519,6 +634,53 @@ router.patch(
   validate(quantityUpdateValidation),
   authorizeInventoryItemBranch,
   updateInventoryItemQuantity
+);
+
+/**
+ * @openapi
+ * /inventory/{id}/image:
+ *   delete:
+ *     summary: Remove an inventory item image
+ *     description: Clears image metadata from an authorized inventory item and deletes the hosted Cloudinary asset. Restricted to BRANCH_MANAGER.
+ *     tags:
+ *       - Inventory
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: MongoDB inventory item identifier.
+ *     responses:
+ *       200:
+ *         description: Inventory image removed successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Inventory image removed successfully.
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ */
+router.delete(
+  '/inventory/:id/image',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER),
+  validate(inventoryIdParamValidation),
+  authorizeInventoryItemBranch,
+  removeInventoryImage
 );
 
 /**

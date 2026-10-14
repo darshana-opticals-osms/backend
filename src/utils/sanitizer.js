@@ -45,7 +45,32 @@ const sanitizeInput = (req, _res, next) => {
   next();
 };
 
+/**
+ * Sanitizes log messages to strip passwords, secrets, tokens, DB URIs, and credentials before logging (ADR-008).
+ *
+ * @param {string} message - Message to sanitize
+ * @returns {string} Sanitized string
+ */
+const sanitizeLogMessage = (message) => {
+  if (typeof message !== 'string') {
+    return '';
+  }
+
+  return message
+    .replace(/mongodb(?:\+srv)?:\/\/[^\s]+/gi, 'mongodb://[REDACTED]')
+    .replace(/\b[A-Za-z]:\\[^,;)}\r\n]*?\.[A-Za-z0-9]{1,12}(?=$|[\s,;)}])/g, '[PATH REDACTED]')
+    .replace(/(?<![:/])\/[^,;)}\r\n]*?\.[A-Za-z0-9]{1,12}(?=$|[\s,;)}])/g, '[PATH REDACTED]')
+    .replace(/\b[A-Za-z]:\\[^\s,;)}]+/g, '[PATH REDACTED]')
+    .replace(/(?<![:/])\/[^\s,;)}]+/g, '[PATH REDACTED]')
+    .replace(
+      /(password|passwd|pwd|secret|token|bearer|key|api_key|api_secret|authorization|auth|passwordHash)=([^\s&,{}]+)/gi,
+      '$1=[REDACTED]'
+    )
+    .replace(/(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, '$1[REDACTED]');
+};
+
 module.exports = {
   sanitizeValue,
   sanitizeInput,
+  sanitizeLogMessage,
 };

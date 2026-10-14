@@ -96,4 +96,38 @@ describe('Branch and Inventory models (Unit tests)', () => {
 
     await expect(inventory.validate()).resolves.toBeUndefined();
   });
+
+  it('should support optional imageUrl and imagePublicId with null defaults (DDP-076 / AC12)', async () => {
+    const inventory = new Inventory({
+      branchId: validBranchId,
+      itemName: 'Frameless Oval',
+      category: 'Women',
+      brand: 'Ray-Ban',
+      price: 25000,
+      quantity: 10,
+    });
+
+    await expect(inventory.validate()).resolves.toBeUndefined();
+    expect(inventory.imageUrl).toBeNull();
+    expect(inventory.imagePublicId).toBeNull();
+  });
+
+  it('should persist trimmed imageUrl and imagePublicId when provided (DDP-076 / AC11, AC12)', async () => {
+    const inventory = new Inventory({
+      branchId: validBranchId,
+      itemName: 'Frameless Oval',
+      category: 'Women',
+      brand: 'Ray-Ban',
+      price: 25000,
+      quantity: 10,
+      imageUrl: '  https://res.cloudinary.com/test/image/upload/v1/osms/inventory/sample.jpg  ',
+      imagePublicId: '  osms/inventory/sample  ',
+    });
+
+    await expect(inventory.validate()).resolves.toBeUndefined();
+    expect(inventory.imageUrl).toBe(
+      'https://res.cloudinary.com/test/image/upload/v1/osms/inventory/sample.jpg'
+    );
+    expect(inventory.imagePublicId).toBe('osms/inventory/sample');
+  });
 });
