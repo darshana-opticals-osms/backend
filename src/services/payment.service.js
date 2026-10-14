@@ -143,10 +143,12 @@ async function initiatePayment({ customerId, orderId, billingInput = {}, now = n
 
   try {
     await session.withTransaction(async () => {
-      const [orderDocument, customerDocument] = await Promise.all([
-        Order.findOne({ _id: orderId, customerId }).session(session),
-        Customer.findById(customerId).session(session),
-      ]);
+      const orderDocument = await Order.findOneAndUpdate(
+        { _id: orderId, customerId },
+        { $inc: { __v: 1 } },
+        { session, new: true }
+      );
+      const customerDocument = await Customer.findById(customerId).session(session);
       if (!orderDocument) throw new NotFoundError('Order not found.', null, 'ORDER_NOT_FOUND');
       if (!customerDocument) {
         throw new NotFoundError('Customer not found.', null, 'CUSTOMER_NOT_FOUND');
@@ -411,19 +413,17 @@ async function processVerifiedNotification(fields) {
           return;
         }
 
-        const [order, otherCompleted, otherReconciliation] = await Promise.all([
-          Order.findById(currentPayment.orderId).session(session),
-          Payment.exists({
-            _id: { $ne: currentPayment._id },
-            orderId: currentPayment.orderId,
-            status: PAYMENT_STATUS.COMPLETED,
-          }).session(session),
-          Payment.exists({
-            _id: { $ne: currentPayment._id },
-            orderId: currentPayment.orderId,
-            reconciliationRequired: true,
-          }).session(session),
-        ]);
+        const order = await Order.findById(currentPayment.orderId).session(session);
+        const otherCompleted = await Payment.exists({
+          _id: { $ne: currentPayment._id },
+          orderId: currentPayment.orderId,
+          status: PAYMENT_STATUS.COMPLETED,
+        }).session(session);
+        const otherReconciliation = await Payment.exists({
+          _id: { $ne: currentPayment._id },
+          orderId: currentPayment.orderId,
+          reconciliationRequired: true,
+        }).session(session);
         if (otherReconciliation) {
           result = await recordReconciliationEvidence(
             currentPayment,

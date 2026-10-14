@@ -1,0 +1,197 @@
+const mongoose = require('mongoose');
+const Order = require('../models/order.model');
+const OrderItem = require('../models/orderItem.model');
+const Inventory = require('../models/inventory.model');
+const Payment = require('../models/payment.model');
+const Customer = require('../models/customer.model');
+const { PAYMENT_STATUS } = require('../constants/payment');
+const { ORDER_STATUS_VALUES } = require('../constants/orderStatuses');
+const { ConflictError, ValidationError } = require('../errors/AppError');
+const { evaluateReorderAlert } = require('./reorderAlert.service');
+const { sendOrderCancellationNotification } = require('./notification.service');
+
+const DEFAULT_BATCH_SIZE = 100;
+
+async function notifyCancellation(order) {
+  try {
+    const customer = await Customer.findById(order.customerId).lean();
+    if (customer?.email) {
+      await sendOrderCancellationNotification({
+        customerEmail: customer.email,
+        customerName: customer.name,
+        orderId: order._id.toString(),
+        orderAmount: order.orderAmount,
+      });
+    }
+  } catch (error) {
+    console.warn(
+      `[OrderReservation] Non-blocking notification failure for order ${order._id}:`,
+      error.message
+    );
+  }
+}
+
+// Expiry and unpaid staff cancellation use the same Order write as verified IPNs.
+// A competing transaction must retry and re-read all payment and reservation state.
+async function cancelUnpaidReservation({
+  orderId,
+  now = new Date(),
+  staffUserId = null,
+  expiry = false,
+}) {
+  const session = await mongoose.startSession();
+  let result;
+  try {
+    await session.withTransaction(async () => {
+      result = { action: 'skipped', reason: 'ORDER_NOT_ELIGIBLE' };
+      const order = await Order.findOneAndUpdate(
+        { _id: orderId, status: ORDER_STATUS_VALUES.ORDER_CREATED, inventoryRestoredAt: null },
+        { $inc: { __v: 1 } },
+        { session, new: true }
+      );
+      if (!order) return;
+      if (expiry && (!order.reservationExpiresAt || order.reservationExpiresAt > now)) return;
+
+      const payments = await Payment.find({ orderId: order._id }).session(session);
+      if (payments.some((payment) => payment.reconciliationRequired)) {
+        result = { action: 'held', reason: 'PAYMENT_RECONCILIATION_REQUIRED' };
+        return;
+      }
+      if (payments.some((payment) => payment.status === PAYMENT_STATUS.COMPLETED)) {
+        result = { action: 'held', reason: 'ORDER_ALREADY_PAID' };
+        return;
+      }
+      // Local timeouts cannot establish a provider outcome. Preserve uncertain
+      // attempts and stock until manual resolution (approved Phase 4 hold policy).
+      if (
+        payments.some(
+          (payment) => ![PAYMENT_STATUS.FAILED, PAYMENT_STATUS.CANCELLED].includes(payment.status)
+        )
+      ) {
+        result = { action: 'held', reason: 'PAYMENT_OUTCOME_UNCERTAIN' };
+        return;
+      }
+
+      const items = await OrderItem.find({ orderId: order._id }).session(session);
+      if (
+        !items.length ||
+        items.some(
+          (item) => !item.inventoryId || !Number.isSafeInteger(item.quantity) || item.quantity < 1
+        )
+      ) {
+        result = { action: 'held', reason: 'INVENTORY_RESTORATION_UNVERIFIABLE' };
+        return;
+      }
+      const quantities = new Map();
+      for (const item of items) {
+        const id = item.inventoryId.toString();
+        const quantity = (quantities.get(id) || 0) + item.quantity;
+        if (!Number.isSafeInteger(quantity)) {
+          throw new ConflictError(
+            'Reservation quantities are invalid.',
+            null,
+            'INVALID_RESERVED_QUANTITY'
+          );
+        }
+        quantities.set(id, quantity);
+      }
+      const inventories = await Inventory.find({ _id: { $in: [...quantities.keys()] } }).session(
+        session
+      );
+      if (
+        inventories.length !== quantities.size ||
+        inventories.some(
+          (item) =>
+            !Number.isSafeInteger(item.quantity) ||
+            item.quantity < 0 ||
+            !Number.isSafeInteger(item.quantity + quantities.get(item._id.toString()))
+        )
+      ) {
+        result = { action: 'held', reason: 'INVENTORY_RESTORATION_UNVERIFIABLE' };
+        return;
+      }
+      for (const inventory of inventories) {
+        const restored = await Inventory.findOneAndUpdate(
+          { _id: inventory._id },
+          { $inc: { quantity: quantities.get(inventory._id.toString()) } },
+          { session, new: true, runValidators: true }
+        );
+        if (!restored) throw new ConflictError('Inventory changed during restoration.');
+        await evaluateReorderAlert(restored, null, session);
+      }
+      const updatedOrder = await Order.findOneAndUpdate(
+        { _id: order._id, status: ORDER_STATUS_VALUES.ORDER_CREATED, inventoryRestoredAt: null },
+        {
+          $set: {
+            status: ORDER_STATUS_VALUES.CANCELLED,
+            statusUpdatedAt: now,
+            inventoryRestoredAt: now,
+          },
+          $push: {
+            statusHistory: {
+              status: ORDER_STATUS_VALUES.CANCELLED,
+              changedAt: now,
+              changedBy: staffUserId,
+              source: expiry ? 'RESERVATION_EXPIRY' : 'USER',
+            },
+          },
+        },
+        { session, new: true, runValidators: true }
+      );
+      if (!updatedOrder) throw new ConflictError('Order changed during restoration.');
+      result = { action: 'cancelled', order: updatedOrder };
+    });
+  } finally {
+    await session.endSession();
+  }
+  if (result.action === 'cancelled') await notifyCancellation(result.order);
+  return result;
+}
+
+async function sweepExpiredReservations({
+  now = new Date(),
+  limit = DEFAULT_BATCH_SIZE,
+  afterId = null,
+} = {}) {
+  if (
+    !(now instanceof Date) ||
+    !Number.isFinite(now.getTime()) ||
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > DEFAULT_BATCH_SIZE ||
+    (afterId && !mongoose.isValidObjectId(afterId))
+  ) {
+    throw new ValidationError('Invalid reservation sweep parameters.');
+  }
+  const filter = {
+    status: ORDER_STATUS_VALUES.ORDER_CREATED,
+    reservationExpiresAt: { $ne: null, $lte: now },
+    inventoryRestoredAt: null,
+  };
+  if (afterId) filter._id = { $gt: afterId };
+  const candidates = await Order.find(filter).sort({ _id: 1 }).limit(limit).select('_id').lean();
+  const result = {
+    examined: candidates.length,
+    cancelled: 0,
+    held: [],
+    failed: [],
+    nextCursor: null,
+  };
+  for (const candidate of candidates) {
+    try {
+      const outcome = await cancelUnpaidReservation({ orderId: candidate._id, now, expiry: true });
+      if (outcome.action === 'cancelled') result.cancelled += 1;
+      if (outcome.action === 'held')
+        result.held.push({ orderId: candidate._id.toString(), reason: outcome.reason });
+    } catch (error) {
+      result.failed.push({
+        orderId: candidate._id.toString(),
+        code: error.code || 'RESERVATION_TRANSACTION_FAILED',
+      });
+    }
+  }
+  if (candidates.length === limit) result.nextCursor = candidates.at(-1)._id.toString();
+  return result;
+}
+
+module.exports = { DEFAULT_BATCH_SIZE, cancelUnpaidReservation, sweepExpiredReservations };

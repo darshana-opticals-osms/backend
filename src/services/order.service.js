@@ -14,6 +14,7 @@ const {
   isTerminalStatus,
 } = require('../constants/orderStatuses');
 const { sendOrderCancellationNotification } = require('./notification.service');
+const { cancelUnpaidReservation } = require('./orderReservation.service');
 const { NotFoundError, ValidationError } = require('../errors/AppError');
 
 const ORDER_NOT_FOUND = 'ORDER_NOT_FOUND';
@@ -319,6 +320,22 @@ async function updateOrderStatus(orderId, requestedStatus, staffUserId) {
 
   const previousStatus = order.status;
   const now = new Date();
+
+  if (
+    previousStatus === ORDER_STATUS_VALUES.ORDER_CREATED &&
+    trimmedStatus === ORDER_STATUS_VALUES.CANCELLED
+  ) {
+    const outcome = await cancelUnpaidReservation({ orderId, now, staffUserId });
+    if (outcome.action !== 'cancelled') {
+      throw new ValidationError(
+        'Cancellation transition is unsafe or the Order changed concurrently.',
+        null,
+        outcome.reason || 'CONCURRENT_STATUS_UPDATE'
+      );
+    }
+    const items = await OrderItem.find({ orderId: outcome.order._id }).lean();
+    return shapeOrderDetail(outcome.order, items, { isStaff: true });
+  }
 
   // Atomic conditional update to protect against concurrent updates (Comment 1)
   const updatedOrder = await Order.findOneAndUpdate(

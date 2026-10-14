@@ -1,8 +1,8 @@
 const jwt = require('jsonwebtoken');
 const request = require('supertest');
 const mongoose = require('mongoose');
+const { MongoMemoryServer } = require('mongodb-memory-server');
 const { createApp } = require('../../src/app');
-const { connectDatabase, disconnectDatabase } = require('../../src/config/database');
 const Order = require('../../src/models/order.model');
 const OrderItem = require('../../src/models/orderItem.model');
 const Customer = require('../../src/models/customer.model');
@@ -29,6 +29,7 @@ const createCustomer = (email = 'ordercustomer@example.com') =>
 describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
   let app;
   let originalEnv;
+  let mongoServer;
 
   beforeAll(async () => {
     originalEnv = { ...process.env };
@@ -36,9 +37,17 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
     process.env.JWT_SECRET = JWT_SECRET;
     process.env.JWT_EXPIRES_IN = '1h';
     delete process.env.MONGODB_URI;
-    await connectDatabase();
+    mongoServer = await MongoMemoryServer.create({ instance: { replSet: 'rs0' } });
+    const uri = mongoServer.getUri();
+    await mongoose.connect(uri, { directConnection: true });
+    await mongoose.connection.db.admin().command({
+      replSetInitiate: { _id: 'rs0', members: [{ _id: 0, host: new URL(uri).host }] },
+    });
+    await mongoose.disconnect();
+    await mongoose.connect(`${uri}?replicaSet=rs0`, { serverSelectionTimeoutMS: 15000 });
+    await Payment.init();
     app = createApp();
-  });
+  }, 60000);
 
   beforeEach(async () => {
     await Promise.all([
@@ -50,7 +59,8 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
   });
 
   afterAll(async () => {
-    await disconnectDatabase();
+    await mongoose.disconnect();
+    if (mongoServer) await mongoServer.stop();
     process.env = originalEnv;
   });
 

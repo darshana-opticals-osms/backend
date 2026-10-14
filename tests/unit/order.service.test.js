@@ -647,7 +647,7 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
 
   describe('Cancellation Notification Integration (ADR-004 §17)', () => {
     it('dispatches cancellation email when transition is CANCELLED', async () => {
-      const order = makeMockOrderDoc(ORDER_STATUS_VALUES.ORDER_CREATED);
+      const order = makeMockOrderDoc(ORDER_STATUS_VALUES.PROCESSING);
       Order.findById.mockResolvedValue(order);
       Customer.findById.mockReturnValue({
         lean: jest.fn().mockResolvedValue({

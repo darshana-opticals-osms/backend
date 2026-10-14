@@ -93,6 +93,40 @@ Seed operations are strictly prohibited when `NODE_ENV=production`. Attempting t
   through deployment secrets; do not commit credentials.
 - In test mode, the application starts an in-memory MongoDB instance automatically when `MONGODB_URI` is not set.
 
+### Payment reservation expiry
+
+The server runs a reservation sweep on startup and once per minute, processing at most
+100 expired `ORDER_CREATED` Orders per run. The scheduler advances through bounded
+pages so held Orders do not prevent later reservations from being examined. The
+deadline remains the original checkout `reservationExpiresAt`; the sweep never
+extends it or creates a replacement payment window.
+
+Orders with no Payments, or only failed/cancelled attempts without unresolved
+reconciliation, can be cancelled and their exact reserved stock restored in one
+transaction. Unpaid staff cancellation uses the same restoration transaction.
+`inventoryRestoredAt` and the conditional Order transition prevent duplicate
+restoration. Payment initiation, IPNs and restoration coordinate through a write
+to the same Order document, requiring MongoDB replica-set or sharded-cluster support.
+Restored quantities also update existing reorder alerts transactionally.
+
+Approved Phase 4 conservative policy: pending/processing attempts and unresolved
+reconciliation hold the Order and stock for manual provider-outcome resolution.
+Local expiry does not assert that PayHere cancelled a transaction. Completed or
+refunded Payments also prevent automatic inventory release. No Payment or verified
+event history is rewritten by expiry.
+
+Missing OrderItem inventory references, deleted Inventory, invalid stock quantities,
+or empty item lists block the entire restoration and are reported by the scheduler
+using Order IDs and reason codes. Legacy Orders without an original reservation
+deadline are excluded from automatic expiry; their deadline or Inventory mapping
+must not be guessed. Staff cancellation of an unverifiable unpaid reservation is
+also rejected. These holds require manual review; Phase 4 adds no reconciliation API.
+
+Cancellation appends audit history and sends the existing shop-contact/refund-guidance
+notification after commit. SMTP failure is logged without undoing cancellation.
+As with existing cancellation notifications, delivery is best effort; this phase
+does not add a durable notification outbox or automatic email retries.
+
 ## Production-style start
 
 npm start
