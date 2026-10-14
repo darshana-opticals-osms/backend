@@ -16,6 +16,7 @@ const INSUFFICIENT_STOCK = 'INSUFFICIENT_STOCK';
 const INVALID_INVENTORY_PRICE = 'INVALID_INVENTORY_PRICE';
 const INVALID_INVENTORY_STOCK = 'INVALID_INVENTORY_STOCK';
 const CHECKOUT_CONFLICT = 'CHECKOUT_CONFLICT';
+const RESERVATION_WINDOW_MS = 30 * 60 * 1000;
 
 function validateCartItems(items) {
   if (!Array.isArray(items) || items.length === 0) {
@@ -94,6 +95,7 @@ function buildOrderItems(cartItems, inventoryById) {
     }
 
     return {
+      inventoryId: inventory._id,
       itemName: inventory.itemName,
       price: unitPriceCents / 100,
       quantity: cartItem.quantity,
@@ -161,6 +163,7 @@ async function checkoutCustomer(customerId) {
       const inventoryById = new Map(inventories.map((item) => [item._id.toString(), item]));
       const { orderItems, orderAmount } = buildOrderItems(cart.items, inventoryById);
       const now = new Date();
+      const reservationExpiresAt = new Date(now.getTime() + RESERVATION_WINDOW_MS);
       const status = ORDER_STATUS_VALUES.ORDER_CREATED;
 
       const [order] = await Order.create(
@@ -172,6 +175,7 @@ async function checkoutCustomer(customerId) {
             status,
             statusUpdatedAt: now,
             statusHistory: [{ status, changedAt: now, changedBy: customer._id }],
+            reservationExpiresAt,
           },
         ],
         { session }
@@ -208,4 +212,5 @@ module.exports = {
   toCents,
   buildOrderItems,
   decrementInventoryStock,
+  RESERVATION_WINDOW_MS,
 };

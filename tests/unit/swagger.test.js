@@ -34,6 +34,9 @@ describe('Swagger documentation integrity', () => {
     'GET /orders',
     'GET /orders/{id}',
     'PATCH /orders/{id}/status',
+    'POST /payments/initiate',
+    'POST /payments/notify',
+    'GET /orders/{orderId}/payment-status',
     'GET /appointments/providers',
     'GET /doctor-sessions/available',
     'POST /doctor-sessions',
@@ -79,7 +82,14 @@ describe('Swagger documentation integrity', () => {
   });
 
   it('should mark public routes without bearerAuth and protected routes with bearerAuth', () => {
-    const publicPaths = ['/health', '/auth/register', '/auth/login', '/products', '/products/{id}'];
+    const publicPaths = [
+      '/health',
+      '/auth/register',
+      '/auth/login',
+      '/products',
+      '/products/{id}',
+      '/payments/notify',
+    ];
     const protectedPaths = [
       '/profile/me',
       '/admin/staff',
@@ -105,6 +115,8 @@ describe('Swagger documentation integrity', () => {
       '/orders',
       '/orders/{id}',
       '/orders/{id}/status',
+      '/payments/initiate',
+      '/orders/{orderId}/payment-status',
       '/appointments/providers',
       '/doctor-sessions/available',
       '/doctor-sessions',

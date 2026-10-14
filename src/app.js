@@ -19,6 +19,7 @@ const cartRoutes = require('./routes/cart.routes');
 const checkoutRoutes = require('./routes/checkout.routes');
 const orderRoutes = require('./routes/order.routes');
 const appointmentRoutes = require('./routes/appointment.routes');
+const { paymentRouter, paymentNotificationRouter } = require('./routes/payment.routes');
 const captureCheckoutRequest = require('./middleware/captureCheckoutRequest');
 const { rejectUnsafeAppointmentInput } = require('./middleware/rejectUnsafeAppointmentInput');
 const notFound = require('./middleware/notFound');
@@ -36,6 +37,14 @@ function createApp() {
 
   // AC2: CORS — allow only configured frontend origins
   app.use(cors(CORS_CONFIG));
+
+  // PayHere signs exact form values. Handle the callback before middleware
+  // that parses JSON or mutates string input.
+  app.use(
+    '/api/payments/notify',
+    express.urlencoded({ extended: false, limit: REQUEST_BODY_LIMIT, parameterLimit: 20 }),
+    paymentNotificationRouter
+  );
 
   // AC7: Reject oversized request bodies before application processing
   app.use(express.json({ limit: REQUEST_BODY_LIMIT }));
@@ -70,6 +79,7 @@ function createApp() {
   app.use('/api', cartRoutes);
   app.use('/api', checkoutRoutes);
   app.use('/api', orderRoutes);
+  app.use('/api', paymentRouter);
   app.use('/api', appointmentRoutes);
 
   // Catch-all route handler for non-existent endpoints (404)

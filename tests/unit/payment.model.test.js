@@ -48,6 +48,25 @@ describe('Payment model (Unit tests)', () => {
 
     // Assert
     expect(payment.providerTransactionId).toBeNull();
+    expect(payment.currency).toBe('LKR');
+    expect(payment.provider).toBe('payhere');
+  });
+
+  it('defines partial unique indexes for provider and per-order idempotency', () => {
+    const indexes = Payment.schema.indexes();
+    expect(indexes).toEqual(
+      expect.arrayContaining([
+        expect.arrayContaining([{ providerOrderId: 1 }, expect.objectContaining({ unique: true })]),
+        expect.arrayContaining([
+          { orderId: 1 },
+          expect.objectContaining({ name: 'one_active_payment_per_order', unique: true }),
+        ]),
+        expect.arrayContaining([
+          { orderId: 1 },
+          expect.objectContaining({ name: 'one_completed_payment_per_order', unique: true }),
+        ]),
+      ])
+    );
   });
 
   it('should accept a providerTransactionId when provided (AC6)', async () => {

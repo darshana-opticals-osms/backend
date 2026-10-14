@@ -150,6 +150,15 @@ describe('Secure Checkout API', () => {
         changedBy: customer._id,
       },
     ]);
+    expect(persistedOrder.reservationExpiresAt.getTime()).toBe(
+      persistedOrder.orderDate.getTime() + 30 * 60 * 1000
+    );
+    const persistedItems = await OrderItem.find({ orderId: persistedOrder._id })
+      .sort({ itemName: 1 })
+      .lean();
+    expect(persistedItems.map((item) => item.inventoryId.toString()).sort()).toEqual(
+      [frame._id.toString(), glasses._id.toString()].sort()
+    );
     expect((await Inventory.findById(frame._id)).quantity).toBe(5);
     expect((await Inventory.findById(glasses._id)).quantity).toBe(3);
     expect(await Cart.countDocuments({ customerId: customer._id })).toBe(0);

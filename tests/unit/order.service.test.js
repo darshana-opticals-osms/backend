@@ -45,6 +45,9 @@ jest.mock('../../src/models/orderItem.model', () => ({
 jest.mock('../../src/models/customer.model', () => ({
   findById: jest.fn(),
 }));
+jest.mock('../../src/models/payment.model', () => ({
+  exists: jest.fn(),
+}));
 jest.mock('../../src/services/notification.service', () => ({
   sendOrderCancellationNotification: jest.fn().mockResolvedValue({ delivered: true }),
 }));
@@ -52,6 +55,7 @@ jest.mock('../../src/services/notification.service', () => ({
 const Order = require('../../src/models/order.model');
 const OrderItem = require('../../src/models/orderItem.model');
 const Customer = require('../../src/models/customer.model');
+const Payment = require('../../src/models/payment.model');
 const { sendOrderCancellationNotification } = require('../../src/services/notification.service');
 
 // ─── Test Fixtures ─────────────────────────────────────────────────────────────
@@ -216,6 +220,7 @@ describe('shapeOrderSummary()', () => {
 describe('getCustomerOrders()', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    Payment.exists.mockResolvedValue({ _id: new mongoose.Types.ObjectId() });
   });
 
   it('returns shaped orders for the authenticated customer (AC1)', async () => {
@@ -544,6 +549,7 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
         {
           _id: ORDER_ID_STR,
           status: ORDER_STATUS_VALUES.ORDER_CREATED,
+          statusUpdatedAt: now,
         },
         expect.objectContaining({
           $set: {
@@ -631,6 +637,7 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
         {
           _id: ORDER_ID_STR,
           status: ORDER_STATUS_VALUES.ORDER_CREATED,
+          statusUpdatedAt: now,
         },
         expect.any(Object),
         { new: true, runValidators: true }

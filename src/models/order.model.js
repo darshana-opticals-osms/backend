@@ -14,7 +14,17 @@ const orderStatusHistorySchema = new mongoose.Schema(
     },
     changedBy: {
       type: mongoose.Schema.Types.ObjectId,
-      required: true,
+      required() {
+        return this.source !== 'PAYMENT_SYSTEM';
+      },
+    },
+    source: {
+      type: String,
+      enum: ['USER', 'PAYMENT_SYSTEM'],
+    },
+    paymentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Payment',
     },
   },
   { _id: false }
@@ -50,6 +60,16 @@ const orderSchema = new mongoose.Schema(
     statusHistory: {
       type: [orderStatusHistorySchema],
       default: [],
+    },
+    reservationExpiresAt: {
+      type: Date,
+      default: null,
+      immutable: true,
+      index: true,
+    },
+    inventoryRestoredAt: {
+      type: Date,
+      default: null,
     },
   },
   {

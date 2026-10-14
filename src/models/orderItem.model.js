@@ -2,6 +2,14 @@ const mongoose = require('mongoose');
 
 const orderItemSchema = new mongoose.Schema(
   {
+    // Optional for backwards compatibility. Every new checkout persists this
+    // exact reference so later restoration never guesses by item name.
+    inventoryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Inventory',
+      default: null,
+    },
+
     orderId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Order',

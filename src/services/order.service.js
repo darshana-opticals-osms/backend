@@ -2,6 +2,8 @@ const mongoose = require('mongoose');
 const Order = require('../models/order.model');
 const OrderItem = require('../models/orderItem.model');
 const Customer = require('../models/customer.model');
+const Payment = require('../models/payment.model');
+const { PAYMENT_STATUS } = require('../constants/payment');
 const { ROLE_VALUES } = require('../constants/roles');
 const {
   ORDER_STATUSES,
@@ -297,6 +299,24 @@ async function updateOrderStatus(orderId, requestedStatus, staffUserId) {
     );
   }
 
+  // ADR-011 makes the first online-fulfillment transition payment-controlled.
+  if (
+    order.status === ORDER_STATUS_VALUES.ORDER_CREATED &&
+    trimmedStatus === ORDER_STATUS_VALUES.PROCESSING
+  ) {
+    const verifiedPayment = await Payment.exists({
+      orderId: order._id,
+      status: PAYMENT_STATUS.COMPLETED,
+    });
+    if (!verifiedPayment) {
+      throw new ValidationError(
+        'Order cannot enter processing before verified payment.',
+        [{ field: 'status', message: 'A verified completed Payment is required.' }],
+        'PAYMENT_REQUIRED'
+      );
+    }
+  }
+
   const previousStatus = order.status;
   const now = new Date();
 
@@ -305,6 +325,7 @@ async function updateOrderStatus(orderId, requestedStatus, staffUserId) {
     {
       _id: orderId,
       status: previousStatus,
+      statusUpdatedAt: order.statusUpdatedAt,
     },
     {
       $set: {

@@ -1033,6 +1033,17 @@ const options = {
         },
       },
       responses: {
+        BadRequest: {
+          description:
+            'The request is malformed or does not match the expected provider transaction.',
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/ErrorResponse',
+              },
+            },
+          },
+        },
         Unauthorized: {
           description: 'Authentication required or invalid token.',
           content: {
