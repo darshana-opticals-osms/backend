@@ -99,6 +99,9 @@ const errorHandler = (err, req, res, next) => {
     }
   }
 
+  if (error.errorCode === 'CHATBOT_SESSION_EXHAUSTED' && error.retryAfter) {
+    res.set('Retry-After', String(error.retryAfter));
+  }
   return res.status(statusCode).json(response);
 };
 
