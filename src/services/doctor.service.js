@@ -37,9 +37,7 @@ const createDoctor = async ({ name, specialization }) => {
  * @returns {Promise<Array<{ id: string, name: string, specialization: string }>>}
  */
 const listDoctors = async () => {
-  const doctors = await Doctor.find()
-    .sort({ name: 1, _id: 1 })
-    .lean();
+  const doctors = await Doctor.find().sort({ name: 1, _id: 1 }).lean();
 
   return doctors.map(toDoctorDto);
 };

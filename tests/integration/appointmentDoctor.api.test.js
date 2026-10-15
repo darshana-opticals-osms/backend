@@ -144,7 +144,11 @@ describe('Appointment Provider Integration (AC19 - AC22, AC27, AC28)', () => {
       Appointment.deleteMany({}),
     ]);
     if (mongoose.connection.readyState !== 0) await mongoose.disconnect();
-    if (mongoServer) await mongoServer.stop();
+    try {
+      if (mongoServer) await mongoServer.stop();
+    } catch {
+      void 0;
+    }
     process.env = originalEnv;
   }, 30000);
 
@@ -227,7 +231,10 @@ describe('Appointment Provider Integration (AC19 - AC22, AC27, AC28)', () => {
 
       const staffListRes = await request(app)
         .get('/api/appointments')
-        .set('Authorization', `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`);
+        .set(
+          'Authorization',
+          `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`
+        );
 
       expect(staffListRes.status).toBe(200);
       expect(staffListRes.body.data[0].doctorId).toBe(doctorA._id.toString());
@@ -236,7 +243,10 @@ describe('Appointment Provider Integration (AC19 - AC22, AC27, AC28)', () => {
 
       const staffDetailRes = await request(app)
         .get(`/api/appointments/${appointmentId}`)
-        .set('Authorization', `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`);
+        .set(
+          'Authorization',
+          `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`
+        );
 
       expect(staffDetailRes.status).toBe(200);
       expect(staffDetailRes.body.data.doctorId).toBe(doctorA._id.toString());
@@ -258,7 +268,10 @@ describe('Appointment Provider Integration (AC19 - AC22, AC27, AC28)', () => {
       // 2. Branch Assistant reassigns appointment to Session B (Doctor B)
       const reassignRes = await request(app)
         .patch(`/api/appointments/${appointmentId}/reassign`)
-        .set('Authorization', `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`)
+        .set(
+          'Authorization',
+          `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`
+        )
         .send({ sessionId: sessionB._id.toString() });
 
       expect(reassignRes.status).toBe(200);

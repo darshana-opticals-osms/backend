@@ -262,7 +262,9 @@ describe('Doctor Directory API (Integration tests)', () => {
 
       // Verify deterministic ordering: name asc, _id asc (AC12)
       // Both Alice Browns sort first by name; then tie broken by _id asc
-      const aliceIdsInDb = [docA2, docA1].sort((a, b) => (a._id < b._id ? -1 : 1)).map((d) => d._id.toString());
+      const aliceIdsInDb = [docA2, docA1]
+        .sort((a, b) => (a._id < b._id ? -1 : 1))
+        .map((d) => d._id.toString());
       expect(data[0].id).toBe(aliceIdsInDb[0]);
       expect(data[1].id).toBe(aliceIdsInDb[1]);
       expect(data[2].name).toBe('Dr. Bob Green');

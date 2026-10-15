@@ -106,7 +106,11 @@ describe('DoctorSession Provider Integration (AC14 - AC18, AC25, AC26)', () => {
       Appointment.deleteMany({}),
     ]);
     if (mongoose.connection.readyState !== 0) await mongoose.disconnect();
-    if (mongoServer) await mongoServer.stop();
+    try {
+      if (mongoServer) await mongoServer.stop();
+    } catch {
+      void 0;
+    }
     process.env = originalEnv;
   }, 30000);
 
@@ -122,7 +126,10 @@ describe('DoctorSession Provider Integration (AC14 - AC18, AC25, AC26)', () => {
 
       const response = await request(app)
         .post('/api/doctor-sessions')
-        .set('Authorization', `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`)
+        .set(
+          'Authorization',
+          `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`
+        )
         .send(payload);
 
       expect(response.status).toBe(201);
@@ -159,7 +166,10 @@ describe('DoctorSession Provider Integration (AC14 - AC18, AC25, AC26)', () => {
 
       const response = await request(app)
         .post('/api/doctor-sessions')
-        .set('Authorization', `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`)
+        .set(
+          'Authorization',
+          `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`
+        )
         .send(payload);
 
       expect(response.status).toBe(404);
@@ -178,7 +188,10 @@ describe('DoctorSession Provider Integration (AC14 - AC18, AC25, AC26)', () => {
 
       const response = await request(app)
         .post('/api/doctor-sessions')
-        .set('Authorization', `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`)
+        .set(
+          'Authorization',
+          `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`
+        )
         .send(payload);
 
       expect(response.status).toBe(422);
@@ -205,7 +218,10 @@ describe('DoctorSession Provider Integration (AC14 - AC18, AC25, AC26)', () => {
 
       const response = await request(app)
         .post('/api/doctor-sessions')
-        .set('Authorization', `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`)
+        .set(
+          'Authorization',
+          `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`
+        )
         .send(payload);
 
       expect(response.status).toBe(404);
@@ -233,7 +249,10 @@ describe('DoctorSession Provider Integration (AC14 - AC18, AC25, AC26)', () => {
 
       const response = await request(app)
         .post('/api/doctor-sessions')
-        .set('Authorization', `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`)
+        .set(
+          'Authorization',
+          `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`
+        )
         .send(payload);
 
       expect(response.status).toBe(409);
@@ -261,7 +280,10 @@ describe('DoctorSession Provider Integration (AC14 - AC18, AC25, AC26)', () => {
 
       const response = await request(app)
         .post('/api/doctor-sessions')
-        .set('Authorization', `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`)
+        .set(
+          'Authorization',
+          `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`
+        )
         .send(payload);
 
       expect(response.status).toBe(201);
@@ -282,7 +304,10 @@ describe('DoctorSession Provider Integration (AC14 - AC18, AC25, AC26)', () => {
 
       const response = await request(app)
         .patch(`/api/doctor-sessions/${session._id}`)
-        .set('Authorization', `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`)
+        .set(
+          'Authorization',
+          `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`
+        )
         .send({ doctorId: doctorB._id.toString() });
 
       expect(response.status).toBe(200);
@@ -311,7 +336,10 @@ describe('DoctorSession Provider Integration (AC14 - AC18, AC25, AC26)', () => {
 
       const response = await request(app)
         .get('/api/doctor-sessions/available')
-        .set('Authorization', `Bearer ${createToken(ROLE_VALUES.CUSTOMER, '507f1f77bcf86cd799439011')}`);
+        .set(
+          'Authorization',
+          `Bearer ${createToken(ROLE_VALUES.CUSTOMER, '507f1f77bcf86cd799439011')}`
+        );
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);

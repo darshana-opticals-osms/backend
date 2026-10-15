@@ -137,7 +137,7 @@ router.patch(
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       return [{ field: 'body', message: 'Session update payload must be an object.' }];
     }
-    const allowed = new Set(['doctorId', 'branchId', 'startAt', 'endAt', 'capacity']);
+    const allowed = new Set(['doctorId', 'staffId', 'branchId', 'startAt', 'endAt', 'capacity']);
     for (const key of Object.keys(body)) {
       if (!allowed.has(key)) {
         errors.push({ field: key, message: `${key} is not an approved doctor session field.` });
@@ -148,6 +148,9 @@ router.patch(
     }
     if (body.doctorId !== undefined && !isObjectIdString(body.doctorId)) {
       errors.push({ field: 'doctorId', message: 'doctorId must be a valid MongoDB ObjectId.' });
+    }
+    if (body.staffId !== undefined && !isObjectIdString(body.staffId)) {
+      errors.push({ field: 'staffId', message: 'staffId must be a valid MongoDB ObjectId.' });
     }
     if (body.branchId !== undefined && !isObjectIdString(body.branchId)) {
       errors.push({ field: 'branchId', message: 'branchId must be a valid MongoDB ObjectId.' });

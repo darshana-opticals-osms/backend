@@ -6,6 +6,7 @@ const { createApp } = require('../../src/app');
 const Branch = require('../../src/models/branch.model');
 const Customer = require('../../src/models/customer.model');
 const Staff = require('../../src/models/staff.model');
+const Doctor = require('../../src/models/doctor.model');
 const Appointment = require('../../src/models/appointment.model');
 const DoctorSession = require('../../src/models/doctorSession.model');
 const { ROLE_VALUES } = require('../../src/constants/roles');
@@ -19,6 +20,7 @@ describe('Appointment scheduling API', () => {
   let originalEnv;
   let gampahaBranch;
   let optometrist;
+  let doctor;
   let branchAssistant;
   let customer;
 
@@ -43,6 +45,7 @@ describe('Appointment scheduling API', () => {
       Branch.init(),
       Customer.init(),
       Staff.init(),
+      Doctor.init(),
       Appointment.init(),
       DoctorSession.init(),
     ]);
@@ -56,6 +59,7 @@ describe('Appointment scheduling API', () => {
       Branch.deleteMany({}),
       Customer.deleteMany({}),
       Staff.deleteMany({}),
+      Doctor.deleteMany({}),
       Appointment.deleteMany({}),
       DoctorSession.deleteMany({}),
     ]);
@@ -64,6 +68,11 @@ describe('Appointment scheduling API', () => {
       codeName: 'GAMPAHA_CENTRAL',
       address: '12 Main Street, Gampaha',
       contactNumber: '+94 33 222 0000',
+    });
+
+    doctor = await Doctor.create({
+      name: 'Dr. Gampaha',
+      specialization: 'Optometrist',
     });
 
     const passwordHash = await bcrypt.hash('Password123!', 12);
@@ -102,11 +111,16 @@ describe('Appointment scheduling API', () => {
       Branch.deleteMany({}),
       Customer.deleteMany({}),
       Staff.deleteMany({}),
+      Doctor.deleteMany({}),
       Appointment.deleteMany({}),
       DoctorSession.deleteMany({}),
     ]);
     if (mongoose.connection.readyState !== 0) await mongoose.disconnect();
-    if (mongoServer) await mongoServer.stop();
+    try {
+      if (mongoServer) await mongoServer.stop();
+    } catch {
+      void 0;
+    }
     process.env = originalEnv;
   }, 30000);
 
@@ -165,12 +179,12 @@ describe('Appointment scheduling API', () => {
       .set('Authorization', `Bearer ${branchAssistantToken}`);
     expect(branchAssistantProvidersResponse.status).toBe(200);
     const discoveredProvider = branchAssistantProvidersResponse.body.data.find(
-      (provider) => provider.id === optometrist._id.toString()
+      (provider) => provider.id === doctor._id.toString()
     );
     expect(discoveredProvider).toMatchObject({
-      id: optometrist._id.toString(),
-      branchId: gampahaBranch._id.toString(),
-      role: ROLE_VALUES.OPTOMETRIST,
+      id: doctor._id.toString(),
+      name: 'Dr. Gampaha',
+      specialization: 'Optometrist',
     });
     expect(discoveredProvider).not.toHaveProperty('email');
     expect(discoveredProvider).not.toHaveProperty('phone');
@@ -179,8 +193,8 @@ describe('Appointment scheduling API', () => {
       .post('/api/doctor-sessions')
       .set('Authorization', `Bearer ${branchAssistantToken}`)
       .send({
-        staffId: discoveredProvider.id,
-        branchId: discoveredProvider.branchId,
+        doctorId: discoveredProvider.id,
+        branchId: gampahaBranch._id.toString(),
         startAt: sessionStart.toISOString(),
         endAt: sessionEnd.toISOString(),
         capacity: 3,
@@ -203,14 +217,14 @@ describe('Appointment scheduling API', () => {
     expect(providersResponse.body.data).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: optometrist._id.toString(),
+          id: doctor._id.toString(),
           name: 'Dr. Gampaha',
-          role: ROLE_VALUES.OPTOMETRIST,
+          specialization: 'Optometrist',
         }),
       ])
     );
     const publicProvider = providersResponse.body.data.find(
-      (provider) => provider.id === optometrist._id.toString()
+      (provider) => provider.id === doctor._id.toString()
     );
     expect(publicProvider).not.toHaveProperty('email');
     expect(publicProvider).not.toHaveProperty('phone');
@@ -530,7 +544,7 @@ describe('Appointment scheduling API', () => {
     const token = tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT);
     const startAt = new Date(Date.now() + 4 * 24 * 60 * 60 * 1000);
     const payload = {
-      staffId: optometrist._id.toString(),
+      doctorId: doctor._id.toString(),
       branchId: gampahaBranch._id.toString(),
       startAt: startAt.toISOString(),
       endAt: new Date(startAt.getTime() + 60 * 60 * 1000).toISOString(),
@@ -543,9 +557,9 @@ describe('Appointment scheduling API', () => {
     expect((await createSessionRequest({ ...payload, unexpected: true })).status).toBe(422);
     expect((await createSessionRequest({ ...payload, $where: 'true' })).status).toBe(422);
     expect((await createSessionRequest({ ...payload, 'field.name': 'value' })).status).toBe(422);
-    expect((await createSessionRequest({ ...payload, staffId: 'bad-id' })).status).toBe(422);
-    for (const staffId of [123, {}, [], 'abcdefghijkl']) {
-      expect((await createSessionRequest({ ...payload, staffId })).status).toBe(422);
+    expect((await createSessionRequest({ ...payload, doctorId: 'bad-id' })).status).toBe(422);
+    for (const doctorId of [123, {}, [], 'abcdefghijkl']) {
+      expect((await createSessionRequest({ ...payload, doctorId })).status).toBe(422);
     }
     expect(await DoctorSession.countDocuments({})).toBe(0);
   });
@@ -971,8 +985,8 @@ describe('Appointment scheduling API', () => {
           .post('/api/doctor-sessions')
           .set('Authorization', `Bearer ${managerToken}`)
           .send({
-            staffId: optometrist._id,
-            branchId: gampahaBranch._id,
+            doctorId: doctor._id.toString(),
+            branchId: gampahaBranch._id.toString(),
             startAt: session.startAt.toISOString(),
             endAt: session.endAt.toISOString(),
             capacity: 1,
@@ -1058,7 +1072,7 @@ describe('Appointment scheduling API', () => {
           .post('/api/doctor-sessions')
           .set('Authorization', `Bearer ${token}`)
           .send({
-            staffId: optometrist._id.toString(),
+            doctorId: doctor._id.toString(),
             branchId: gampahaBranch._id.toString(),
             startAt: sessionStart.toISOString(),
             endAt: new Date(sessionStart.getTime() + 60 * 60 * 1000).toISOString(),
@@ -1181,7 +1195,7 @@ describe('Appointment scheduling API', () => {
         .post('/api/doctor-sessions')
         .set('Authorization', `Bearer ${branchAssistantToken}`)
         .send({
-          staffId: optometrist._id.toString(),
+          doctorId: doctor._id.toString(),
           branchId: gampahaBranch._id.toString(),
           startAt,
           endAt,
@@ -1256,7 +1270,7 @@ describe('Appointment scheduling API', () => {
           `Bearer ${tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT)}`
         )
         .send({
-          staffId: optometrist._id.toString(),
+          doctorId: doctor._id.toString(),
           branchId: gampahaBranch._id.toString(),
           startAt: startAt.toISOString(),
           endAt: new Date(startAt.getTime() + 60 * 60 * 1000).toISOString(),
@@ -1269,10 +1283,7 @@ describe('Appointment scheduling API', () => {
     ]);
 
     expect(responses.map((response) => response.status).sort()).toEqual([201, 409]);
-    expect(await DoctorSession.countDocuments({ staffId: optometrist._id })).toBe(1);
-    expect(
-      (await Staff.findById(optometrist._id).select('+schedulingVersion')).schedulingVersion
-    ).toBe(1);
+    expect(await DoctorSession.countDocuments({ doctorId: doctor._id })).toBe(1);
   });
 
   it('serializes simultaneous updates that would create overlapping optometrist sessions', async () => {

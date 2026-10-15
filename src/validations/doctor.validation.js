@@ -31,14 +31,24 @@ const createDoctorSchema = (req) => {
   }
 
   // Validate specialization (AC3)
-  if (body.specialization === undefined || body.specialization === null || body.specialization === '') {
+  if (
+    body.specialization === undefined ||
+    body.specialization === null ||
+    body.specialization === ''
+  ) {
     errors.push({ field: 'specialization', message: 'specialization is required' });
   } else if (typeof body.specialization !== 'string') {
     errors.push({ field: 'specialization', message: 'specialization must be of type string' });
   } else if (!body.specialization.trim()) {
-    errors.push({ field: 'specialization', message: 'specialization cannot be empty or whitespace only' });
+    errors.push({
+      field: 'specialization',
+      message: 'specialization cannot be empty or whitespace only',
+    });
   } else if (body.specialization.trim().length > 100) {
-    errors.push({ field: 'specialization', message: 'specialization must not exceed 100 characters' });
+    errors.push({
+      field: 'specialization',
+      message: 'specialization must not exceed 100 characters',
+    });
   }
 
   return errors;
