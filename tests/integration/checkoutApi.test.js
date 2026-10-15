@@ -12,6 +12,7 @@ const OrderItem = require('../../src/models/orderItem.model');
 const ReorderAlert = require('../../src/models/reorderAlert.model');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 const { REORDER_ALERT_STATUS } = require('../../src/constants/inventoryAlert.constants');
+const { deriveEligibleSpendForOrder } = require('../../src/services/loyaltyEligibility.service');
 
 const JWT_SECRET = 'checkout-api-test-secret';
 const PASSWORD_HASH = `$2b$12$${'a'.repeat(53)}`;
@@ -159,6 +160,15 @@ describe('Secure Checkout API', () => {
     expect(persistedItems.map((item) => item.inventoryId.toString()).sort()).toEqual(
       [frame._id.toString(), glasses._id.toString()].sort()
     );
+    for (const item of persistedItems) {
+      expect(item.classificationSnapshot).toEqual({
+        source: 'Inventory',
+        sourceInventoryId: item.inventoryId,
+        category: 'Frames',
+        loyaltyEligibility: 'UNKNOWN',
+      });
+    }
+    expect(response.body.data.items[0]).not.toHaveProperty('classificationSnapshot');
     expect((await Inventory.findById(frame._id)).quantity).toBe(5);
     expect((await Inventory.findById(glasses._id)).quantity).toBe(3);
     expect(await Cart.countDocuments({ customerId: customer._id })).toBe(0);
@@ -176,6 +186,232 @@ describe('Secure Checkout API', () => {
     expect(response.status).toBe(409);
     expect(await Order.countDocuments({})).toBe(0);
     expect(await Cart.countDocuments({})).toBe(0);
+  });
+
+  describe('Checkout-time classification context (not eligibility approval)', () => {
+    async function setup() {
+      const customer = await createCustomer(`${new mongoose.Types.ObjectId()}@example.com`);
+      const branch = await createBranch();
+      const inventory = await createInventory(branch._id, { price: 12.25 });
+      await createCart(customer._id, [{ inventoryId: inventory._id, quantity: 2 }]);
+      const checkout = () =>
+        request(app)
+          .post('/api/checkout')
+          .set('Authorization', `Bearer ${createToken({ userId: customer._id.toString() })}`)
+          .send({});
+      return { customer, inventory, checkout };
+    }
+    async function checkedOut() {
+      const fixture = await setup();
+      const response = await fixture.checkout();
+      expect(response.status).toBe(201);
+      const item = await OrderItem.findOne({ orderId: response.body.data.order.id });
+      return { ...fixture, item };
+    }
+    it('ignores forged classification fields in persisted Cart lines and copies only Inventory facts', async () => {
+      const fixture = await setup();
+      await Cart.collection.updateOne(
+        { customerId: fixture.customer._id },
+        {
+          $set: {
+            'items.0.classificationSnapshot': {
+              source: 'CLIENT',
+              category: 'FORGED',
+              loyaltyEligibility: 'ELIGIBLE',
+            },
+            'items.0.category': 'FORGED',
+            'items.0.loyaltyEligibility': 'ELIGIBLE',
+          },
+        }
+      );
+      const response = await fixture.checkout();
+      expect(response.status).toBe(201);
+      const item = await OrderItem.findOne({ orderId: response.body.data.order.id }).lean();
+      expect(item.classificationSnapshot).toEqual({
+        source: 'Inventory',
+        sourceInventoryId: fixture.inventory._id,
+        category: 'Frames',
+        loyaltyEligibility: 'UNKNOWN',
+      });
+      expect(item.inventoryId).toEqual(fixture.inventory._id);
+      expect(item.price).toBe(12.25);
+      expect(item.quantity).toBe(2);
+      expect(response.body.data.order.orderAmount).toBe(24.5);
+      expect((await Inventory.findById(fixture.inventory._id)).quantity).toBe(5);
+    });
+    it.each([
+      { classificationSnapshot: { category: 'Frames', loyaltyEligibility: 'ELIGIBLE' } },
+      { loyaltyEligibility: 'ELIGIBLE' },
+      { items: [{ category: 'Frames', loyaltyEligibility: 'ELIGIBLE' }] },
+      { $classificationSnapshot: { loyaltyEligibility: 'ELIGIBLE' } },
+    ])(
+      'rejects client classification payload %j with existing checkout validation',
+      async (body) => {
+        const { customer, inventory } = await setup();
+        const response = await request(app)
+          .post('/api/checkout')
+          .set('Authorization', `Bearer ${createToken({ userId: customer._id.toString() })}`)
+          .send(body);
+        expect(response.status).toBe(422);
+        expect(await Order.countDocuments()).toBe(0);
+        expect(await OrderItem.countDocuments()).toBe(0);
+        expect(await Cart.countDocuments({ customerId: customer._id })).toBe(1);
+        expect((await Inventory.findById(inventory._id)).quantity).toBe(7);
+      }
+    );
+    it('keeps original context and remains unresolved after later Inventory category/price changes', async () => {
+      const { inventory, item } = await checkedOut();
+      const before = item.classificationSnapshot.toObject();
+      await Inventory.updateOne(
+        { _id: inventory._id },
+        { $set: { category: 'Clinical eye test', price: 1 } }
+      );
+      expect((await OrderItem.findById(item._id)).classificationSnapshot.toObject()).toEqual(
+        before
+      );
+      expect((await OrderItem.findById(item._id)).price).toBe(12.25);
+      const lookup = jest.spyOn(Inventory, 'find');
+      await expect(deriveEligibleSpendForOrder(item.orderId)).rejects.toMatchObject({
+        errorCode: 'LOYALTY_ITEM_CLASSIFICATION_REQUIRED',
+      });
+      expect(lookup).not.toHaveBeenCalled();
+      expect((await Order.findById(item.orderId)).orderAmount).toBe(24.5);
+    });
+    it('reads missing legacy snapshots as unresolved without backfilling from current Inventory', async () => {
+      const { item } = await checkedOut();
+      // Simulate a pre-snapshot record in this disposable test DB, never a production migration.
+      await OrderItem.collection.updateOne(
+        { _id: item._id },
+        { $unset: { classificationSnapshot: '' } }
+      );
+      const before = await OrderItem.collection.findOne({ _id: item._id });
+      expect((await OrderItem.findById(item._id)).classificationSnapshot).toBeNull();
+      await expect(deriveEligibleSpendForOrder(item.orderId)).rejects.toMatchObject({
+        errorCode: 'LOYALTY_ITEM_CLASSIFICATION_REQUIRED',
+      });
+      expect(await OrderItem.collection.findOne({ _id: item._id })).toEqual(before);
+      await expect(
+        OrderItem.updateOne(
+          { _id: item._id },
+          { $set: { classificationSnapshot: item.classificationSnapshot.toObject() } }
+        )
+      ).rejects.toMatchObject({ errorCode: 'ORDER_ITEM_SNAPSHOT_IMMUTABLE' });
+    });
+    it('rejects unsupported eligibility rather than inferring an eligible total', async () => {
+      const { item } = await checkedOut();
+      const snapshot = item.classificationSnapshot.toObject();
+      const invalid = new OrderItem({
+        orderId: item.orderId,
+        inventoryId: item.inventoryId,
+        itemName: 'Frame',
+        price: 12.25,
+        quantity: 1,
+        classificationSnapshot: { ...snapshot, loyaltyEligibility: 'ELIGIBLE' },
+      });
+      await expect(invalid.validate()).rejects.toThrow();
+      // Corrupt historical evidence bypassing ODM validation to exercise fail-closed retrieval.
+      await OrderItem.collection.updateOne(
+        { _id: item._id },
+        { $set: { 'classificationSnapshot.loyaltyEligibility': 'ELIGIBLE' } }
+      );
+      await expect(deriveEligibleSpendForOrder(item.orderId)).rejects.toMatchObject({
+        errorCode: 'LOYALTY_ITEM_CLASSIFICATION_REQUIRED',
+      });
+    });
+    it('protects whole and nested snapshots from query edits, erasure, renames, pipelines and replacements', async () => {
+      const { item } = await checkedOut();
+      const before = item.classificationSnapshot.toObject();
+      const filter = { _id: item._id };
+      for (const update of [
+        { $set: { classificationSnapshot: { ...before, category: 'CHANGED' } } },
+        { $set: { 'classificationSnapshot.category': 'CHANGED' } },
+        { $unset: { classificationSnapshot: '' } },
+        { $rename: { classificationSnapshot: 'oldSnapshot' } },
+        { $rename: { itemName: 'classificationSnapshot.category' } },
+        [{ $set: { 'classificationSnapshot.category': 'CHANGED' } }],
+        [{ $replaceWith: { itemName: 'CHANGED' } }],
+      ])
+        await expect(OrderItem.updateOne(filter, update)).rejects.toMatchObject({
+          errorCode: 'ORDER_ITEM_SNAPSHOT_IMMUTABLE',
+        });
+      for (const operation of ['updateMany', 'findOneAndUpdate'])
+        await expect(
+          OrderItem[operation](filter, { $set: { 'classificationSnapshot.category': 'CHANGED' } })
+        ).rejects.toMatchObject({ errorCode: 'ORDER_ITEM_SNAPSHOT_IMMUTABLE' });
+      for (const operation of ['replaceOne', 'findOneAndReplace'])
+        await expect(
+          OrderItem[operation](filter, {
+            orderId: item.orderId,
+            itemName: 'REPLACED',
+            price: 1,
+            quantity: 1,
+          })
+        ).rejects.toMatchObject({ errorCode: 'ORDER_ITEM_SNAPSHOT_IMMUTABLE' });
+      expect((await OrderItem.findById(item._id)).classificationSnapshot.toObject()).toEqual(
+        before
+      );
+    });
+    it('protects snapshots from document, bulk and aggregate write bypasses while preserving ordinary updates', async () => {
+      const { item } = await checkedOut();
+      const before = item.classificationSnapshot.toObject();
+      item.classificationSnapshot.category = 'CHANGED';
+      // Mongoose rejects immutable nested fields during validation, before save middleware.
+      await expect(item.save()).rejects.toThrow(/immutable/);
+      const unchanged = await OrderItem.findById(item._id);
+      unchanged.markModified('classificationSnapshot');
+      await expect(unchanged.save()).rejects.toMatchObject({
+        errorCode: 'ORDER_ITEM_SNAPSHOT_IMMUTABLE',
+      });
+      for (const operation of [
+        {
+          updateOne: {
+            filter: { _id: item._id },
+            update: { $set: { 'classificationSnapshot.category': 'CHANGED' } },
+          },
+        },
+        {
+          replaceOne: {
+            filter: { _id: item._id },
+            replacement: { orderId: item.orderId, itemName: 'REPLACED', price: 1, quantity: 1 },
+          },
+        },
+      ])
+        await expect(OrderItem.bulkWrite([operation])).rejects.toMatchObject({
+          errorCode: 'ORDER_ITEM_SNAPSHOT_IMMUTABLE',
+        });
+      for (const stage of ['$out', '$merge'])
+        await expect(
+          OrderItem.aggregate([{ $match: {} }, { [stage]: OrderItem.collection.name }])
+        ).rejects.toMatchObject({ errorCode: 'ORDER_ITEM_SNAPSHOT_IMMUTABLE' });
+      await OrderItem.updateOne({ _id: item._id }, { $set: { itemName: 'Updated display label' } });
+      expect((await OrderItem.findById(item._id)).classificationSnapshot.toObject()).toEqual(
+        before
+      );
+    });
+    it('rolls back inserted snapshots, Order, stock and Cart when a later checkout step fails', async () => {
+      const { customer, inventory, checkout } = await setup();
+      const findAndUpdate = Inventory.findOneAndUpdate.bind(Inventory);
+      jest.spyOn(Inventory, 'findOneAndUpdate').mockImplementationOnce(async (...args) => {
+        const session = args[2].session;
+        const pending = await OrderItem.findOne().session(session).lean();
+        expect(pending.classificationSnapshot).toEqual({
+          source: 'Inventory',
+          sourceInventoryId: inventory._id,
+          category: 'Frames',
+          loyaltyEligibility: 'UNKNOWN',
+        });
+        await findAndUpdate(...args);
+        throw new Error('Simulated failure after snapshot and stock write');
+      });
+      const logged = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const response = await checkout();
+      expect(response.status).toBe(500);
+      expect(await Order.countDocuments()).toBe(0);
+      expect(await OrderItem.countDocuments()).toBe(0);
+      expect((await Inventory.findById(inventory._id)).quantity).toBe(7);
+      expect(await Cart.countDocuments({ customerId: customer._id })).toBe(1);
+      expect(logged).toHaveBeenCalled();
+    });
   });
 
   it('should reject missing Inventory references and preserve the Cart', async () => {

@@ -65,6 +65,7 @@ describe('checkout service', () => {
         {
           _id: new mongoose.Types.ObjectId(INVENTORY_ID),
           itemName: 'Optical Frame',
+          category: 'Frames',
           price: 12.25,
           quantity: 5,
         },
@@ -131,6 +132,63 @@ describe('checkout service', () => {
       errorCode: 'CUSTOMER_NOT_FOUND',
     });
     expect(Cart.findOne).not.toHaveBeenCalled();
+  });
+  it('snapshots only server Inventory facts and ignores classification/eligibility claims in Cart or Inventory extras', () => {
+    const inventory = {
+      _id: new mongoose.Types.ObjectId(INVENTORY_ID),
+      itemName: 'Frame',
+      category: 'Unmapped category',
+      price: 12.25,
+      quantity: 5,
+      loyaltyEligibility: 'ELIGIBLE',
+      classificationSnapshot: { category: 'FORGED', loyaltyEligibility: 'ELIGIBLE' },
+    };
+    const result = buildOrderItems(
+      [
+        {
+          inventoryId: inventory._id,
+          quantity: 2,
+          category: 'Clinical',
+          classificationSnapshot: {
+            source: 'CLIENT',
+            sourceInventoryId: ITEM_ID,
+            category: 'FORGED',
+            loyaltyEligibility: 'ELIGIBLE',
+          },
+        },
+      ],
+      new Map([[INVENTORY_ID, inventory]])
+    );
+    expect(result.orderAmount).toBe(24.5);
+    expect(result.orderItems[0]).toMatchObject({
+      inventoryId: inventory._id,
+      itemName: 'Frame',
+      price: 12.25,
+      quantity: 2,
+      classificationSnapshot: {
+        source: 'Inventory',
+        sourceInventoryId: inventory._id,
+        category: 'Unmapped category',
+        loyaltyEligibility: 'UNKNOWN',
+      },
+    });
+  });
+  it('records unavailable Inventory category as null without inferring eligibility or changing totals', () => {
+    const inventory = {
+      _id: new mongoose.Types.ObjectId(INVENTORY_ID),
+      itemName: 'Legacy Frame',
+      price: 10,
+      quantity: 5,
+    };
+    const result = buildOrderItems(
+      [{ inventoryId: inventory._id, quantity: 1 }],
+      new Map([[INVENTORY_ID, inventory]])
+    );
+    expect(result.orderAmount).toBe(10);
+    expect(result.orderItems[0].classificationSnapshot).toMatchObject({
+      category: null,
+      loyaltyEligibility: 'UNKNOWN',
+    });
   });
 
   it('should reject empty, malformed, duplicate, and non-positive Cart lines', () => {

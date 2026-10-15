@@ -1,5 +1,4 @@
 const OrderItem = require('../models/orderItem.model');
-const Inventory = require('../models/inventory.model');
 const { ConflictError } = require('../errors/AppError');
 
 async function assertEarningContract() {
@@ -10,18 +9,23 @@ async function assertEarningContract() {
   );
 }
 
-// Reads backend records only. A display name/category is NOT clinical eligibility proof.
-// No Product entity exists: the catalog is backed by mutable Inventory records.
+// Only checkout-time context is considered, never today's mutable Inventory category.
+// A snapshotted free-text category still is NOT clinical/merchandise eligibility proof.
 async function deriveEligibleSpendForOrder(orderId, session = null) {
-  const items = await OrderItem.find({ orderId }).session(session).lean();
-  if (items.length && items.every((item) => item.inventoryId)) {
-    await Inventory.find({ _id: { $in: items.map((item) => item.inventoryId) } })
-      .select('_id category')
-      .session(session)
-      .lean();
-  }
+  const items = await OrderItem.find({ orderId })
+    .select('classificationSnapshot')
+    .session(session)
+    .lean();
+  const unresolved =
+    !items.length ||
+    items.some(
+      (item) =>
+        !item.classificationSnapshot || item.classificationSnapshot.loyaltyEligibility === 'UNKNOWN'
+    );
   throw new ConflictError(
-    'OrderItems lack authoritative merchandise/clinical eligibility classification; totals and names are not substitutes.',
+    unresolved
+      ? 'OrderItem classification context is missing or UNKNOWN; eligibility remains unresolved.'
+      : 'OrderItem classification is unsupported; no approved eligibility mapping exists.',
     null,
     'LOYALTY_ITEM_CLASSIFICATION_REQUIRED'
   );

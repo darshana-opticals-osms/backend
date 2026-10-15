@@ -315,8 +315,9 @@ and earning history. It has no live trigger. Its backend-only contract guards re
 unavailable: ADR-005 section 14 requires Payment success plus Order COMPLETED, while
 ADR-011 section 13 specifies completed Payment plus PROCESSING. No status is chosen.
 The product catalog is Inventory-backed, with mutable free-text categories;
-OrderItems preserve exact inventory references but no authoritative merchandise/
-clinical classification. No item name, category string, total Order amount or client
+OrderItems preserve exact inventory references and, since Part 2A, checkout-time
+category facts, but no authoritative merchandise/clinical eligibility mapping.
+No item name, category string, total Order amount or client
 eligible-spend value is used as a substitute. Clinical examination fees cannot leak
 into an award: current data remains held with `LOYALTY_ITEM_CLASSIFICATION_REQUIRED`.
 An authoritative Order/Checkout eligibility contract is required, including safe
@@ -350,6 +351,45 @@ Tests explicitly double only the unresolved earning-contract boundaries to exerc
 real balance/ledger writes, precision, concurrency and refund integration. Production
 has no runtime contract bypass. No Order status/history change, inventory restoration,
 reconciliation clearing, earning callback wiring or refund API activation is added.
+
+### Phase 6 Part 2A: immutable checkout classification context
+
+Every new checkout OrderItem has an internal `classificationSnapshot` built only
+from the Inventory records already read in the checkout transaction:
+
+| Field                | Provenance / meaning                                                                                                 |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `source`             | Literal `Inventory`, identifying the backend source model.                                                           |
+| `sourceInventoryId`  | Exact Inventory `_id` at checkout, retained independently of later reference edits.                                  |
+| `category`           | Verbatim stored Inventory category string; null when unavailable. This is a free-text fact, not an eligibility rule. |
+| `loyaltyEligibility` | Always `UNKNOWN`; the only currently supported value.                                                                |
+
+The existing OrderItem creation timestamp records persistence time; no policy version
+or approved classification is fabricated. There is no category-to-eligibility mapping,
+new catalog administration policy or client-settable eligibility flag. Cart metadata
+and purported classification/eligibility fields are not copied. Checkout still accepts
+only an empty JSON object, rejecting client classification payloads with 422.
+
+Legacy records have a null or absent snapshot, explicitly treated as unresolved.
+Nothing is backfilled from current Inventory on read. The loyalty eligibility reader
+uses only stored OrderItem context and holds missing, UNKNOWN and unsupported values
+with `LOYALTY_ITEM_CLASSIFICATION_REQUIRED`. It never substitutes the Order total or
+consults today's mutable Inventory category to qualify a past purchase.
+
+Snapshots are immutable through ordinary document/query writes. Model guards reject
+snapshot updates/unsets/renames, replacement and pipeline updates, bulk edits and
+aggregation writes that could overwrite history. Raw collection access/privileged DB
+administration bypasses ODM protections and remains an operational boundary.
+No migration or snapshot-edit API is added.
+
+The snapshot is persisted with Order creation, stock deduction and Cart removal in
+the existing transaction. Inventory ID, unit price, quantity, Order totals, reservation
+and restoration logic are unchanged. Checkout and Order-tracking DTOs remain unchanged;
+the snapshot is not exposed as a client input or a public response field.
+
+This preserves context only. The earning-trigger conflict, authoritative eligibility
+mapping and rounding contract remain unresolved. No automatic earning, refund endpoint,
+redemption or manual point adjustment is activated.
 
 ## Production-style start
 

@@ -96,6 +96,12 @@ function buildOrderItems(cartItems, inventoryById) {
 
     return {
       inventoryId: inventory._id,
+      classificationSnapshot: {
+        source: 'Inventory',
+        sourceInventoryId: inventory._id,
+        category: typeof inventory.category === 'string' ? inventory.category : null,
+        loyaltyEligibility: 'UNKNOWN',
+      },
       itemName: inventory.itemName,
       price: unitPriceCents / 100,
       quantity: cartItem.quantity,
