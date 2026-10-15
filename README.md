@@ -196,14 +196,20 @@ sections 8/12 ambiguity about retrying the expired Order is not resolved here.
 
 ### PayHere callback and availability contracts
 
+The allowlist also accepts the optional scalar `recurring` field observed in a
+real one-time Sandbox notification. It is unsigned metadata, discarded just like
+custom/card/message fields, and cannot enable recurring billing or prove payment.
+Bare empty `custom_1`/`custom_2` form keys are supported; repeated keys are rejected.
+
 `POST /api/payments/notify` accepts only allowlisted scalar form fields. The
 optional sandbox `captured_amount` must be a nonnegative decimal with two places;
 it is ignored for financial decisions and is not persisted. The official Checkout
 signature covers merchant ID, attempt reference, `payhere_amount`, currency and
 status; merchant/amount/currency checks, timing-safe verification and idempotency
-remain mandatory. Optional custom/card/message fields are discarded; only the
-safe provider payment-method label is retained. Unknown or duplicate fields remain
-rejected. See the [official PayHere Checkout contract](https://support.payhere.lk/api-%26-mobile-sdk/checkout-api).
+remain mandatory. Optional custom/card/message fields are discarded; only
+documented provider payment-method labels are retained as unsigned display
+metadata. Unknown method labels are accepted but discarded; unknown field names
+and duplicate fields remain rejected. See the [official PayHere Checkout contract](https://support.payhere.lk/api-%26-mobile-sdk/checkout-api).
 
 A separate per-IP limiter runs before callback form parsing, independently of the
 general customer API limiter. Defaults: `PAYHERE_NOTIFY_RATE_LIMIT_MAX=600` and
@@ -218,9 +224,127 @@ a safe message and no initiation effects. Hosted-checkout parameters are built
 locally; the backend does not make a charge request or probe the PayHere website.
 Provider website/network failure after successful initiation is therefore not a
 backend 503; verified IPNs and reservation expiry determine subsequent state.
-Actual sandbox E2E validation remains a manual step using a fresh Order within its
-reservation, sandbox credentials for the public callback domain, and a reachable
-notify URL. Never log callback bodies, signatures or credentials as evidence.
+Further Sandbox E2E checks must use a fresh Order within its reservation, sandbox
+credentials for the registered checkout domain, and a reachable public notify URL.
+Never log callback bodies, signatures or credentials as evidence.
+
+### PayHere Retrieval API investigation and missed-callback evidence
+
+An approved payment in the provider dashboard is not automatically an OSMS
+completed Payment. A rejected/missed callback can leave no verified PaymentEvent;
+normal expiry can then close the local session and restore Inventory/Cart. The
+browser return URL never repairs that financial discrepancy.
+
+Optional `PAYHERE_API_APP_ID` and `PAYHERE_API_APP_SECRET` configure the Merchant
+Retrieval API, **not** the Checkout Merchant Secret. Obtain these from API Keys in
+the same merchant account and environment as checkout. Use the provider's required
+API-key permissions/domain allowlist; live Merchant API access additionally needs
+PayHere IP approval. Never put credentials in a browser or an online encoder.
+`PAYHERE_RETRIEVAL_TIMEOUT_MS` defaults to 8000 (allowed 1000–30000). Credentials are
+optional at application startup; missing credentials fail retrieval closed with
+`503 PAYHERE_RETRIEVAL_NOT_CONFIGURED`, without affecting hosted checkout or IPN.
+
+The adapter uses only the fixed sandbox/live OAuth token and payment/search
+endpoints, Basic client-credentials OAuth, a memory-only expiring token cache, one
+refresh after invalid-token responses, request/body timeouts and bounded response
+size. No redirect following, raw provider-body persistence or sensitive logging.
+The process-local budget permits at most 18 Merchant API requests per 10 seconds
+(including OAuth), below PayHere's documented 20; provider 429/Retry-After is
+honored with safe 503/retryAfterSeconds details. This is not a shared multi-instance
+quota: coordinate deployment-wide usage before adding automatic polling.
+
+BRANCH_MANAGER-only APIs (all other canonical roles are denied):
+
+- `POST /api/payments/:paymentId/recovery`, with omitted body or `{ "dryRun": true }`,
+  reads the provider by the stored unique attempt `providerOrderId`, validates and
+  returns only financial references/status/amount/currency and a proposed reason.
+  Default dry-run makes **no database writes**, including no lock/version writes.
+- Explicit `{ "dryRun": false }` records a sanitized append-only
+  `PaymentRetrievalEvidence` observation. It may set a reconciliation flag but never
+  clears an existing flag/reason or modifies Payment/Order status. Apply only after
+  reviewing the dry-run and obtaining authority for the particular transaction.
+- `GET /api/payments/:paymentId/retrieval-evidence?page=1&limit=25` reads the complete
+  paginated evidence history (page 1–10000, limit 1–100, newest first). Observation
+  identity, staff identity, OAuth tokens, signatures and customer/card data are not
+  exposed. Existing customer own-Order status and signed-IPN event APIs are unchanged.
+
+Source is explicitly `PAYHERE_RETRIEVAL_API`, stored separately from signed IPNs.
+Observation uniqueness prevents identical snapshots being inserted twice. Changed
+provider statuses/references append new evidence rather than replacing history.
+Distinct provider payment IDs for one merchant reference require review; no row is
+silently selected as the canonical capture. Amount, currency, Order reference and
+any previously stored provider transaction reference are checked. HTTP/token failures
+and malformed/unknown statuses fail closed without creating evidence. The ambiguous
+envelope `-2` described below is only an observation, never proof of a financial outcome.
+Network I/O finishes before transactions; application re-reads state under the same
+Order write lock used by IPN/expiry and atomically appends evidence plus any flag.
+Concurrent IPN/expiry outcomes are re-evaluated, not overwritten. Audit insertion
+failure rolls back the entire local transaction.
+
+Provider mapping follows the [official Retrieval API](https://support.payhere.lk/api-%26-mobile-sdk/retrieval-api):
+
+- `data[*].status`: `RECEIVED` means received; `REFUND REQUESTED`, `REFUND PROCESSING`,
+  `REFUNDED`, `CHARGEBACKED` are separate observations requiring review, not automatic
+  OSMS refund/loyalty mutations. Portal `Authorized` is **not** assumed equivalent.
+- Envelope `status=0`: pending; `-1`: no records; neither proves no funds exist.
+- Envelope `-2` is documented both as declined and authentication error. It is
+  reported as `declined_or_error`, never used to cancel or release stock. Unsafe
+  HTTP/token/response failures instead return sanitized operational 503 errors.
+
+**ADR boundary:** ADR-011 sections 10/11 explicitly require cryptographically
+verified IPN for `completed`. Retrieval-only completion remains inactive, including
+on unexpired Orders. Explicit application of a confirmed received-payment
+discrepancy uses existing reconciliation holds; subsequent IPNs preserve those
+holds. For cancelled/expired Orders, evidence records `RETRIEVAL_LATE_SUCCESS` and
+flags reconciliation without revival, stock deduction, Cart removal, refund or
+loyalty changes. No reconciliation-resolution or flag-clearing API is introduced.
+
+For an existing real transaction: dry-run first; compare the exact merchant
+reference, provider transaction ID, amount/currency and provider status against
+authenticated provider records. Obtain genuine provider redelivery where possible.
+If expired, use authorized financial reconciliation; do not pay again, fabricate an
+IPN, replay inspector traffic or manually edit records. Local automated tests use
+mock HTTP responses and do not establish real Sandbox synchronization.
+
+**Expiry design requiring review (not implemented):** a bounded pre-expiry verifier
+could read candidate versions, retrieve outside MongoDB, then take the shared Order
+lock and re-check expiry/payment state before recording evidence. A successful
+concurrent IPN or expiry must win/retry safely. Pending, absent, timeout and API
+failure results cannot establish unpaid status. Any network grace period, new hold
+or automated use of retrieval for completion requires an explicit approved rule.
+No automatic provider polling, reservation extension, new grace duration or expiry
+policy change is included here; the existing 30-minute sweep remains unchanged.
+
+### Real Sandbox evidence and remaining verification
+
+The operator completed a real hosted Sandbox checkout for Payment
+`6ad11a57fe503192fd00fa39`, Order `6ad119ecfe503192fd00fa27`, LKR 37000.00.
+A read-only database check on 2026-10-16 confirmed `Payment.status=completed`,
+`Order.status=PROCESSING`, `reconciliationRequired=false`, one applied success
+PaymentEvent (`statusCode=2`), and no Inventory restoration. This is IPN evidence,
+not proof inferred from a browser return. Order completion/loyalty earning was
+not exercised by this checkout.
+
+For the earlier missed-callback Payment `6ad10540d8f95641b92ae200`, genuine Sandbox
+OAuth/retrieval verification found one matching `RECEIVED` provider transaction,
+LKR 37000.00. The operator also reports successful authorized recovery dry-run.
+The final read-only database check confirmed Payment `cancelled/session_expired`,
+Order `CANCELLED`, restored Inventory marker, no signed PaymentEvents and no saved
+retrieval evidence. The cancelled Order was not revived. No callback replay,
+replacement charge or manual financial mutation was used for this review.
+
+Real hosted failed/cancelled flows, Order COMPLETED loyalty earning and an
+externally confirmed manual full-refund/reversal remain unverified end to end.
+Automated tests do not replace those checks. The ADR-011 sections 8/12 expiry/retry
+contradiction and section 13 earning-trigger discrepancy with ADR-005 section 14
+remain documented; earning follows successful Payment **and Order COMPLETED**.
+Accepted ADRs have not been edited.
+
+PR #80 closes payment issue #53 and only partially implements loyalty issue #54.
+The shared loyalty core/refund-reversal prerequisites remain included; #54 stays
+open for customer ownership-scoped loyalty reads, manager read-only loyalty APIs,
+their Swagger/security tests and remaining issue acceptance criteria. This is not
+a claim that all payment reviewer requirements or all loyalty scope are complete.
 
 ### Management payment monitoring
 

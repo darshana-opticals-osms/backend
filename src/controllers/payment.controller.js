@@ -8,6 +8,24 @@ const {
 const { validatePayHereNotification } = require('../validations/payment.validation');
 const monitoring = require('../services/paymentMonitoring.service');
 const { recordConfirmedManualFullRefund } = require('../services/manualRefund.service');
+const recovery = require('../services/paymentRecovery.service');
+
+const recoverPayment = catchAsync(async (req, res) => {
+  const result = await recovery.recoverPayment({
+    auth: req.auth,
+    paymentId: req.params.paymentId,
+    dryRun: req.body?.dryRun ?? true,
+  });
+  return res.status(200).json({ success: true, data: result });
+});
+const listRetrievalEvidence = catchAsync(async (req, res) => {
+  const result = await recovery.listRetrievalEvidence({
+    auth: req.auth,
+    paymentId: req.params.paymentId,
+    query: req.query,
+  });
+  return res.status(200).json({ success: true, data: result });
+});
 
 const recordManualFullRefund = catchAsync(async (req, res) => {
   const result = await recordConfirmedManualFullRefund({
@@ -64,6 +82,8 @@ const listManagementPaymentEvents = catchAsync(async (req, res) => {
 });
 
 module.exports = {
+  recoverPayment,
+  listRetrievalEvidence,
   recordManualFullRefund,
   initiatePayment,
   getOwnOrderPaymentStatus,

@@ -11,6 +11,8 @@ const {
   getManagementPayment,
   listManagementPaymentEvents,
   recordManualFullRefund,
+  recoverPayment,
+  listRetrievalEvidence,
 } = require('../controllers/payment.controller');
 const {
   validatePaymentInitiation,
@@ -21,9 +23,147 @@ const {
   validatePaymentMonitoringDetail,
   validatePaymentMonitoringEvents,
 } = require('../validations/paymentMonitoring.validation');
+const { validatePaymentRecovery } = require('../validations/paymentRecovery.validation');
 
 const paymentRouter = express.Router();
 const paymentNotificationRouter = express.Router();
+
+/**
+ * @openapi
+ * /payments/{paymentId}/recovery:
+ *   post:
+ *     summary: Investigate a PayHere attempt; optionally record reconciliation evidence
+ *     description: BRANCH_MANAGER only. Defaults to dry-run and performs authenticated server-to-server Retrieval API reads only. Explicit dryRun false appends sanitized retrieval evidence and may flag unresolved financial discrepancies. No Payment/Order status change, IPN fabrication, flag clearing, refund, loyalty, Inventory or Cart effect. ADR-011 requires IPN for completion. Pending, absent and decline-or-error responses do not prove that no capture exists. Network calls precede the transaction. Provider failures return safe 503 errors with no evidence or financial writes.
+ *     tags: [Payments]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { $ref: '#/components/parameters/PaymentMonitoringId' }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             additionalProperties: false
+ *             properties:
+ *               dryRun: { type: boolean, default: true }
+ *     responses:
+ *       200:
+ *         description: Read-only observation and proposed reason, or committed/replayed retrieval evidence. Never confirms OSMS payment completion.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data:
+ *                   oneOf:
+ *                     - $ref: '#/components/schemas/PaymentRecoveryPreview'
+ *                     - type: object
+ *                       properties:
+ *                         dryRun: { type: boolean, enum: [false] }
+ *                         replay: { type: boolean }
+ *                         completionPermitted: { type: boolean, enum: [false] }
+ *                         evidence: { $ref: '#/components/schemas/PaymentRetrievalEvidence' }
+ *       401: { $ref: '#/components/responses/Unauthorized' }
+ *       403: { $ref: '#/components/responses/Forbidden' }
+ *       404: { $ref: '#/components/responses/NotFound' }
+ *       409: { $ref: '#/components/responses/Conflict' }
+ *       422: { $ref: '#/components/responses/ValidationError' }
+ *       503:
+ *         description: Retrieval not configured, upstream auth/timeout/invalid response/failure or rate limit. Rate-limit details include retryAfterSeconds; no upstream body or credentials.
+ * /payments/{paymentId}/retrieval-evidence:
+ *   get:
+ *     summary: Read separately identified PayHere Retrieval API evidence
+ *     description: BRANCH_MANAGER only. Historical retrieval observations, distinct from signed PaymentEvents. Safe metadata only; stable createdAt/ID descending pagination. Unknown query parameters are rejected.
+ *     tags: [Payments]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { $ref: '#/components/parameters/PaymentMonitoringId' }
+ *       - { $ref: '#/components/parameters/PaymentMonitoringPage' }
+ *       - { $ref: '#/components/parameters/PaymentMonitoringLimit' }
+ *     responses:
+ *       200:
+ *         description: Sanitized retrieval evidence page.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     items:
+ *                       type: array
+ *                       items: { $ref: '#/components/schemas/PaymentRetrievalEvidence' }
+ *                     pagination: { $ref: '#/components/schemas/PaymentMonitoringPagination' }
+ *       401: { $ref: '#/components/responses/Unauthorized' }
+ *       403: { $ref: '#/components/responses/Forbidden' }
+ *       404: { $ref: '#/components/responses/NotFound' }
+ *       422: { $ref: '#/components/responses/ValidationError' }
+ * components:
+ *   schemas:
+ *     RetrievedPayment:
+ *       type: object
+ *       additionalProperties: false
+ *       properties:
+ *         providerTransactionId: { type: string }
+ *         providerOrderId: { type: string }
+ *         status: { type: string, enum: [RECEIVED, REFUND REQUESTED, REFUND PROCESSING, REFUNDED, CHARGEBACKED] }
+ *         amount: { type: string, description: Canonical two-decimal amount. }
+ *         currency: { type: string }
+ *     PaymentRecoveryPreview:
+ *       type: object
+ *       properties:
+ *         dryRun: { type: boolean, enum: [true] }
+ *         paymentId: { type: string }
+ *         orderId: { type: string }
+ *         paymentStatus: { type: string }
+ *         orderStatus: { type: string }
+ *         reconciliationRequired: { type: boolean }
+ *         source: { type: string, enum: [PAYHERE_RETRIEVAL_API] }
+ *         environment: { type: string, enum: [sandbox, live] }
+ *         outcome: { type: string, enum: [records, pending, not_found, declined_or_error] }
+ *         providerCode: { type: integer, enum: [1, 0, -1, -2] }
+ *         records:
+ *           type: array
+ *           items: { $ref: '#/components/schemas/RetrievedPayment' }
+ *         observedAt: { type: string, format: date-time }
+ *         proposedReconciliationReason: { type: string, nullable: true }
+ *         completionPermitted: { type: boolean, enum: [false] }
+ *     PaymentRetrievalEvidence:
+ *       type: object
+ *       additionalProperties: false
+ *       properties:
+ *         evidenceId: { type: string }
+ *         source: { type: string, enum: [PAYHERE_RETRIEVAL_API] }
+ *         paymentId: { type: string }
+ *         orderId: { type: string }
+ *         providerOrderId: { type: string }
+ *         environment: { type: string, enum: [sandbox, live] }
+ *         outcome: { type: string, enum: [records, pending, not_found, declined_or_error] }
+ *         providerCode: { type: integer, enum: [1, 0, -1, -2] }
+ *         records:
+ *           type: array
+ *           items: { $ref: '#/components/schemas/RetrievedPayment' }
+ *         reconciliationReason: { type: string, nullable: true }
+ *         observedAt: { type: string, format: date-time }
+ *         createdAt: { type: string, format: date-time }
+ */
+paymentRouter.post(
+  '/payments/:paymentId/recovery',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER),
+  validate(validatePaymentRecovery),
+  recoverPayment
+);
+paymentRouter.get(
+  '/payments/:paymentId/retrieval-evidence',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER),
+  listRetrievalEvidence
+);
 
 /**
  * @openapi
@@ -96,7 +236,7 @@ paymentRouter.post(
  * /payments/notify:
  *   post:
  *     summary: Receive a PayHere server-to-server payment notification
- *     description: Public provider callback. Trust is established by PayHere merchant and MD5 signature verification, not JWT authentication. Accepts only allowlisted form-encoded PayHere fields. Optional metadata is not signed financial authority; only method is retained as providerPaymentMethod, while captured_amount, card, custom and message fields are discarded. Browser return and cancel URLs are not payment proof. A separate configurable per-IP callback rate limit protects processing and permits provider retries.
+ *     description: Public provider callback. Trust is established by PayHere merchant and MD5 signature verification, not JWT authentication. Accepts only allowlisted form-encoded PayHere fields. Optional metadata is not signed financial authority; only documented method labels are retained as providerPaymentMethod, while unknown labels, captured_amount, recurring, card, custom and message fields are discarded. Browser return and cancel URLs are not payment proof. A separate configurable per-IP callback rate limit protects processing and permits provider retries.
  *     tags: [Payments]
  *     requestBody:
  *       required: true
@@ -115,9 +255,10 @@ paymentRouter.post(
  *               status_code: { type: string, enum: ['2', '0', '-1', '-2', '-3'] }
  *               md5sig: { type: string, writeOnly: true }
  *               captured_amount: { type: string, pattern: '^\\d+\\.\\d{2}$', description: Optional sandbox provider metadata; not used to determine financial state. }
+ *               recurring: { type: string, description: Optional unsigned provider metadata; discarded and does not enable recurring payments. }
  *               custom_1: { type: string }
  *               custom_2: { type: string }
- *               method: { type: string }
+ *               method: { type: string, description: Optional unsigned display metadata. Only documented payment-method labels are retained; unknown labels are accepted but discarded. }
  *               status_message: { type: string }
  *               card_holder_name: { type: string, writeOnly: true }
  *               card_no: { type: string, writeOnly: true, description: Provider-masked card metadata; discarded. }

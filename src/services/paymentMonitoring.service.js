@@ -3,6 +3,7 @@ const PaymentEvent = require('../models/paymentEvent.model');
 const ManualRefundEvidence = require('../models/manualRefundEvidence.model');
 const { shapeManualRefundEvidence } = require('./manualRefundEvidence.service');
 const { ROLE_VALUES } = require('../constants/roles');
+const { RETRIEVAL_REASONS } = require('../constants/paymentRetrieval');
 const { ForbiddenError, NotFoundError, ValidationError } = require('../errors/AppError');
 const {
   parseMonitoringQuery,
@@ -14,6 +15,7 @@ const PAYMENT_FIELDS =
 const EVENT_FIELDS =
   '_id paymentId orderId provider providerOrderId providerTransactionId statusCode amount currency action reason verifiedAt createdAt';
 const SAFE_REASONS = new Set([
+  ...RETRIEVAL_REASONS,
   'PAYHERE_PAYMENT_FAILED',
   'PAYHERE_AMOUNT_CURRENCY_MISMATCH',
   'PAYHERE_CHARGEBACK_REVIEW',

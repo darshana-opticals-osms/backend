@@ -601,15 +601,41 @@ describe('Payment API and PayHere IPN', () => {
     expect(await Payment.countDocuments({ orderId: order._id })).toBe(2);
   });
 
-  it('accepts sandbox captured_amount and optional Checkout metadata without trusting or persisting it', async () => {
+  it.each(['2', '0', '-2', '-1'])(
+    'discards unrecognized unsigned method metadata for status %s without rejecting verified IPN',
+    async (statusCode) => {
+      const customer = await createCustomer('unsigned-method@example.com');
+      const order = await createOrder(customer);
+      expect((await initiate(customer, order)).status).toBe(201);
+      const payment = await Payment.findOne({ orderId: order._id });
+      const fields = notification(payment, { status_code: statusCode });
+      // method is not covered by the signature. It must not become arbitrary stored PII.
+      fields.method = `private-buyer@example.test-${'x'.repeat(50)}`;
+
+      const response = await request(app).post('/api/payments/notify').type('form').send(fields);
+
+      expect(response.status).toBe(200);
+      const stored = await Payment.findById(payment._id).lean();
+      expect(stored.providerPaymentMethod).toBeNull();
+      expect(stored.status).toBe(
+        { 2: 'completed', 0: 'processing', '-2': 'failed', '-1': 'cancelled' }[statusCode]
+      );
+      expect(await PaymentEvent.countDocuments({ paymentId: payment._id })).toBe(1);
+      const event = await PaymentEvent.findOne({ paymentId: payment._id }).lean();
+      expect(JSON.stringify([stored, event])).not.toContain(fields.method);
+    }
+  );
+
+  it('accepts the observed Sandbox IPN shape including recurring without trusting or persisting metadata', async () => {
     const customer = await createCustomer('sandbox-metadata@example.com');
     const order = await createOrder(customer, { orderAmount: 37000 });
     expect((await initiate(customer, order)).status).toBe(201);
     const payment = await Payment.findOne({ orderId: order._id });
     const fields = notification(payment, {
       captured_amount: '37000.00',
+      recurring: '0',
       custom_1: '',
-      custom_2: 'sandbox metadata',
+      custom_2: '',
       status_message: 'Successfully received the VISA payment',
       card_holder_name: 'Test Customer',
       card_no: '************4564',
@@ -625,17 +651,32 @@ describe('Payment API and PayHere IPN', () => {
     const send = (body) => request(app).post('/api/payments/notify').type('form').send(body);
     expect((await send({ ...fields, captured_amount: '-1.00' })).status).toBe(422);
     expect((await send({ ...fields, arbitrary: 'untrusted' })).status).toBe(422);
-    expect((await send(fields)).status).toBe(200);
+    const rawBody = new URLSearchParams(fields)
+      .toString()
+      .replace('custom_1=', 'custom_1')
+      .replace('custom_2=', 'custom_2');
+    // The real callback used bare empty custom fields and one scalar recurring flag.
+    const duplicate = await send(`${rawBody}&recurring=1`);
+    expect(duplicate.status).toBe(422);
+    expect(duplicate.body.error.details).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: 'recurring' })])
+    );
+    expect(await PaymentEvent.countDocuments()).toBe(0);
+    expect((await Payment.findById(payment._id)).status).toBe(PAYMENT_STATUS.PENDING);
+    expect((await Order.findById(order._id)).status).toBe(ORDER_STATUS_VALUES.ORDER_CREATED);
+    expect((await send(rawBody)).status).toBe(200);
     // Unsigned optional metadata cannot cause a second financial effect on replay.
-    expect((await send({ ...fields, captured_amount: '1.00' })).status).toBe(200);
+    expect((await send({ ...fields, captured_amount: '1.00', recurring: '1' })).status).toBe(200);
     const stored = await Payment.findById(payment._id).lean();
     expect(stored.status).toBe(PAYMENT_STATUS.COMPLETED);
+    expect(stored.providerPaymentMethod).toBe('VISA');
     expect(stored.amount).toBe(37000);
     expect((await Order.findById(order._id)).statusHistory).toHaveLength(2);
     expect(await PaymentEvent.countDocuments({ paymentId: payment._id })).toBe(1);
     const event = await PaymentEvent.findOne({ paymentId: payment._id }).lean();
     for (const field of [
       'captured_amount',
+      'recurring',
       'custom_1',
       'custom_2',
       'status_message',

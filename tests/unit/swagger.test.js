@@ -7,6 +7,8 @@ describe('Swagger documentation integrity', () => {
     expect(schema.additionalProperties).toBe(false);
     expect(schema.properties.captured_amount.type).toBe('string');
     expect(schema.required).not.toContain('captured_amount');
+    expect(schema.properties.recurring.type).toBe('string');
+    expect(schema.required).not.toContain('recurring');
     expect(notify.responses['429'].headers['Retry-After']).toBeDefined();
     for (const path of ['/payments/initiate', '/payments/notify']) {
       expect(swaggerSpec.paths[path].post.responses['503'].$ref).toBe(
@@ -53,6 +55,8 @@ describe('Swagger documentation integrity', () => {
     'PATCH /orders/{id}/status',
     'POST /payments/initiate',
     'POST /payments/notify',
+    'POST /payments/{paymentId}/recovery',
+    'GET /payments/{paymentId}/retrieval-evidence',
     'GET /orders/{orderId}/payment-status',
     'GET /payments',
     'GET /payments/{paymentId}',
@@ -112,6 +116,8 @@ describe('Swagger documentation integrity', () => {
       '/payments/notify',
     ];
     const protectedPaths = [
+      '/payments/{paymentId}/recovery',
+      '/payments/{paymentId}/retrieval-evidence',
       '/payments/{paymentId}/refunds',
       '/profile/me',
       '/admin/staff',

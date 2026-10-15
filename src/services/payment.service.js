@@ -24,6 +24,22 @@ const {
 
 const RESERVATION_WINDOW_MS = 30 * 60 * 1000;
 const ACTIVE_PAYMENT_STATUSES = [PAYMENT_STATUS.PENDING, PAYMENT_STATUS.PROCESSING];
+// Documented Checkout method labels only. Unsigned metadata must not persist
+// arbitrary text/PII; future labels can still be accepted without being stored.
+const SAFE_PAYHERE_METHODS = new Set([
+  'VISA',
+  'MASTER',
+  'AMEX',
+  'EZCASH',
+  'MCASH',
+  'GENIE',
+  'VISHWA',
+  'PAYAPP',
+  'HNB',
+  'FRIMI',
+  'HELAPAY',
+  'QPLUS',
+]);
 
 function getAdapter() {
   return new PayHerePaymentAdapter(loadConfig());
@@ -385,6 +401,7 @@ async function processVerifiedNotification(fields) {
   if (!adapter.verifyNotification(fields)) {
     throw new ForbiddenError('Invalid payment notification.', null, 'INVALID_PAYMENT_SIGNATURE');
   }
+  const providerPaymentMethod = SAFE_PAYHERE_METHODS.has(fields.method) ? fields.method : null;
 
   const payment = await Payment.findOne({ providerOrderId: fields.order_id });
   if (!payment) throw new NotFoundError('Payment attempt not found.', null, 'PAYMENT_NOT_FOUND');
@@ -505,7 +522,7 @@ async function processVerifiedNotification(fields) {
             $set: {
               status: PAYMENT_STATUS.COMPLETED,
               providerTransactionId: fields.payment_id,
-              providerPaymentMethod: fields.method || null,
+              providerPaymentMethod,
               failureReason: null,
             },
           },
@@ -557,7 +574,7 @@ async function processVerifiedNotification(fields) {
       const update = {
         status: targetStatus,
         providerTransactionId: fields.payment_id,
-        providerPaymentMethod: fields.method || null,
+        providerPaymentMethod,
       };
       if (targetStatus === PAYMENT_STATUS.FAILED) update.failureReason = 'PAYHERE_PAYMENT_FAILED';
       await Payment.updateOne({ _id: currentPayment._id }, { $set: update }, { session });

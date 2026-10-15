@@ -39,6 +39,7 @@ describe('payment validation', () => {
         body: {
           ...request.body,
           captured_amount: '37000.00',
+          recurring: '0',
           custom_1: '',
           custom_2: 'order context',
           method: 'VISA',
@@ -55,6 +56,12 @@ describe('payment validation', () => {
         body: { ...request.body, order_id: ['PAY-123', 'PAY-456'] },
       })
     ).toEqual(expect.arrayContaining([expect.objectContaining({ field: 'order_id' })]));
+    expect(
+      validatePayHereNotification({
+        ...request,
+        body: { ...request.body, recurring: ['0', '1'] },
+      })
+    ).toEqual(expect.arrayContaining([expect.objectContaining({ field: 'recurring' })]));
     for (const value of ['-1.00', '37000', '1e3', 'bad', ['37000.00', '1.00']]) {
       expect(
         validatePayHereNotification({

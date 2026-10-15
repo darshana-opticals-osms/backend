@@ -17,6 +17,8 @@ const PAYHERE_NOTIFICATION_FIELDS = Object.freeze([
   // Sandbox Checkout notifications may include this unsigned provider metadata.
   // Financial verification still uses payhere_amount, never captured_amount.
   'captured_amount',
+  // Observed in one-time Sandbox Checkout IPNs; unsigned and discarded.
+  'recurring',
   'card_holder_name',
   'card_no',
   'card_expiry',

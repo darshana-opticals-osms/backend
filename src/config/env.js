@@ -27,6 +27,9 @@ function loadConfig(overrides = {}) {
     PAYHERE_RETURN_URL: process.env.PAYHERE_RETURN_URL || '',
     PAYHERE_CANCEL_URL: process.env.PAYHERE_CANCEL_URL || '',
     PAYHERE_NOTIFY_URL: process.env.PAYHERE_NOTIFY_URL || '',
+    PAYHERE_API_APP_ID: process.env.PAYHERE_API_APP_ID || '',
+    PAYHERE_API_APP_SECRET: process.env.PAYHERE_API_APP_SECRET || '',
+    PAYHERE_RETRIEVAL_TIMEOUT_MS: process.env.PAYHERE_RETRIEVAL_TIMEOUT_MS || '8000',
   };
 
   Object.assign(env, overrides);
@@ -55,6 +58,14 @@ function loadConfig(overrides = {}) {
 
   if (env.PAYMENT_CURRENCY !== 'LKR') {
     errors.push('PAYMENT_CURRENCY must be LKR.');
+  }
+
+  if (
+    !/^\d+$/.test(String(env.PAYHERE_RETRIEVAL_TIMEOUT_MS)) ||
+    Number(env.PAYHERE_RETRIEVAL_TIMEOUT_MS) < 1000 ||
+    Number(env.PAYHERE_RETRIEVAL_TIMEOUT_MS) > 30000
+  ) {
+    errors.push('PAYHERE_RETRIEVAL_TIMEOUT_MS must be an integer from 1000 to 30000.');
   }
 
   if (!['sandbox', 'live'].includes(env.PAYHERE_MODE)) {
@@ -101,6 +112,9 @@ function loadConfig(overrides = {}) {
     payhereReturnUrl: env.PAYHERE_RETURN_URL || undefined,
     payhereCancelUrl: env.PAYHERE_CANCEL_URL || undefined,
     payhereNotifyUrl: env.PAYHERE_NOTIFY_URL || undefined,
+    payhereApiAppId: env.PAYHERE_API_APP_ID || undefined,
+    payhereApiAppSecret: env.PAYHERE_API_APP_SECRET || undefined,
+    payhereRetrievalTimeoutMs: Number(env.PAYHERE_RETRIEVAL_TIMEOUT_MS),
     payhereCheckoutUrl:
       env.PAYHERE_MODE === 'live'
         ? 'https://www.payhere.lk/pay/checkout'
