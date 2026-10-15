@@ -8,6 +8,11 @@ const {
   appendConfirmedManualRefundEvidence,
   shapeManualRefundEvidence,
 } = require('../../src/services/manualRefundEvidence.service');
+const { recordConfirmedManualFullRefund } = require('../../src/services/manualRefund.service');
+const {
+  applyFullRefundReversal,
+  verifyFullRefundReversal,
+} = require('../../src/services/loyaltyRefundBoundary.service');
 
 describe('Internal manual full-refund evidence infrastructure', () => {
   it('accepts full-refund facts without inventing a mandatory receipt format or channel', () => {
@@ -120,4 +125,56 @@ describe('Internal manual full-refund evidence infrastructure', () => {
       });
     }
   );
+  it('keeps operational refund recording fail-closed on the real loyalty dependency', async () => {
+    await expect(applyFullRefundReversal()).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: 'REFUND_LOYALTY_REVERSAL_UNAVAILABLE',
+    });
+    await expect(verifyFullRefundReversal()).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: 'REFUND_LOYALTY_REVERSAL_UNAVAILABLE',
+    });
+  });
+  it('requires an authenticated manager identity before any refund reads or writes', async () => {
+    await expect(recordConfirmedManualFullRefund({})).rejects.toMatchObject({ statusCode: 401 });
+    for (const role of [
+      'CUSTOMER',
+      'BRANCH_ASSISTANT',
+      'OPTOMETRIST',
+      'SYSTEM_ADMIN',
+      'MANAGEMENT',
+    ])
+      await expect(recordConfirmedManualFullRefund({ auth: { role } })).rejects.toMatchObject({
+        statusCode: 403,
+      });
+    await expect(
+      recordConfirmedManualFullRefund({ auth: { role: 'BRANCH_MANAGER', userId: 'forged' } })
+    ).rejects.toMatchObject({ statusCode: 401 });
+  });
+  it('rejects invalid orchestration identifiers and unsupported fields before persistence', async () => {
+    const auth = { role: 'BRANCH_MANAGER', userId: new mongoose.Types.ObjectId().toString() };
+    const args = {
+      auth,
+      paymentId: new mongoose.Types.ObjectId().toString(),
+      idempotencyKey: 'refund-request',
+      evidence: { amount: 100, currency: 'LKR' },
+    };
+    for (const changes of [
+      { paymentId: 'bad-id' },
+      { idempotencyKey: '' },
+      { evidence: { ...args.evidence, status: 'refunded' } },
+    ])
+      await expect(recordConfirmedManualFullRefund({ ...args, ...changes })).rejects.toMatchObject({
+        statusCode: 422,
+      });
+  });
+  it('documents read-only evidence visibility without publishing an inactive refund mutation', () => {
+    const spec = require('../../src/config/swagger');
+    expect(spec.components.schemas.ManagementPayment.properties.refundEvidence).toBeDefined();
+    expect(spec.components.schemas.ManualRefundEvidence.nullable).toBe(true);
+    expect(spec.components.schemas.ManualRefundEvidence.properties).not.toHaveProperty(
+      'requestHash'
+    );
+    expect(Object.keys(spec.paths).filter((path) => /refund/.test(path))).toEqual([]);
+  });
 });

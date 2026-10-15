@@ -1,5 +1,7 @@
 const Payment = require('../models/payment.model');
 const PaymentEvent = require('../models/paymentEvent.model');
+const ManualRefundEvidence = require('../models/manualRefundEvidence.model');
+const { shapeManualRefundEvidence } = require('./manualRefundEvidence.service');
 const { ROLE_VALUES } = require('../constants/roles');
 const { ForbiddenError, NotFoundError, ValidationError } = require('../errors/AppError');
 const {
@@ -110,7 +112,15 @@ async function getManagementPayment({ role, paymentId }) {
   assertPaymentId(paymentId);
   const payment = await Payment.findById(paymentId).select(PAYMENT_FIELDS).lean();
   if (!payment) throw new NotFoundError('Payment attempt not found.', null, 'PAYMENT_NOT_FOUND');
-  return shapeManagementPayment(payment);
+  const refund = await ManualRefundEvidence.findOne({ paymentId })
+    .select(
+      '_id paymentId orderId providerOrderId providerTransactionId amount currency refundChannel refundReference recordedBy createdAt'
+    )
+    .lean();
+  return {
+    ...shapeManagementPayment(payment),
+    refundEvidence: refund ? shapeManualRefundEvidence(refund) : null,
+  };
 }
 
 async function listManagementPaymentEvents({ role, paymentId, query = {} }) {

@@ -175,6 +175,25 @@ paymentRouter.get(
  *         reconciliationReason: { type: string, nullable: true }
  *         createdAt: { type: string, format: date-time }
  *         updatedAt: { type: string, format: date-time }
+ *         refundEvidence:
+ *           $ref: '#/components/schemas/ManualRefundEvidence'
+ *     ManualRefundEvidence:
+ *       type: object
+ *       nullable: true
+ *       additionalProperties: false
+ *       description: Present only on single-Payment detail; null when absent. Sanitized append-only external full-refund metadata, BRANCH_MANAGER only. Evidence does not itself imply refunded status or completed loyalty reversal. Never includes internal keys, hashes, or raw receipts.
+ *       properties:
+ *         evidenceId: { type: string }
+ *         paymentId: { type: string }
+ *         orderId: { type: string }
+ *         providerOrderId: { type: string, nullable: true }
+ *         providerTransactionId: { type: string, nullable: true }
+ *         amount: { type: number }
+ *         currency: { type: string, enum: [LKR] }
+ *         refundChannel: { type: string, enum: [payhere_portal, bank_transfer], nullable: true }
+ *         refundReference: { type: string, nullable: true }
+ *         recordedBy: { type: string }
+ *         createdAt: { type: string, format: date-time }
  *     ManagementPaymentEvent:
  *       type: object
  *       additionalProperties: false
@@ -283,7 +302,7 @@ paymentRouter.get(
  * /payments/{paymentId}:
  *   get:
  *     summary: Inspect one Payment attempt
- *     description: BRANCH_MANAGER only. Read-only safe financial metadata. No query parameters accepted; no automatic reconciliation clearing or status mutation.
+ *     description: BRANCH_MANAGER only. Read-only safe financial metadata, including sanitized refundEvidence or null. Evidence alone does not imply Payment refunded or loyalty reversal. No query parameters accepted; no automatic reconciliation clearing or status mutation.
  *     tags: [Payments]
  *     security:
  *       - bearerAuth: []

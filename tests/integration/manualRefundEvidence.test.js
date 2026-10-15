@@ -13,6 +13,12 @@ const ManualRefundEvidence = require('../../src/models/manualRefundEvidence.mode
 const {
   appendConfirmedManualRefundEvidence,
 } = require('../../src/services/manualRefundEvidence.service');
+const { recordConfirmedManualFullRefund } = require('../../src/services/manualRefund.service');
+const loyaltyRefund = require('../../src/services/loyaltyRefundBoundary.service');
+const { processVerifiedNotification } = require('../../src/services/payment.service');
+const {
+  createNotificationSignature,
+} = require('../../src/services/adapters/PayHerePaymentAdapter');
 
 describe('Manual full-refund evidence persistence (no operational endpoint)', () => {
   let server;
@@ -31,6 +37,13 @@ describe('Manual full-refund evidence persistence (no operational endpoint)', ()
       NODE_ENV: 'test',
       JWT_SECRET: 'refund-infrastructure-test-secret',
       JWT_EXPIRES_IN: '1h',
+      PAYMENT_CURRENCY: 'LKR',
+      PAYHERE_MODE: 'sandbox',
+      PAYHERE_MERCHANT_ID: '1211149',
+      PAYHERE_MERCHANT_SECRET: 'refund-sandbox-test-secret',
+      PAYHERE_RETURN_URL: 'http://localhost:3000/payments/return',
+      PAYHERE_CANCEL_URL: 'http://localhost:3000/payments/cancel',
+      PAYHERE_NOTIFY_URL: 'https://example.test/api/payments/notify',
     });
     server = await MongoMemoryServer.create({ instance: { replSet: 'rs0' } });
     const uri = server.getUri();
@@ -489,5 +502,362 @@ describe('Manual full-refund evidence persistence (no operational endpoint)', ()
     }
     expect(await ManualRefundEvidence.countDocuments()).toBe(0);
     expect((await Payment.findById(payment._id)).status).toBe('completed');
+  });
+
+  describe('Inactive manual full-refund transaction orchestration', () => {
+    const record = (payment, changes = {}) =>
+      recordConfirmedManualFullRefund({
+        auth,
+        paymentId: payment._id.toString(),
+        evidence,
+        idempotencyKey: 'record-refund-1',
+        ...changes,
+      });
+    // Explicit test-only doubles for application AND authoritative completion verification.
+    // This is NOT an implemented or activated loyalty reversal/ledger.
+    const simulateAvailableLoyalty = () => {
+      jest.spyOn(loyaltyRefund, 'verifyFullRefundReversal').mockResolvedValue(true);
+      return jest.spyOn(loyaltyRefund, 'applyFullRefundReversal').mockResolvedValue(undefined);
+    };
+    const state = async () => ({
+      payments: await Payment.find().sort({ _id: 1 }).lean(),
+      orders: await Order.find().lean(),
+      events: await PaymentEvent.find().sort({ _id: 1 }).lean(),
+      inventory: await Inventory.find().lean(),
+      customers: await Customer.find().lean(),
+      refundEvidence: await ManualRefundEvidence.find()
+        .select('+requestHash +idempotencyKey')
+        .sort({ _id: 1 })
+        .lean(),
+    });
+    const callback = (payment, statusCode = '2', transactionId = payment.providerTransactionId) => {
+      const fields = {
+        merchant_id: process.env.PAYHERE_MERCHANT_ID,
+        order_id: payment.providerOrderId,
+        payment_id: transactionId,
+        payhere_amount: '100.00',
+        payhere_currency: 'LKR',
+        status_code: statusCode,
+      };
+      fields.md5sig = createNotificationSignature(fields, process.env.PAYHERE_MERCHANT_SECRET);
+      return fields;
+    };
+    afterEach(() => jest.restoreAllMocks());
+
+    it.each(['PROCESSING', 'COMPLETED', 'CANCELLED'])(
+      'fails closed without loyalty reversal for a %s Order and rolls back all provisional writes',
+      async (status) => {
+        const { payment, order } = await fixture();
+        await Order.updateOne({ _id: order._id }, { $set: { status } });
+        const before = await state();
+        await expect(record(payment)).rejects.toMatchObject({
+          statusCode: 409,
+          errorCode: 'REFUND_LOYALTY_REVERSAL_UNAVAILABLE',
+        });
+        expect(await state()).toEqual(before);
+        expect(await ManualRefundEvidence.countDocuments()).toBe(0);
+      }
+    );
+    it('holds matching already-refunded evidence on identical retries when durable reversal verification is unavailable', async () => {
+      const { payment } = await fixture({ status: 'refunded' });
+      await append(payment, 'record-refund-1');
+      const before = await state();
+      const reversal = jest.spyOn(loyaltyRefund, 'applyFullRefundReversal');
+      for (let retry = 0; retry < 2; retry += 1) {
+        await expect(record(payment)).rejects.toMatchObject({
+          statusCode: 409,
+          errorCode: 'REFUND_LOYALTY_REVERSAL_UNAVAILABLE',
+        });
+        expect(await state()).toEqual(before);
+      }
+      expect(reversal).not.toHaveBeenCalled();
+      expect(await ManualRefundEvidence.countDocuments()).toBe(1);
+    });
+    it('does not treat a successful application double as durable verification on retry', async () => {
+      const reversal = jest
+        .spyOn(loyaltyRefund, 'applyFullRefundReversal')
+        .mockResolvedValue(undefined);
+      const { payment } = await fixture();
+      await record(payment);
+      const before = await state();
+      await expect(record(payment)).rejects.toMatchObject({
+        errorCode: 'REFUND_LOYALTY_REVERSAL_UNAVAILABLE',
+      });
+      expect(await state()).toEqual(before);
+      expect(reversal).toHaveBeenCalledTimes(1);
+    });
+    it.each([false, undefined, { completed: true }])(
+      'rejects nonauthoritative verification result %j without changing existing records',
+      async (completion) => {
+        const { payment } = await fixture({ status: 'refunded' });
+        await append(payment, 'record-refund-1');
+        jest.spyOn(loyaltyRefund, 'verifyFullRefundReversal').mockResolvedValue(completion);
+        const before = await state();
+        await expect(record(payment)).rejects.toMatchObject({
+          errorCode: 'REFUND_LOYALTY_REVERSAL_UNCONFIRMED',
+        });
+        expect(await state()).toEqual(before);
+      }
+    );
+    it('simulates the approved transition atomically, preserving capture, provider history and domain state', async () => {
+      const verification = jest
+        .spyOn(loyaltyRefund, 'verifyFullRefundReversal')
+        .mockImplementation(async ({ payment, order, refundEvidence, session }) => {
+          expect(session.inTransaction()).toBe(true);
+          expect(payment.status).toBe('refunded');
+          expect(payment.orderId).toEqual(order._id);
+          const audit = await ManualRefundEvidence.findById(refundEvidence.evidenceId).session(
+            session
+          );
+          expect(audit.paymentId).toEqual(payment._id);
+          // Explicitly simulate the future authoritative adapter confirming durable completion.
+          return true;
+        });
+      const reversal = jest
+        .spyOn(loyaltyRefund, 'applyFullRefundReversal')
+        .mockImplementation(async ({ payment, refundEvidence, session }) => {
+          expect(session.inTransaction()).toBe(true);
+          expect((await Payment.findById(payment._id).session(session)).status).toBe('refunded');
+          expect(
+            await ManualRefundEvidence.findById(refundEvidence.evidenceId).session(session)
+          ).not.toBeNull();
+          expect(await ManualRefundEvidence.countDocuments()).toBe(0);
+        });
+      const { payment, order } = await fixture();
+      const before = await state();
+      const result = await record(payment);
+      expect(result).toMatchObject({
+        paymentId: payment._id.toString(),
+        status: 'refunded',
+        amount: 100,
+        currency: 'LKR',
+        refundEvidence: {
+          providerTransactionId: payment.providerTransactionId,
+          recordedBy: auth.userId,
+        },
+      });
+      const after = await state();
+      expect(after.events).toEqual(before.events);
+      expect(after.inventory).toEqual(before.inventory);
+      expect(after.customers).toEqual(before.customers);
+      expect(after.orders[0]).toMatchObject({
+        _id: order._id,
+        status: before.orders[0].status,
+        statusHistory: before.orders[0].statusHistory,
+        reservationExpiresAt: before.orders[0].reservationExpiresAt,
+        inventoryRestoredAt: before.orders[0].inventoryRestoredAt,
+      });
+      const originalCapture = { ...before.payments[0] };
+      delete originalCapture.status;
+      delete originalCapture.updatedAt;
+      expect(after.payments[0]).toMatchObject(originalCapture);
+      expect(reversal).toHaveBeenCalledTimes(1);
+      expect(verification).not.toHaveBeenCalled();
+      expect(await record(payment)).toEqual(result);
+      expect(reversal).toHaveBeenCalledTimes(1);
+      expect(verification).toHaveBeenCalledTimes(1);
+      expect(await ManualRefundEvidence.countDocuments()).toBe(1);
+    });
+    it('serializes concurrent identical requests with one evidence record and one simulated reversal', async () => {
+      const reversal = simulateAvailableLoyalty();
+      const { payment } = await fixture();
+      const results = await Promise.all([record(payment), record(payment), record(payment)]);
+      expect(results[1]).toEqual(results[0]);
+      expect(results[2]).toEqual(results[0]);
+      expect(await ManualRefundEvidence.countDocuments()).toBe(1);
+      expect(reversal).toHaveBeenCalledTimes(1);
+    });
+    it('rejects concurrent different keys, changed evidence and changed actors without another refund', async () => {
+      const reversal = simulateAvailableLoyalty();
+      const { payment } = await fixture();
+      const results = await Promise.allSettled([
+        record(payment),
+        record(payment, { idempotencyKey: 'different-key' }),
+      ]);
+      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      expect(results.find((result) => result.status === 'rejected').reason).toMatchObject({
+        statusCode: 409,
+        errorCode: 'REFUND_EVIDENCE_CONFLICT',
+      });
+      const winner = await ManualRefundEvidence.findOne().select('+idempotencyKey').lean();
+      for (const changes of [
+        { evidence: { ...evidence, refundReference: 'CHANGED' } },
+        { auth: { ...auth, userId: new mongoose.Types.ObjectId().toString() } },
+      ])
+        await expect(
+          record(payment, { idempotencyKey: winner.idempotencyKey, ...changes })
+        ).rejects.toMatchObject({ errorCode: 'REFUND_EVIDENCE_CONFLICT' });
+      expect(await ManualRefundEvidence.countDocuments()).toBe(1);
+      expect(reversal).toHaveBeenCalledTimes(1);
+    });
+    it('restarts after a real duplicate-key abort caused by a concurrent Part 1 writer', async () => {
+      const reversal = simulateAvailableLoyalty();
+      const { payment } = await fixture();
+      const create = ManualRefundEvidence.create.bind(ManualRefundEvidence);
+      jest
+        .spyOn(ManualRefundEvidence, 'create')
+        .mockImplementationOnce(async (records, options) => {
+          // Simulate the existing non-locking append primitive committing the identical record.
+          await create(records.map((item) => ({ ...item })));
+          return create(records, options);
+        });
+      const result = await record(payment);
+      expect(result.status).toBe('refunded');
+      expect(await ManualRefundEvidence.countDocuments()).toBe(1);
+      expect(reversal).toHaveBeenCalledTimes(1);
+      expect(await record(payment)).toEqual(result);
+    });
+    it('rolls back evidence and Payment if the loyalty boundary fails after provisional changes', async () => {
+      const failure = new Error('simulated loyalty storage failure');
+      jest.spyOn(loyaltyRefund, 'applyFullRefundReversal').mockRejectedValue(failure);
+      const { payment } = await fixture();
+      const before = await state();
+      await expect(record(payment)).rejects.toBe(failure);
+      expect(await state()).toEqual(before);
+      expect(await ManualRefundEvidence.countDocuments()).toBe(0);
+    });
+    it('rolls back inserted evidence if the conditional Payment transition does not match', async () => {
+      const reversal = simulateAvailableLoyalty();
+      const { payment } = await fixture();
+      const before = await state();
+      jest.spyOn(Payment, 'updateOne').mockResolvedValueOnce({ modifiedCount: 0 });
+      await expect(record(payment)).rejects.toMatchObject({ errorCode: 'REFUND_SOURCE_CONFLICT' });
+      expect(await ManualRefundEvidence.countDocuments()).toBe(0);
+      expect(await state()).toEqual(before);
+      expect(reversal).not.toHaveBeenCalled();
+    });
+    it.each([
+      { amount: 99, currency: 'LKR' },
+      { amount: 100, currency: 'USD' },
+      { ...evidence, rawPayload: { cvv: 'secret' } },
+      { ...evidence, recordedBy: 'forged-actor' },
+    ])('rejects invalid evidence %j without any local changes', async (invalid) => {
+      const { payment } = await fixture();
+      const before = await state();
+      await expect(record(payment, { evidence: invalid })).rejects.toMatchObject({
+        statusCode: 422,
+      });
+      expect(await state()).toEqual(before);
+      expect(await ManualRefundEvidence.countDocuments()).toBe(0);
+    });
+    it('rejects conflicting authoritative Order totals without trusting the submitted amount', async () => {
+      const { payment, order } = await fixture();
+      await Order.updateOne({ _id: order._id }, { $set: { orderAmount: 99 } });
+      const before = await state();
+      await expect(record(payment)).rejects.toMatchObject({ errorCode: 'REFUND_SOURCE_MISMATCH' });
+      expect(await state()).toEqual(before);
+      expect(await ManualRefundEvidence.countDocuments()).toBe(0);
+    });
+    it.each(['pending', 'processing', 'failed', 'cancelled'])(
+      'does not record a refund from %s',
+      async (status) => {
+        const { payment } = await fixture({ status });
+        await expect(record(payment)).rejects.toMatchObject({
+          errorCode: 'REFUND_CAPTURE_UNVERIFIED',
+        });
+        expect((await Payment.findById(payment._id)).status).toBe(status);
+        expect(await ManualRefundEvidence.countDocuments()).toBe(0);
+      }
+    );
+    it('rejects completed records without authoritative capture evidence', async () => {
+      const { payment } = await fixture();
+      await PaymentEvent.deleteMany({});
+      await expect(record(payment)).rejects.toMatchObject({
+        errorCode: 'REFUND_CAPTURE_UNVERIFIED',
+      });
+      expect(await ManualRefundEvidence.countDocuments()).toBe(0);
+    });
+    it.each([
+      { providerTransactionId: 'OTHER-CAPTURE' },
+      { action: 'duplicate' },
+      { amount: '99.00' },
+      { currency: 'USD' },
+    ])('requires exactly matching verified applied capture evidence %j', async (changes) => {
+      const { payment, event } = await fixture();
+      // Deliberately corrupt this disposable fixture, including immutable source fields.
+      await PaymentEvent.collection.updateOne({ _id: event._id }, { $set: changes });
+      await expect(record(payment)).rejects.toMatchObject({
+        errorCode: 'REFUND_CAPTURE_UNVERIFIED',
+      });
+      expect(await ManualRefundEvidence.countDocuments()).toBe(0);
+    });
+    it.each(['target', 'other', 'event'])(
+      'holds unresolved %s reconciliation without evidence or state changes',
+      async (source) => {
+        const { payment, event } = await fixture();
+        if (source === 'target')
+          await Payment.updateOne({ _id: payment._id }, { $set: { reconciliationRequired: true } });
+        if (source === 'other')
+          await Payment.create({
+            orderId: payment.orderId,
+            amount: 100,
+            method: 'online_gateway',
+            status: 'failed',
+            reconciliationRequired: true,
+          });
+        if (source === 'event')
+          await PaymentEvent.updateOne(
+            { _id: event._id },
+            { $set: { action: 'reconciliation_required' } }
+          );
+        const before = await state();
+        await expect(record(payment)).rejects.toMatchObject({
+          errorCode: 'PAYMENT_RECONCILIATION_REQUIRED',
+        });
+        expect(await state()).toEqual(before);
+        expect(await ManualRefundEvidence.countDocuments()).toBe(0);
+      }
+    );
+    it('holds another active uncertain attempt rather than falsely resolving its outcome', async () => {
+      const { payment } = await fixture();
+      await Payment.create({
+        orderId: payment.orderId,
+        amount: 100,
+        method: 'online_gateway',
+        status: 'pending',
+      });
+      const before = await state();
+      await expect(record(payment)).rejects.toMatchObject({
+        errorCode: 'REFUND_OTHER_ATTEMPT_UNRESOLVED',
+      });
+      expect(await state()).toEqual(before);
+      expect(await ManualRefundEvidence.countDocuments()).toBe(0);
+    });
+    it.each(['chargeback', 'distinct-success', 'capture-replay'])(
+      'coordinates a %s callback race without erasing verified evidence or changing Order/inventory',
+      async (kind) => {
+        simulateAvailableLoyalty();
+        const { payment } = await fixture();
+        const before = await state();
+        const fields = callback(
+          payment,
+          kind === 'chargeback' ? '-3' : '2',
+          kind === 'distinct-success' ? 'PH-SECOND-CAPTURE' : payment.providerTransactionId
+        );
+        const [refund, notification] = await Promise.allSettled([
+          record(payment),
+          processVerifiedNotification(fields),
+        ]);
+        expect(notification.status).toBe('fulfilled');
+        const current = await Payment.findById(payment._id);
+        if (refund.status === 'fulfilled') {
+          expect(current.status).toBe('refunded');
+          expect(await ManualRefundEvidence.countDocuments()).toBe(1);
+        } else {
+          expect(refund.reason).toMatchObject({ errorCode: 'PAYMENT_RECONCILIATION_REQUIRED' });
+          expect(current.status).toBe('completed');
+          expect(await ManualRefundEvidence.countDocuments()).toBe(0);
+        }
+        if (kind !== 'capture-replay') expect(current.reconciliationRequired).toBe(true);
+        const after = await state();
+        expect(after.events).toEqual(expect.arrayContaining(before.events));
+        expect(after.events).toHaveLength(2);
+        expect(after.inventory).toEqual(before.inventory);
+        expect(after.customers).toEqual(before.customers);
+        expect(after.orders[0].status).toBe(before.orders[0].status);
+        expect(after.orders[0].statusHistory).toEqual(before.orders[0].statusHistory);
+        expect(current.providerTransactionId).toBe(payment.providerTransactionId);
+      }
+    );
   });
 });

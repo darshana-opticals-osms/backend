@@ -217,6 +217,76 @@ Payment becomes completed and Order moves to **PROCESSING**. Neither rule is cha
 or selected here. No loyalty award, reversal, Order cancellation or inventory
 restoration is performed by this infrastructure.
 
+### Phase 5B Part 2: inactive manual full-refund orchestration
+
+`manualRefund.service.recordConfirmedManualFullRefund` is internal only: no refund
+controller, route, scheduler, Swagger mutation operation or runtime enable flag is
+installed. It accepts trusted manager auth context, a Payment ID, an idempotency key
+and the existing Part 1 evidence contract. The caller must have verified that the
+external full refund really happened; this code never transfers money or verifies
+receipts. No new mandatory proof format is introduced.
+
+The orchestrator locks the Order through the existing transactional `__v` write,
+re-reads Payment/Order data, matches full stored totals and LKR currency, and requires
+the exact original successful applied PayHere PaymentEvent. Related active/captured
+attempts, any reconciliation flag, or reconciliation-required events hold processing.
+There is no reconciliation-resolution model yet, so historical reconciliation events
+cannot be assumed resolved merely because a flag is absent. It preserves the original
+capture reference and provider history, uses the existing unique refund/identity
+indexes, and supports identical replay without a second reversal only after durable
+loyalty reversal completion is authoritatively verified in the same session. Refund
+evidence and refunded Payment status alone are not completion proof. Duplicate-key
+recovery restarts the transaction after abort, never queries the aborted transaction.
+All session operations are sequential.
+
+Evidence insertion, the conditional `completed -> refunded` update and the loyalty
+boundary share one transaction. **The real loyalty application AND replay verification
+boundaries always throw
+`409 REFUND_LOYALTY_REVERSAL_UNAVAILABLE`, rolling all provisional changes back.**
+There is no loyalty balance, ledger or reversal service in this backend. A lack of
+implemented accrual is not proof that a particular purchase needs no reversal.
+ADR-011 section 15 requires reversal on refund; ADR-005 sections 16 and 18 to 20 require
+auditable reversal and balance/history consistency. Their award-trigger contradiction
+(section 14 versus section 13,
+described above) remains unchanged. Activation requires resolving that actual conflict
+and implementing an idempotent, source-linked, session-bound reversal contract with
+atomic balance/history writes and applicable prior-earning/redemption handling.
+No award formula, zero-point fallback or replacement business rule is selected here.
+
+Transaction/concurrency tests use an explicitly test-only loyalty double to exercise
+the prepared orchestration. Passing those tests is **not** evidence that production
+refund/loyalty mutation is ready. Tests also prove that the real dependency holds
+PROCESSING, COMPLETED and CANCELLED Orders with all provisional writes rolled back.
+Already-refunded retries also fail closed without durable verification, preserving
+Payment, Order lock metadata, audit evidence and inventory. The minimal future
+`verifyFullRefundReversal({ payment, order, refundEvidence, session })` interface must
+return exactly `true` only after reading authoritative durable reversal completion
+for the same Payment/refund. It is unavailable in production; successful replay tests
+explicitly simulate its confirmation. No ledger or zero-point fallback is introduced.
+Neither this code nor refund evidence changes Order status/history, restores inventory,
+clears reconciliation, edits provider events or executes external refunds. Committed
+test-double paths change only Payment status, audit evidence and Order lock metadata.
+
+Manager-only `GET /api/payments/:paymentId` now includes sanitized `refundEvidence`
+(or null); the list, event-list and customer status contracts are unchanged. Evidence
+may predate an operational refund transition and does not imply refunded status or
+completed loyalty reversal. Internal keys/hashes, arbitrary fields and raw receipts
+are excluded.
+
+Proposed **inactive** API contract for later activation/review:
+
+- `POST /api/payments/:paymentId/refunds`, authenticated `BRANCH_MANAGER` only.
+- `Idempotency-Key`: bounded scalar key following the existing internal contract.
+- Body: `{ amount, currency, refundChannel?, refundReference? }` using Part 1 validation;
+  submitted amount/currency confirm evidence, never determine the financial amount.
+- Success/replay: `200 { success: true, data: { paymentId, orderId, status: "refunded",
+amount, currency, refundEvidence } }`; identical actor/key/payload returns the same audit DTO
+  only after authoritative durable loyalty reversal verification.
+- Errors: authentication 401, role 403, missing source 404, unsafe/conflicting state 409,
+  invalid evidence 422. Reconciliation always holds, never auto-clears.
+
+This proposed path is deliberately not registered or advertised as an available API.
+
 ## Production-style start
 
 npm start

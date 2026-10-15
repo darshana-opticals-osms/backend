@@ -6,6 +6,10 @@ const { createApp } = require('../../src/app');
 const Payment = require('../../src/models/payment.model');
 const PaymentEvent = require('../../src/models/paymentEvent.model');
 const Order = require('../../src/models/order.model');
+const ManualRefundEvidence = require('../../src/models/manualRefundEvidence.model');
+const {
+  appendConfirmedManualRefundEvidence,
+} = require('../../src/services/manualRefundEvidence.service');
 
 const JWT_SECRET = 'management-payment-monitoring-test-secret';
 const token = (role = 'BRANCH_MANAGER', userId = new mongoose.Types.ObjectId().toString()) =>
@@ -20,10 +24,12 @@ describe('BRANCH_MANAGER payment monitoring APIs', () => {
     Object.assign(process.env, { NODE_ENV: 'test', JWT_SECRET, JWT_EXPIRES_IN: '1h' });
     server = await MongoMemoryServer.create();
     await mongoose.connect(server.getUri());
-    await Promise.all([Payment.init(), PaymentEvent.init()]);
+    await Promise.all([Payment.init(), PaymentEvent.init(), ManualRefundEvidence.init()]);
     app = createApp();
   }, 60000);
   beforeEach(async () => {
+    // Test-only native cleanup; application audit deletion remains prohibited.
+    await ManualRefundEvidence.collection.deleteMany({});
     await Promise.all([PaymentEvent.deleteMany({}), Payment.deleteMany({}), Order.deleteMany({})]);
   });
   afterAll(async () => {
@@ -271,6 +277,54 @@ describe('BRANCH_MANAGER payment monitoring APIs', () => {
       items: [],
       pagination: { page: 1, limit: 25, total: 0, totalPages: 0 },
     });
+    expect((await get(`/api/payments/${attempt._id}`)).body.data.refundEvidence).toBeNull();
+  });
+  it('exposes only sanitized refund evidence in manager detail without implying financial completion', async () => {
+    const attempt = await payment({
+      status: 'completed',
+      providerTransactionId: 'PH-REFUND-CAPTURE',
+    });
+    const actor = new mongoose.Types.ObjectId().toString();
+    const refund = await appendConfirmedManualRefundEvidence({
+      auth: { role: 'BRANCH_MANAGER', userId: actor },
+      paymentId: attempt._id.toString(),
+      evidence: {
+        amount: 100,
+        currency: 'LKR',
+        refundChannel: 'bank_transfer',
+        refundReference: 'BANK-REFUND-123',
+      },
+      idempotencyKey: 'private-request-key',
+    });
+    await ManualRefundEvidence.collection.updateOne(
+      { _id: new mongoose.Types.ObjectId(refund.evidenceId) },
+      {
+        $set: {
+          merchantSecret: 'private-secret',
+          rawPayload: { cvv: 'private-cvv' },
+          md5sig: 'private-signature',
+        },
+      }
+    );
+    const detail = await get(`/api/payments/${attempt._id}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.data.status).toBe('completed');
+    expect(detail.body.data.refundEvidence).toMatchObject({
+      evidenceId: refund.evidenceId,
+      amount: 100,
+      currency: 'LKR',
+      refundReference: 'BANK-REFUND-123',
+      recordedBy: actor,
+      providerTransactionId: 'PH-REFUND-CAPTURE',
+    });
+    for (const field of ['idempotencyKey', 'requestHash', 'rawPayload', 'md5sig', 'merchantSecret'])
+      expect(detail.body.data.refundEvidence).not.toHaveProperty(field);
+    expect(JSON.stringify(detail.body)).not.toContain('private-');
+    expect((await get('/api/payments')).body.data.items[0]).not.toHaveProperty('refundEvidence');
+    expect((await request(app).get(`/api/payments/${attempt._id}`)).status).toBe(401);
+    for (const role of ['CUSTOMER', 'BRANCH_ASSISTANT', 'OPTOMETRIST', 'SYSTEM_ADMIN'])
+      expect((await get(`/api/payments/${attempt._id}`, {}, token(role))).status).toBe(403);
+    expect((await Payment.findById(attempt._id)).status).toBe('completed');
   });
   it('monitoring leaves Payment, Order and verified events byte-for-byte unchanged', async () => {
     const order = await Order.create({
