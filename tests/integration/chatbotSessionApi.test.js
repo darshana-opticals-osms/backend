@@ -83,6 +83,7 @@ describe('Approved chatbot session budget: real endpoints and MongoDB', () => {
     expect(res.status).toBe(429);
     expect(res.body.error.code).toBe('CHATBOT_SESSION_EXHAUSTED');
     expect(Number(res.headers['retry-after'])).toBeGreaterThan(1700);
+    expect(res.headers['access-control-expose-headers']).toContain('Retry-After');
     expect(retrieve).toHaveBeenCalledTimes(10);
     expect(provider).toHaveBeenCalledTimes(10);
     expect(Object.keys(await Usage.findById(customer._id).lean()).sort()).toEqual([
