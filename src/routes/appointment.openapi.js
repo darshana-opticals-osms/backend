@@ -127,8 +127,8 @@
  * paths:
  *   /appointments/providers:
  *     get:
- *       summary: List eligible Gampaha Optometrists
- *       description: CUSTOMER and BRANCH_ASSISTANT assigned to the approved Gampaha branch. Returns eligible Gampaha Optometrists with provider ID and approved branch ID. Branch Assistants use these IDs to create doctor sessions. No staff directory access is granted.
+ *       summary: List active Doctors for appointment booking
+ *       description: CUSTOMER and BRANCH_ASSISTANT assigned to the approved Gampaha branch. Returns active Doctors with provider ID, name, and specialization. Branch Assistants use these IDs to create doctor sessions. No staff directory access is granted.
  *       tags: [Appointments]
  *       security: [{ bearerAuth: [] }]
  *       responses:
@@ -150,7 +150,7 @@
  *   /doctor-sessions/available:
  *     get:
  *       summary: List customer-bookable doctor sessions
- *       description: CUSTOMER-only. Includes future GAMPAHA_CENTRAL sessions with eligible Optometrists, available capacity, and at least 24 hours lead time. Booking revalidates availability.
+ *       description: CUSTOMER-only. Includes future GAMPAHA_CENTRAL sessions with active Doctors, available capacity, and at least 24 hours lead time. Booking revalidates availability.
  *       tags: [Appointments]
  *       security: [{ bearerAuth: [] }]
  *       responses:
@@ -181,7 +181,7 @@
  *         '500': { $ref: '#/components/responses/InternalServerError' }
  *     post:
  *       summary: Create a doctor session
- *       description: BRANCH_ASSISTANT only. Requires an eligible Gampaha Optometrist, non-overlapping ISO-8601 interval, positive capacity, explicit timezone, and GAMPAHA_CENTRAL branch. Scheduling writes are transactional.
+ *       description: BRANCH_ASSISTANT only. Requires an active Doctor, non-overlapping ISO-8601 interval, positive capacity, explicit timezone, and defaults to the approved GAMPAHA_CENTRAL branch. Scheduling writes are transactional.
  *       tags: [Appointments]
  *       security: [{ bearerAuth: [] }]
  *       requestBody:
@@ -251,7 +251,7 @@
  *         '500': { $ref: '#/components/responses/InternalServerError' }
  *     post:
  *       summary: Book a doctor session
- *       description: CUSTOMER-only. Server derives customer, provider, branch, timing, CONFIRMED status, and queue position. Booking requires GAMPAHA_CENTRAL, an eligible Optometrist, capacity, and session start at least 24 hours from server time. Position and capacity reservation are atomic. Submit only sessionId.
+ *       description: CUSTOMER-only. Server derives customer, provider, branch, timing, CONFIRMED status, and queue position. Booking requires GAMPAHA_CENTRAL, an active Doctor session, capacity, and session start at least 24 hours from server time. Position and capacity reservation are atomic. Submit only sessionId.
  *       tags: [Appointments]
  *       security: [{ bearerAuth: [] }]
  *       requestBody:
@@ -326,7 +326,7 @@
  *   /appointments/{id}/reassign:
  *     patch:
  *       summary: Reassign an appointment to another session
- *       description: BRANCH_ASSISTANT only. Source and target must be approved Gampaha sessions; target requires an eligible Gampaha Optometrist, at least 24 hours lead time, available capacity, and no duplicate customer booking. Source and target positions and counters are updated atomically. No query parameters are accepted.
+ *       description: BRANCH_ASSISTANT only. Source and target must be approved Gampaha sessions; target requires an active Doctor session, at least 24 hours lead time, available capacity, and no duplicate customer booking. Source and target positions and counters are updated atomically. No query parameters are accepted.
  *       tags: [Appointments]
  *       security: [{ bearerAuth: [] }]
  *       parameters:
