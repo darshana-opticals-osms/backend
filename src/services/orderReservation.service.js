@@ -3,8 +3,10 @@ const Order = require('../models/order.model');
 const OrderItem = require('../models/orderItem.model');
 const Inventory = require('../models/inventory.model');
 const Payment = require('../models/payment.model');
+const PaymentEvent = require('../models/paymentEvent.model');
 const Customer = require('../models/customer.model');
-const { PAYMENT_STATUS } = require('../constants/payment');
+const { PAYMENT_STATUS, PAYMENT_PROVIDER, PAYMENT_METHOD } = require('../constants/payment');
+const { cancelExpiredActiveAttempts } = require('./payment.service');
 const { ORDER_STATUS_VALUES } = require('../constants/orderStatuses');
 const { ConflictError, ValidationError } = require('../errors/AppError');
 const { evaluateReorderAlert } = require('./reorderAlert.service');
@@ -53,7 +55,13 @@ async function cancelUnpaidReservation({
       if (expiry && (!order.reservationExpiresAt || order.reservationExpiresAt > now)) return;
 
       const payments = await Payment.find({ orderId: order._id }).session(session);
-      if (payments.some((payment) => payment.reconciliationRequired)) {
+      if (
+        payments.some((payment) => payment.reconciliationRequired) ||
+        (await PaymentEvent.exists({
+          orderId: order._id,
+          action: 'reconciliation_required',
+        }).session(session))
+      ) {
         result = { action: 'held', reason: 'PAYMENT_RECONCILIATION_REQUIRED' };
         return;
       }
@@ -61,14 +69,32 @@ async function cancelUnpaidReservation({
         result = { action: 'held', reason: 'ORDER_ALREADY_PAID' };
         return;
       }
-      // Local timeouts cannot establish a provider outcome. Preserve uncertain
-      // attempts and stock until manual resolution (approved Phase 4 hold policy).
+      // ADR-011 sections 12/13 close stale local gateway sessions at the
+      // original Order deadline. Preserve other financial states and all
+      // uncertain attempts before that deadline (including staff cancellation).
       if (
         payments.some(
-          (payment) => ![PAYMENT_STATUS.FAILED, PAYMENT_STATUS.CANCELLED].includes(payment.status)
+          (payment) =>
+            ![PAYMENT_STATUS.FAILED, PAYMENT_STATUS.CANCELLED].includes(payment.status) &&
+            !(
+              expiry &&
+              [PAYMENT_STATUS.PENDING, PAYMENT_STATUS.PROCESSING].includes(payment.status) &&
+              payment.provider === PAYMENT_PROVIDER.PAYHERE &&
+              payment.method === PAYMENT_METHOD.ONLINE_GATEWAY
+            )
         )
       ) {
         result = { action: 'held', reason: 'PAYMENT_OUTCOME_UNCERTAIN' };
+        return;
+      }
+      if (
+        await PaymentEvent.exists({
+          orderId: order._id,
+          statusCode: '2',
+          action: 'applied',
+        }).session(session)
+      ) {
+        result = { action: 'held', reason: 'ORDER_ALREADY_PAID' };
         return;
       }
 
@@ -110,6 +136,7 @@ async function cancelUnpaidReservation({
         result = { action: 'held', reason: 'INVENTORY_RESTORATION_UNVERIFIABLE' };
         return;
       }
+      if (expiry) await cancelExpiredActiveAttempts(order._id, session);
       for (const inventory of inventories) {
         const restored = await Inventory.findOneAndUpdate(
           { _id: inventory._id },

@@ -36,8 +36,35 @@ describe('payment validation', () => {
     expect(
       validatePayHereNotification({
         ...request,
+        body: {
+          ...request.body,
+          captured_amount: '37000.00',
+          custom_1: '',
+          custom_2: 'order context',
+          method: 'VISA',
+          status_message: 'Payment received',
+          card_holder_name: 'Test Customer',
+          card_no: '************4564',
+          card_expiry: '1230',
+        },
+      })
+    ).toEqual([]);
+    expect(
+      validatePayHereNotification({
+        ...request,
         body: { ...request.body, order_id: ['PAY-123', 'PAY-456'] },
       })
     ).toEqual(expect.arrayContaining([expect.objectContaining({ field: 'order_id' })]));
+    for (const value of ['-1.00', '37000', '1e3', 'bad', ['37000.00', '1.00']]) {
+      expect(
+        validatePayHereNotification({
+          ...request,
+          body: { ...request.body, captured_amount: value },
+        })
+      ).toEqual(expect.arrayContaining([expect.objectContaining({ field: 'captured_amount' })]));
+    }
+    expect(
+      validatePayHereNotification({ ...request, body: { ...request.body, arbitrary: 'untrusted' } })
+    ).toEqual(expect.arrayContaining([expect.objectContaining({ field: 'arbitrary' })]));
   });
 });

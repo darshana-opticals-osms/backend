@@ -125,19 +125,31 @@ pages so held Orders do not prevent later reservations from being examined. The
 deadline remains the original checkout `reservationExpiresAt`; the sweep never
 extends it or creates a replacement payment window.
 
-Orders with no Payments, or only failed/cancelled attempts without unresolved
-reconciliation, can be cancelled and their exact reserved stock restored in one
+Orders without confirmed payment or unresolved reconciliation can expire. Stale
+PayHere pending/processing attempts are locally `cancelled` with
+`failureReason: session_expired` at the original reservation deadline (ADR-011
+sections 12/13). Orders with no Payments or only failed/cancelled attempts are also
+eligible. Exact reserved stock and the local session cancellation commit in one
 transaction. Unpaid staff cancellation uses the same restoration transaction.
 `inventoryRestoredAt` and the conditional Order transition prevent duplicate
 restoration. Payment initiation, IPNs and restoration coordinate through a write
 to the same Order document, requiring MongoDB replica-set or sharded-cluster support.
 Restored quantities also update existing reorder alerts transactionally.
 
-Approved Phase 4 conservative policy: pending/processing attempts and unresolved
-reconciliation hold the Order and stock for manual provider-outcome resolution.
-Local expiry does not assert that PayHere cancelled a transaction. Completed or
-refunded Payments also prevent automatic inventory release. No Payment or verified
-event history is rewritten by expiry.
+Local cancellation closes checkout; it does not claim PayHere cancelled or refunded
+funds. Late verified success is retained for reconciliation, never Order revival
+or another stock change. Completed/refunded Payments, confirmed capture evidence
+and unresolved reconciliation hold stock. Staff cancellation still holds uncertain
+active sessions before expiry. Attempts, provider references and verified events
+are retained; expiry creates no fabricated provider event.
+
+An initiation request after the original deadline closes stale local attempts but
+returns `409 ORDER_PAYMENT_EXPIRED` without a new checkout. ADR-011 section 8
+requires an unexpired Order; section 12 also describes a fresh attempt after the
+same 30-minute timeout. Retrying that expired Order needs clarification of this
+contradiction; no extension or stock re-reservation is inferred. A signed failure
+or cancellation before the deadline permits a distinct attempt within the remaining
+original reservation window. Browser navigation alone never cancels a Payment.
 
 Missing OrderItem inventory references, deleted Inventory, invalid stock quantities,
 or empty item lists block the entire restoration and are reported by the scheduler
@@ -150,6 +162,34 @@ Cancellation appends audit history and sends the existing shop-contact/refund-gu
 notification after commit. SMTP failure is logged without undoing cancellation.
 As with existing cancellation notifications, delivery is best effort; this phase
 does not add a durable notification outbox or automatic email retries.
+
+### PayHere callback and availability contracts
+
+`POST /api/payments/notify` accepts only allowlisted scalar form fields. The
+optional sandbox `captured_amount` must be a nonnegative decimal with two places;
+it is ignored for financial decisions and is not persisted. The official Checkout
+signature covers merchant ID, attempt reference, `payhere_amount`, currency and
+status; merchant/amount/currency checks, timing-safe verification and idempotency
+remain mandatory. Optional custom/card/message fields are discarded; only the
+safe provider payment-method label is retained. Unknown or duplicate fields remain
+rejected. See the [official PayHere Checkout contract](https://support.payhere.lk/api-%26-mobile-sdk/checkout-api).
+
+A separate per-IP limiter runs before callback form parsing, independently of the
+general customer API limiter. Defaults: `PAYHERE_NOTIFY_RATE_LIMIT_MAX=600` and
+`PAYHERE_NOTIFY_RATE_LIMIT_WINDOW_MS=60000` (600 requests per 60 seconds), including
+retries. Configure these positive integers at startup to fit provider delivery volume.
+Excess traffic receives `429 RATE_LIMIT_EXCEEDED` with `Retry-After`, before
+financial processing. The existing in-memory limiter applies per application
+process; shared deployment limits belong at the trusted proxy/shared limiter layer.
+
+Missing PayHere configuration returns operational `503 PAYMENT_UNAVAILABLE` with
+a safe message and no initiation effects. Hosted-checkout parameters are built
+locally; the backend does not make a charge request or probe the PayHere website.
+Provider website/network failure after successful initiation is therefore not a
+backend 503; verified IPNs and reservation expiry determine subsequent state.
+Actual sandbox E2E validation remains a manual step using a fresh Order within its
+reservation, sandbox credentials for the public callback domain, and a reachable
+notify URL. Never log callback bodies, signatures or credentials as evidence.
 
 ### Management payment monitoring
 

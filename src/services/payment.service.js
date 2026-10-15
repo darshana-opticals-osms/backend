@@ -95,13 +95,6 @@ function assertReusableAttempt(payment, order, expiresAt, now) {
       'PAYMENT_RECONCILIATION_REQUIRED'
     );
   }
-  if (!payment.expiresAt || payment.expiresAt <= now) {
-    throw new ConflictError(
-      'The previous payment attempt has expired, but its provider outcome is not yet known.',
-      null,
-      'PAYMENT_ATTEMPT_RECONCILIATION_REQUIRED'
-    );
-  }
   const canonicalAttempt =
     payment.amount === order.orderAmount &&
     payment.currency === PAYMENT_CURRENCY.LKR &&
@@ -109,6 +102,7 @@ function assertReusableAttempt(payment, order, expiresAt, now) {
     payment.method === PAYMENT_METHOD.ONLINE_GATEWAY &&
     typeof payment.providerOrderId === 'string' &&
     payment.providerOrderId.length > 0 &&
+    payment.expiresAt > now &&
     payment.expiresAt.getTime() === expiresAt.getTime();
   if (!canonicalAttempt) {
     throw new ConflictError(
@@ -142,6 +136,35 @@ async function assertOrderNotRefunded(orderId, session = null) {
   }
 }
 
+// Caller must hold the Order write lock in this session, verify the original
+// reservation has expired, and exclude captures/refunds/reconciliation first.
+// This closes a local checkout session; it does not assert a provider refund.
+async function cancelExpiredActiveAttempts(orderId, session) {
+  if (
+    await PaymentEvent.exists({
+      orderId,
+      $or: [{ action: 'reconciliation_required' }, { statusCode: '2', action: 'applied' }],
+    }).session(session)
+  ) {
+    throw new ConflictError(
+      'Verified payment evidence requires review before local session expiry.',
+      null,
+      'PAYMENT_RECONCILIATION_REQUIRED'
+    );
+  }
+  return Payment.updateMany(
+    {
+      orderId,
+      provider: PAYMENT_PROVIDER.PAYHERE,
+      method: PAYMENT_METHOD.ONLINE_GATEWAY,
+      status: { $in: ACTIVE_PAYMENT_STATUSES },
+      reconciliationRequired: { $ne: true },
+    },
+    { $set: { status: PAYMENT_STATUS.CANCELLED, failureReason: 'session_expired' } },
+    { session }
+  );
+}
+
 async function initiatePayment({ customerId, orderId, billingInput = {}, now = new Date() }) {
   if (!mongoose.isValidObjectId(customerId) || !mongoose.isValidObjectId(orderId)) {
     throw new ValidationError('Payment identifiers are invalid.');
@@ -152,9 +175,11 @@ async function initiatePayment({ customerId, orderId, billingInput = {}, now = n
   const session = await mongoose.startSession();
   let payment;
   let customer;
+  let reservationExpired = false;
 
   try {
     await session.withTransaction(async () => {
+      reservationExpired = false;
       const orderDocument = await Order.findOneAndUpdate(
         { _id: orderId, customerId },
         { $inc: { __v: 1 } },
@@ -175,9 +200,6 @@ async function initiatePayment({ customerId, orderId, billingInput = {}, now = n
       }
 
       const expiresAt = getReservationExpiry(orderDocument);
-      if (expiresAt <= now) {
-        throw new ConflictError('Order payment window has expired.', null, 'ORDER_PAYMENT_EXPIRED');
-      }
       await assertOrderNotRefunded(orderDocument._id, session);
       const completed = await Payment.exists({
         orderId: orderDocument._id,
@@ -185,6 +207,13 @@ async function initiatePayment({ customerId, orderId, billingInput = {}, now = n
       }).session(session);
       if (completed) {
         throw new ConflictError('Order has already been paid.', null, 'ORDER_ALREADY_PAID');
+      }
+      if (expiresAt <= now) {
+        await cancelExpiredActiveAttempts(orderDocument._id, session);
+        // Commit stale-session cleanup, then reject outside the transaction.
+        // ADR-011 section 8 forbids extending this Order's reservation for retry.
+        reservationExpired = true;
+        return;
       }
 
       payment = await findActiveAttempt(orderDocument._id, session);
@@ -243,6 +272,9 @@ async function initiatePayment({ customerId, orderId, billingInput = {}, now = n
     await session.endSession();
   }
 
+  if (reservationExpired) {
+    throw new ConflictError('Order payment window has expired.', null, 'ORDER_PAYMENT_EXPIRED');
+  }
   const billing = resolveBilling(customer, billingInput);
   return {
     payment: shapePayment(payment),
@@ -550,4 +582,5 @@ module.exports = {
   resolveBilling,
   shapePayment,
   buildEventKey,
+  cancelExpiredActiveAttempts,
 };

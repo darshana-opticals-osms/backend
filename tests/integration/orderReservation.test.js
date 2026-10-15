@@ -189,16 +189,62 @@ describe('Order reservation expiry and restoration', () => {
     }
   );
   it.each(['pending', 'processing'])(
-    'holds stale %s without inventing a financial outcome',
+    'closes stale %s locally and releases its original reservation once',
     async (status) => {
       const { order, inventory } = await reservation();
-      const payment = await attempt(order, status);
+      const payment = await attempt(order, status, {
+        providerTransactionId: 'PH-RETAINED',
+        providerPaymentMethod: 'VISA',
+      });
       const result = await sweepExpiredReservations({ now });
-      expect(result.held[0].reason).toBe('PAYMENT_OUTCOME_UNCERTAIN');
+      expect(result.cancelled).toBe(1);
+      expect(result.held).toEqual([]);
+      const retained = await Payment.findById(payment._id);
+      expect(retained.status).toBe('cancelled');
+      expect(retained.failureReason).toBe('session_expired');
+      expect(retained.providerTransactionId).toBe('PH-RETAINED');
+      expect(retained.providerPaymentMethod).toBe('VISA');
+      expect(retained.expiresAt).toEqual(payment.expiresAt);
+      expect(retained.reconciliationRequired).toBe(false);
+      expect((await Order.findById(order._id)).status).toBe('CANCELLED');
+      expect((await Inventory.findById(inventory._id)).quantity).toBe(7);
+      expect((await sweepExpiredReservations({ now })).cancelled).toBe(0);
+      expect((await Inventory.findById(inventory._id)).quantity).toBe(7);
+      expect(await PaymentEvent.countDocuments()).toBe(0); // Never fabricate a verified IPN.
+    }
+  );
+  it.each(['pending', 'processing'])(
+    'holds reconciliation-flagged %s at expiry',
+    async (status) => {
+      const { order, inventory } = await reservation();
+      const payment = await attempt(order, status, { reconciliationRequired: true });
+      const result = await sweepExpiredReservations({ now });
+      expect(result.held[0].reason).toBe('PAYMENT_RECONCILIATION_REQUIRED');
       expect((await Payment.findById(payment._id)).status).toBe(status);
       await expectUnchanged(order, inventory);
     }
   );
+  it('holds verified reconciliation evidence even when a Payment flag is absent', async () => {
+    const { order, inventory } = await reservation();
+    const payment = await attempt(order, 'pending');
+    await PaymentEvent.create({
+      eventKey: 'prior-reconciliation',
+      paymentId: payment._id,
+      orderId: order._id,
+      providerOrderId: payment.providerOrderId,
+      providerTransactionId: 'PH-PRIOR',
+      statusCode: '2',
+      amount: '200.00',
+      currency: 'LKR',
+      action: 'reconciliation_required',
+      reason: 'OTHER_PAYMENT_RECONCILIATION_PENDING',
+    });
+    expect((await sweepExpiredReservations({ now })).held[0].reason).toBe(
+      'PAYMENT_RECONCILIATION_REQUIRED'
+    );
+    expect((await Payment.findById(payment._id)).status).toBe('pending');
+    await expectUnchanged(order, inventory);
+  });
   it('holds unresolved reconciliation on a terminal attempt', async () => {
     const { order, inventory } = await reservation();
     await attempt(order, 'failed', {
@@ -211,6 +257,7 @@ describe('Order reservation expiry and restoration', () => {
   });
   it('multiple simultaneous workers restore stock once', async () => {
     const { order, inventory } = await reservation();
+    const payment = await attempt(order, 'pending');
     const results = await Promise.all([
       sweepExpiredReservations({ now }),
       sweepExpiredReservations({ now }),
@@ -220,6 +267,8 @@ describe('Order reservation expiry and restoration', () => {
     expect((await Inventory.findById(inventory._id)).quantity).toBe(7);
     expect((await Order.findById(order._id)).statusHistory).toHaveLength(2);
     expect(sendOrderCancellationNotification).toHaveBeenCalledTimes(1);
+    expect((await Payment.findById(payment._id)).status).toBe('cancelled');
+    expect((await Payment.findById(payment._id)).failureReason).toBe('session_expired');
   });
   it('staff cancellation competing with expiry restores once and retains the winning actor', async () => {
     const { order, inventory } = await reservation();
@@ -275,6 +324,7 @@ describe('Order reservation expiry and restoration', () => {
   });
   it('partial failure rolls stock, Order history and restoration guard back and allows safe retry', async () => {
     const { order, inventory } = await reservation();
+    const payment = await attempt(order, 'pending');
     await InventoryConfig.create({ key: 'REORDER_THRESHOLD', value: 6 });
     const alert = await ReorderAlert.create({
       inventoryId: inventory._id,
@@ -295,12 +345,15 @@ describe('Order reservation expiry and restoration', () => {
     try {
       expect((await sweepExpiredReservations({ now })).failed).toHaveLength(1);
       await expectUnchanged(order, inventory);
+      expect((await Payment.findById(payment._id)).status).toBe('pending');
+      expect((await Payment.findById(payment._id)).failureReason).toBeNull();
       expect(await ReorderAlert.findById(alert._id).lean()).toEqual(originalAlert);
     } finally {
       spy.mockRestore();
     }
     expect((await sweepExpiredReservations({ now })).cancelled).toBe(1);
     expect((await Inventory.findById(inventory._id)).quantity).toBe(7);
+    expect((await Payment.findById(payment._id)).failureReason).toBe('session_expired');
     expect((await ReorderAlert.findById(alert._id)).status).toBe(REORDER_ALERT_STATUS.RESOLVED);
   });
   it.each([
@@ -351,7 +404,7 @@ describe('Order reservation expiry and restoration', () => {
       log.mockRestore();
     }
   });
-  it('expiry and valid success preserve stock while the uncertain provider outcome resolves', async () => {
+  it('expiry and verified success serialize with one winning Order transition', async () => {
     const { order, inventory } = await reservation({
       reservationExpiresAt: new Date(Date.now() + 60000),
     });
@@ -360,26 +413,70 @@ describe('Order reservation expiry and restoration', () => {
       sweepExpiredReservations({ now: new Date(Date.now() + 120000) }),
       processVerifiedNotification(success(payment)),
     ]);
-    expect((await Order.findById(order._id)).status).toBe('PROCESSING');
-    expect((await Payment.findById(payment._id)).status).toBe('completed');
-    expect((await Inventory.findById(inventory._id)).quantity).toBe(5);
-    expect((await Order.findById(order._id)).inventoryRestoredAt).toBeNull();
-  });
-  it('expiry racing late success on a failed attempt never revives an Order or loses financial evidence', async () => {
-    const { order, inventory } = await reservation();
-    const payment = await attempt(order, 'failed');
-    await Promise.all([
-      sweepExpiredReservations({ now }),
-      processVerifiedNotification(success(payment)),
-    ]);
-    const stored = await Order.findById(order._id);
-    expect(['ORDER_CREATED', 'CANCELLED']).toContain(stored.status);
-    expect((await Payment.findById(payment._id)).reconciliationRequired).toBe(true);
+    const storedOrder = await Order.findById(order._id);
+    const storedPayment = await Payment.findById(payment._id);
+    if (storedOrder.status === 'PROCESSING') {
+      expect(storedPayment.status).toBe('completed');
+      expect((await Inventory.findById(inventory._id)).quantity).toBe(5);
+      expect(storedOrder.inventoryRestoredAt).toBeNull();
+    } else {
+      expect(storedOrder.status).toBe('CANCELLED');
+      expect(storedPayment.status).toBe('cancelled');
+      expect(storedPayment.reconciliationRequired).toBe(true);
+      expect((await Inventory.findById(inventory._id)).quantity).toBe(7);
+    }
+    expect(storedOrder.statusHistory).toHaveLength(2);
     expect(await PaymentEvent.countDocuments({ paymentId: payment._id })).toBe(1);
-    expect((await Inventory.findById(inventory._id)).quantity).toBe(
-      stored.status === 'CANCELLED' ? 7 : 5
-    );
   });
+  it('retains late success after local expiry without reviving the Order or restoring twice', async () => {
+    const { order, inventory, customer } = await reservation();
+    const payment = await attempt(order, 'processing');
+    expect((await sweepExpiredReservations({ now })).cancelled).toBe(1);
+    const fields = success(payment);
+    await Promise.all([processVerifiedNotification(fields), processVerifiedNotification(fields)]);
+    const retained = await Payment.findById(payment._id);
+    expect(retained.status).toBe('cancelled');
+    expect(retained.failureReason).toBe('session_expired');
+    expect(retained.reconciliationRequired).toBe(true);
+    expect(retained.reconciliationReason).toBe('LATE_SUCCESS_TERMINAL_ATTEMPT');
+    expect(
+      await PaymentEvent.countDocuments({
+        paymentId: payment._id,
+        statusCode: '2',
+        action: 'reconciliation_required',
+      })
+    ).toBe(1);
+    expect((await Order.findById(order._id)).status).toBe('CANCELLED');
+    expect((await Order.findById(order._id)).statusHistory).toHaveLength(2);
+    expect((await Inventory.findById(inventory._id)).quantity).toBe(7);
+    await expect(
+      initiatePayment({
+        orderId: order._id.toString(),
+        customerId: customer._id.toString(),
+        billingInput: { city: 'Colombo' },
+      })
+    ).rejects.toMatchObject({ statusCode: 409, errorCode: 'PAYMENT_RECONCILIATION_REQUIRED' });
+    expect(await Payment.countDocuments({ orderId: order._id })).toBe(1);
+    expect((await sweepExpiredReservations({ now })).cancelled).toBe(0);
+  });
+  it.each(['pending', 'processing', 'failed'])(
+    'expiry racing late success on %s never revives an Order or loses financial evidence',
+    async (status) => {
+      const { order, inventory } = await reservation();
+      const payment = await attempt(order, status);
+      await Promise.all([
+        sweepExpiredReservations({ now }),
+        processVerifiedNotification(success(payment)),
+      ]);
+      const stored = await Order.findById(order._id);
+      expect(['ORDER_CREATED', 'CANCELLED']).toContain(stored.status);
+      expect((await Payment.findById(payment._id)).reconciliationRequired).toBe(true);
+      expect(await PaymentEvent.countDocuments({ paymentId: payment._id })).toBe(1);
+      expect((await Inventory.findById(inventory._id)).quantity).toBe(
+        stored.status === 'CANCELLED' ? 7 : 5
+      );
+    }
+  );
 
   it('initiation racing expiry cannot create a chargeable attempt after stock is released', async () => {
     const { order, inventory, customer } = await reservation({
@@ -396,7 +493,7 @@ describe('Order reservation expiry and restoration', () => {
     const stored = await Order.findById(order._id);
     const payments = await Payment.find({ orderId: order._id });
     if (stored.status === 'CANCELLED') {
-      expect(payments).toHaveLength(0);
+      expect(payments.every((payment) => payment.status === 'cancelled')).toBe(true);
       expect((await Inventory.findById(inventory._id)).quantity).toBe(7);
     } else {
       expect(stored.status).toBe('ORDER_CREATED');
@@ -407,7 +504,7 @@ describe('Order reservation expiry and restoration', () => {
   });
   it('bounded pages progress past held Orders without starving later eligible reservations', async () => {
     const first = await reservation();
-    await attempt(first.order, 'pending');
+    await attempt(first.order, 'pending', { reconciliationRequired: true });
     await reservation();
     const page = await sweepExpiredReservations({ now, limit: 1 });
     expect(page.held).toHaveLength(1);

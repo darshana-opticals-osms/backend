@@ -1,6 +1,23 @@
 const swaggerSpec = require('../../src/config/swagger');
 
 describe('Swagger documentation integrity', () => {
+  it('documents callback metadata, abuse control and operational payment unavailability', () => {
+    const notify = swaggerSpec.paths['/payments/notify'].post;
+    const schema = notify.requestBody.content['application/x-www-form-urlencoded'].schema;
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.properties.captured_amount.type).toBe('string');
+    expect(schema.required).not.toContain('captured_amount');
+    expect(notify.responses['429'].headers['Retry-After']).toBeDefined();
+    for (const path of ['/payments/initiate', '/payments/notify']) {
+      expect(swaggerSpec.paths[path].post.responses['503'].$ref).toBe(
+        '#/components/responses/PaymentUnavailable'
+      );
+    }
+    expect(
+      swaggerSpec.components.responses.PaymentUnavailable.content['application/json'].example.error
+        .code
+    ).toBe('PAYMENT_UNAVAILABLE');
+  });
   const expectedOperations = [
     'GET /health',
     'POST /auth/register',

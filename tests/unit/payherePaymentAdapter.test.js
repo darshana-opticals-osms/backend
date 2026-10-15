@@ -47,6 +47,13 @@ describe('PayHerePaymentAdapter', () => {
     const adapter = new PayHerePaymentAdapter(config);
     expect(adapter.verifyNotification({ ...fields, md5sig: signature })).toBe(true);
     expect(adapter.verifyNotification({ ...fields, md5sig: '0'.repeat(32) })).toBe(false);
+    const otherMerchant = { ...fields, merchant_id: 'other-merchant' };
+    expect(
+      adapter.verifyNotification({
+        ...otherMerchant,
+        md5sig: createNotificationSignature(otherMerchant, config.payhereMerchantSecret),
+      })
+    ).toBe(false);
     expect(timingSafeSignatureEqual('bad', signature)).toBe(false);
   });
 
@@ -77,5 +84,26 @@ describe('PayHerePaymentAdapter', () => {
       country: 'Sri Lanka',
     });
     expect(JSON.stringify(payload)).not.toContain(config.payhereMerchantSecret);
+  });
+
+  it.each([
+    'payhereMerchantId',
+    'payhereMerchantSecret',
+    'payhereReturnUrl',
+    'payhereCancelUrl',
+    'payhereNotifyUrl',
+  ])('uses a safe operational 503 when %s is absent', (field) => {
+    const adapter = new PayHerePaymentAdapter({ ...config, [field]: undefined });
+    expect(() => adapter.assertConfigured()).toThrow(
+      expect.objectContaining({
+        statusCode: 503,
+        errorCode: 'PAYMENT_UNAVAILABLE',
+        isOperational: true,
+        details: null,
+      })
+    );
+    expect(() => adapter.verifyNotification({})).toThrow(
+      'Payment gateway is temporarily unavailable.'
+    );
   });
 });

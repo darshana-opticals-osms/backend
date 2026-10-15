@@ -57,6 +57,17 @@ const CHATBOT_RATE_LIMIT = {
   max: Number(process.env.CHATBOT_RATE_LIMIT_MAX) || 10,
 };
 
+// Provider callbacks share provider IPs and retry delivery. Keep this independent
+// of the much stricter customer API limit, while bounding unauthenticated work.
+const positiveInteger = (value, fallback) => {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? number : fallback;
+};
+const PAYHERE_NOTIFICATION_RATE_LIMIT = {
+  windowMs: positiveInteger(process.env.PAYHERE_NOTIFY_RATE_LIMIT_WINDOW_MS, 60 * 1000),
+  max: positiveInteger(process.env.PAYHERE_NOTIFY_RATE_LIMIT_MAX, 600),
+};
+
 /**
  * Request body size limit (AC7).
  * Default: 10 kilobytes — rejects unexpectedly large payloads before
@@ -69,5 +80,6 @@ module.exports = {
   GENERAL_RATE_LIMIT,
   AUTH_RATE_LIMIT,
   CHATBOT_RATE_LIMIT,
+  PAYHERE_NOTIFICATION_RATE_LIMIT,
   REQUEST_BODY_LIMIT,
 };

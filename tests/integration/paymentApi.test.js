@@ -318,7 +318,7 @@ describe('Payment API and PayHere IPN', () => {
     }
   });
 
-  it('blocks retry when an expired active attempt still has an uncertain provider outcome', async () => {
+  it('holds inconsistent attempt expiry without extending an unexpired Order reservation', async () => {
     const customer = await createCustomer('pay-expired-attempt@example.com');
     const order = await createOrder(customer);
     const attempt = await Payment.create({
@@ -334,13 +334,84 @@ describe('Payment API and PayHere IPN', () => {
 
     expect(responses.map((response) => response.status)).toEqual([409, 409]);
     for (const response of responses) {
-      expect(response.body.error.code).toBe('PAYMENT_ATTEMPT_RECONCILIATION_REQUIRED');
+      expect(response.body.error.code).toBe('PAYMENT_ATTEMPT_NOT_REUSABLE');
     }
     expect(await Payment.countDocuments({ orderId: order._id })).toBe(1);
     expect((await Payment.findById(attempt._id)).expiresAt.getTime()).toBe(
       attempt.expiresAt.getTime()
     );
   });
+
+  it.each([PAYMENT_STATUS.PENDING, PAYMENT_STATUS.PROCESSING])(
+    'closes a stale %s session on initiation but never creates checkout past the original deadline',
+    async (status) => {
+      const customer = await createCustomer(`pay-stale-${status}@example.com`);
+      const order = await createOrder(customer, {
+        reservationExpiresAt: new Date(Date.now() - 1000),
+      });
+      const attempt = await Payment.create({
+        orderId: order._id,
+        amount: order.orderAmount,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+        status,
+        providerOrderId: `PAY-${new mongoose.Types.ObjectId()}`,
+        expiresAt: order.reservationExpiresAt,
+      });
+      const responses = await Promise.all([initiate(customer, order), initiate(customer, order)]);
+      expect(responses.map((response) => response.status)).toEqual([409, 409]);
+      for (const response of responses)
+        expect(response.body.error.code).toBe('ORDER_PAYMENT_EXPIRED');
+      const retained = await Payment.findById(attempt._id);
+      expect(retained.status).toBe(PAYMENT_STATUS.CANCELLED);
+      expect(retained.failureReason).toBe('session_expired');
+      expect(retained.expiresAt).toEqual(order.reservationExpiresAt);
+      expect(retained.providerOrderId).toBe(attempt.providerOrderId);
+      expect(await Payment.countDocuments({ orderId: order._id })).toBe(1);
+      const stored = await Order.findById(order._id);
+      expect(stored.status).toBe(ORDER_STATUS_VALUES.ORDER_CREATED);
+      expect(stored.reservationExpiresAt).toEqual(order.reservationExpiresAt);
+      expect(stored.statusHistory).toHaveLength(1);
+      expect(stored.inventoryRestoredAt).toBeNull();
+      expect(await PaymentEvent.countDocuments()).toBe(0);
+    }
+  );
+
+  it.each(['reconciliation_required', 'applied'])(
+    'does not cancel an expired local attempt with stored verified %s success evidence',
+    async (action) => {
+      const customer = await createCustomer('pay-expired-evidence@example.com');
+      const order = await createOrder(customer, {
+        reservationExpiresAt: new Date(Date.now() - 1000),
+      });
+      const payment = await Payment.create({
+        orderId: order._id,
+        amount: order.orderAmount,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+        providerOrderId: `PAY-${new mongoose.Types.ObjectId()}`,
+        expiresAt: order.reservationExpiresAt,
+      });
+      await PaymentEvent.create({
+        eventKey: 'verified-before-expiry',
+        paymentId: payment._id,
+        orderId: order._id,
+        providerOrderId: payment.providerOrderId,
+        providerTransactionId: 'PH-VERIFIED',
+        statusCode: '2',
+        amount: '2500.00',
+        currency: 'LKR',
+        action,
+      });
+      const paymentBefore = await Payment.findById(payment._id).lean();
+      const orderBefore = await Order.findById(order._id).lean();
+      const response = await initiate(customer, order);
+      expect(response.status).toBe(409);
+      expect(response.body.error.code).toBe('PAYMENT_RECONCILIATION_REQUIRED');
+      expect(await Payment.findById(payment._id).lean()).toEqual(paymentBefore);
+      expect(await Order.findById(order._id).lean()).toEqual(orderBefore);
+      expect(await Payment.countDocuments({ orderId: order._id })).toBe(1);
+      expect(await PaymentEvent.countDocuments()).toBe(1);
+    }
+  );
 
   it('blocks reuse of an active attempt that already requires reconciliation', async () => {
     const customer = await createCustomer('pay-flagged-attempt@example.com');
@@ -522,6 +593,114 @@ describe('Payment API and PayHere IPN', () => {
     expect((await Payment.findById(payment._id)).status).toBe(status);
     expect((await Order.findById(order._id)).status).toBe(ORDER_STATUS_VALUES.ORDER_CREATED);
     expect(await PaymentEvent.countDocuments({ paymentId: payment._id })).toBe(1);
+    const retry = await initiate(customer, order);
+    expect(retry.status).toBe(201);
+    expect(retry.body.data.payment.paymentId).not.toBe(payment._id.toString());
+    expect(new Date(retry.body.data.payment.expiresAt)).toEqual(order.reservationExpiresAt);
+    expect((await Payment.findById(payment._id)).status).toBe(status);
+    expect(await Payment.countDocuments({ orderId: order._id })).toBe(2);
+  });
+
+  it('accepts sandbox captured_amount and optional Checkout metadata without trusting or persisting it', async () => {
+    const customer = await createCustomer('sandbox-metadata@example.com');
+    const order = await createOrder(customer, { orderAmount: 37000 });
+    expect((await initiate(customer, order)).status).toBe(201);
+    const payment = await Payment.findOne({ orderId: order._id });
+    const fields = notification(payment, {
+      captured_amount: '37000.00',
+      custom_1: '',
+      custom_2: 'sandbox metadata',
+      status_message: 'Successfully received the VISA payment',
+      card_holder_name: 'Test Customer',
+      card_no: '************4564',
+      card_expiry: '1230',
+    });
+    const forged = { ...fields, md5sig: '0'.repeat(32) };
+    expect((await request(app).post('/api/payments/notify').type('form').send(forged)).status).toBe(
+      403
+    );
+    expect((await Payment.findById(payment._id)).status).toBe(PAYMENT_STATUS.PENDING);
+    expect((await Order.findById(order._id)).status).toBe(ORDER_STATUS_VALUES.ORDER_CREATED);
+    expect(await PaymentEvent.countDocuments()).toBe(0);
+    const send = (body) => request(app).post('/api/payments/notify').type('form').send(body);
+    expect((await send({ ...fields, captured_amount: '-1.00' })).status).toBe(422);
+    expect((await send({ ...fields, arbitrary: 'untrusted' })).status).toBe(422);
+    expect((await send(fields)).status).toBe(200);
+    // Unsigned optional metadata cannot cause a second financial effect on replay.
+    expect((await send({ ...fields, captured_amount: '1.00' })).status).toBe(200);
+    const stored = await Payment.findById(payment._id).lean();
+    expect(stored.status).toBe(PAYMENT_STATUS.COMPLETED);
+    expect(stored.amount).toBe(37000);
+    expect((await Order.findById(order._id)).statusHistory).toHaveLength(2);
+    expect(await PaymentEvent.countDocuments({ paymentId: payment._id })).toBe(1);
+    const event = await PaymentEvent.findOne({ paymentId: payment._id }).lean();
+    for (const field of [
+      'captured_amount',
+      'custom_1',
+      'custom_2',
+      'status_message',
+      'card_holder_name',
+      'card_no',
+      'card_expiry',
+      'md5sig',
+    ]) {
+      expect(stored).not.toHaveProperty(field);
+      expect(event).not.toHaveProperty(field);
+    }
+  });
+
+  it.each([
+    'PAYHERE_MERCHANT_ID',
+    'PAYHERE_MERCHANT_SECRET',
+    'PAYHERE_RETURN_URL',
+    'PAYHERE_CANCEL_URL',
+    'PAYHERE_NOTIFY_URL',
+  ])('returns safe 503 with no persisted effects when %s is missing', async (field) => {
+    const customer = await createCustomer('pay-unavailable@example.com');
+    const order = await createOrder(customer);
+    const branch = await Branch.create({ address: 'Test Branch', contactNumber: '+94332000000' });
+    const inventory = await Inventory.create({
+      branchId: branch._id,
+      itemName: 'Frame',
+      category: 'Frames',
+      brand: 'Brand',
+      price: 2500,
+      quantity: 4,
+    });
+    const orderBefore = await Order.findById(order._id).lean();
+    const inventoryBefore = await Inventory.findById(inventory._id).lean();
+    const saved = process.env[field];
+    try {
+      process.env[field] = '';
+      const response = await initiate(customer, order);
+      expect(response.status).toBe(503);
+      expect(response.body).toEqual({
+        success: false,
+        error: {
+          code: 'PAYMENT_UNAVAILABLE',
+          message: 'Payment gateway is temporarily unavailable.',
+        },
+      });
+      const callback = await request(app)
+        .post('/api/payments/notify')
+        .type('form')
+        .send(
+          notification({
+            _id: new mongoose.Types.ObjectId(),
+            providerOrderId: 'PAY-UNAVAILABLE',
+            amount: order.orderAmount,
+            currency: PAYMENT_CURRENCY.LKR,
+          })
+        );
+      expect(callback.status).toBe(503);
+      expect(callback.body).toEqual(response.body);
+      expect(await Payment.countDocuments({ orderId: order._id })).toBe(0);
+      expect(await PaymentEvent.countDocuments()).toBe(0);
+      expect(await Order.findById(order._id).lean()).toEqual(orderBefore);
+      expect(await Inventory.findById(inventory._id).lean()).toEqual(inventoryBefore);
+    } finally {
+      process.env[field] = saved;
+    }
   });
 
   it('applies concurrent success once, transitions Order, and never changes inventory', async () => {

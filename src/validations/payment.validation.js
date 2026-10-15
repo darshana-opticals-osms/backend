@@ -14,6 +14,9 @@ const PAYHERE_NOTIFICATION_FIELDS = Object.freeze([
   'custom_2',
   'method',
   'status_message',
+  // Sandbox Checkout notifications may include this unsigned provider metadata.
+  // Financial verification still uses payhere_amount, never captured_amount.
+  'captured_amount',
   'card_holder_name',
   'card_no',
   'card_expiry',
@@ -101,6 +104,12 @@ function validatePayHereNotification(req) {
   }
   if (typeof body.payhere_amount === 'string' && !/^\d+\.\d{2}$/.test(body.payhere_amount)) {
     errors.push({ field: 'payhere_amount', message: 'Invalid PayHere amount format.' });
+  }
+  if (
+    body.captured_amount !== undefined &&
+    (typeof body.captured_amount !== 'string' || !/^\d+\.\d{2}$/.test(body.captured_amount))
+  ) {
+    errors.push({ field: 'captured_amount', message: 'Invalid PayHere captured amount format.' });
   }
 
   return errors;

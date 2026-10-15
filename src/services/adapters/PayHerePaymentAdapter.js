@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { BadRequestError } = require('../../errors/AppError');
+const { ServiceUnavailableError } = require('../../errors/AppError');
 
 const MD5_HEX_PATTERN = /^[A-F0-9]{32}$/;
 
@@ -71,7 +71,7 @@ class PayHerePaymentAdapter {
   }
 
   buildCheckoutPayload({ payment, customer, billing }) {
-    requirePayHereConfig(this.config);
+    this.assertConfigured();
     const amount = formatAmount(payment.amount);
     const currency = payment.currency;
     const merchantId = this.config.payhereMerchantId;
@@ -106,7 +106,7 @@ class PayHerePaymentAdapter {
   }
 
   verifyNotification(fields) {
-    requirePayHereConfig(this.config);
+    this.assertConfigured();
     if (fields.merchant_id !== this.config.payhereMerchantId) return false;
     const expected = createNotificationSignature(fields, this.config.payhereMerchantSecret);
     return timingSafeSignatureEqual(fields.md5sig, expected);
@@ -116,7 +116,11 @@ class PayHerePaymentAdapter {
     try {
       requirePayHereConfig(this.config);
     } catch {
-      throw new BadRequestError('Payment gateway is not configured.', null, 'PAYMENT_UNAVAILABLE');
+      throw new ServiceUnavailableError(
+        'Payment gateway is temporarily unavailable.',
+        null,
+        'PAYMENT_UNAVAILABLE'
+      );
     }
   }
 }

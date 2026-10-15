@@ -96,7 +96,7 @@ paymentRouter.post(
  * /payments/notify:
  *   post:
  *     summary: Receive a PayHere server-to-server payment notification
- *     description: Public provider callback. Trust is established by PayHere merchant and MD5 signature verification, not JWT authentication. Accepts form-encoded PayHere fields only. Browser return and cancel URLs are not payment proof.
+ *     description: Public provider callback. Trust is established by PayHere merchant and MD5 signature verification, not JWT authentication. Accepts only allowlisted form-encoded PayHere fields. Optional metadata is not signed financial authority; only method is retained as providerPaymentMethod, while captured_amount, card, custom and message fields are discarded. Browser return and cancel URLs are not payment proof. A separate configurable per-IP callback rate limit protects processing and permits provider retries.
  *     tags: [Payments]
  *     requestBody:
  *       required: true
@@ -104,6 +104,7 @@ paymentRouter.post(
  *         application/x-www-form-urlencoded:
  *           schema:
  *             type: object
+ *             additionalProperties: false
  *             required: [merchant_id, order_id, payment_id, payhere_amount, payhere_currency, status_code, md5sig]
  *             properties:
  *               merchant_id: { type: string }
@@ -113,12 +114,28 @@ paymentRouter.post(
  *               payhere_currency: { type: string, enum: [LKR] }
  *               status_code: { type: string, enum: ['2', '0', '-1', '-2', '-3'] }
  *               md5sig: { type: string, writeOnly: true }
+ *               captured_amount: { type: string, pattern: '^\\d+\\.\\d{2}$', description: Optional sandbox provider metadata; not used to determine financial state. }
+ *               custom_1: { type: string }
+ *               custom_2: { type: string }
+ *               method: { type: string }
+ *               status_message: { type: string }
+ *               card_holder_name: { type: string, writeOnly: true }
+ *               card_no: { type: string, writeOnly: true, description: Provider-masked card metadata; discarded. }
+ *               card_expiry: { type: string, writeOnly: true }
  *     responses:
  *       200: { description: Verified notification acknowledged, including idempotent replay. }
  *       400: { $ref: '#/components/responses/BadRequest' }
  *       403: { $ref: '#/components/responses/Forbidden' }
  *       404: { $ref: '#/components/responses/NotFound' }
  *       422: { $ref: '#/components/responses/ValidationError' }
+ *       429:
+ *         description: Callback rate limit exceeded; no financial state changed. Retry after the indicated interval.
+ *         headers:
+ *           Retry-After: { schema: { type: integer }, description: Seconds until the rate-limit window resets. }
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       503: { $ref: '#/components/responses/PaymentUnavailable' }
  *       500: { $ref: '#/components/responses/InternalServerError' }
  */
 paymentNotificationRouter.post('/', receivePayHereNotification);
@@ -128,7 +145,7 @@ paymentNotificationRouter.post('/', receivePayHereNotification);
  * /payments/initiate:
  *   post:
  *     summary: Initiate or reuse PayHere checkout for the customer's own Order
- *     description: CUSTOMER-only. The backend derives ownership, amount, LKR currency, online_gateway method, expiry and provider attempt identity. Validated billing fields override profile defaults for this checkout request only and do not update the Customer profile.
+ *     description: CUSTOMER-only. The backend derives ownership, amount, LKR currency, online_gateway method, expiry and provider attempt identity. Validated billing fields override profile defaults for this checkout request only and do not update the Customer profile. Missing gateway configuration returns 503 PAYMENT_UNAVAILABLE before persistence. Initiation builds a hosted-checkout form locally; it does not probe provider website availability or charge funds. Expired local sessions close with session_expired; this does not extend the original Order deadline or permit payment after reservation expiry.
  *     tags: [Payments]
  *     security:
  *       - bearerAuth: []
@@ -153,6 +170,7 @@ paymentNotificationRouter.post('/', receivePayHereNotification);
  *       404: { $ref: '#/components/responses/NotFound' }
  *       409: { $ref: '#/components/responses/Conflict' }
  *       422: { $ref: '#/components/responses/ValidationError' }
+ *       503: { $ref: '#/components/responses/PaymentUnavailable' }
  *       500: { $ref: '#/components/responses/InternalServerError' }
  */
 paymentRouter.post(

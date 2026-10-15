@@ -4,7 +4,11 @@ const cors = require('cors');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./config/swagger');
 const { CORS_CONFIG, REQUEST_BODY_LIMIT } = require('./config/security');
-const { generalLimiter, authLimiter } = require('./middleware/rateLimiter');
+const {
+  generalLimiter,
+  authLimiter,
+  payhereNotificationLimiter,
+} = require('./middleware/rateLimiter');
 const healthRoutes = require('./routes/health.routes');
 const authRoutes = require('./routes/auth.routes');
 const adminRoutes = require('./routes/admin.routes');
@@ -42,6 +46,7 @@ function createApp() {
   // that parses JSON or mutates string input.
   app.use(
     '/api/payments/notify',
+    payhereNotificationLimiter,
     express.urlencoded({ extended: false, limit: REQUEST_BODY_LIMIT, parameterLimit: 20 }),
     paymentNotificationRouter
   );

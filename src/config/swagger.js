@@ -1052,6 +1052,22 @@ const options = {
         },
       },
       responses: {
+        PaymentUnavailable: {
+          description:
+            'PayHere configuration is unavailable. No new attempt or financial change is persisted. This does not indicate the availability of the provider-hosted checkout website after initiation.',
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ErrorResponse' },
+              example: {
+                success: false,
+                error: {
+                  code: 'PAYMENT_UNAVAILABLE',
+                  message: 'Payment gateway is temporarily unavailable.',
+                },
+              },
+            },
+          },
+        },
         BadRequest: {
           description:
             'The request is malformed or does not match the expected provider transaction.',
