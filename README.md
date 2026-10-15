@@ -240,17 +240,17 @@ recovery restarts the transaction after abort, never queries the aborted transac
 All session operations are sequential.
 
 Evidence insertion, the conditional `completed -> refunded` update and the loyalty
-boundary share one transaction. **The real loyalty application AND replay verification
-boundaries always throw
-`409 REFUND_LOYALTY_REVERSAL_UNAVAILABLE`, rolling all provisional changes back.**
-There is no loyalty balance, ledger or reversal service in this backend. A lack of
-implemented accrual is not proof that a particular purchase needs no reversal.
+boundary share one transaction. Phase 6 Part 1 implements the ledger-backed reversal
+and verification primitives, but still installs no refund endpoint. Missing earning
+history holds the refund with `LOYALTY_EARNING_HISTORY_MISSING`; absence is not proof
+of a zero-point award. Missing or mismatched reversal evidence never verifies a replay.
 ADR-011 section 15 requires reversal on refund; ADR-005 sections 16 and 18 to 20 require
 auditable reversal and balance/history consistency. Their award-trigger contradiction
 (section 14 versus section 13,
 described above) remains unchanged. Activation requires resolving that actual conflict
-and implementing an idempotent, source-linked, session-bound reversal contract with
-atomic balance/history writes and applicable prior-earning/redemption handling.
+and the data/rounding contracts described below. Reversal is now idempotent,
+source-linked and session-bound with atomic balance/history writes. Negative balance
+or prior-redemption cases needing unspecified policy remain held.
 No award formula, zero-point fallback or replacement business rule is selected here.
 
 Transaction/concurrency tests use an explicitly test-only loyalty double to exercise
@@ -259,10 +259,12 @@ refund/loyalty mutation is ready. Tests also prove that the real dependency hold
 PROCESSING, COMPLETED and CANCELLED Orders with all provisional writes rolled back.
 Already-refunded retries also fail closed without durable verification, preserving
 Payment, Order lock metadata, audit evidence and inventory. The minimal future
-`verifyFullRefundReversal({ payment, order, refundEvidence, session })` interface must
+`verifyFullRefundReversal({ payment, order, refundEvidence, session })` interface will
 return exactly `true` only after reading authoritative durable reversal completion
-for the same Payment/refund. It is unavailable in production; successful replay tests
-explicitly simulate its confirmation. No ledger or zero-point fallback is introduced.
+for the same Payment/refund and checking balance/history consistency. It now uses
+the real ledger; neither a refunded Payment nor refund evidence alone is proof.
+Tests cover both the historical boundary doubles and the real reversal path.
+No zero-point fallback is introduced.
 Neither this code nor refund evidence changes Order status/history, restores inventory,
 clears reconciliation, edits provider events or executes external refunds. Committed
 test-double paths change only Payment status, audit evidence and Order lock metadata.
@@ -286,6 +288,68 @@ amount, currency, refundEvidence } }`; identical actor/key/payload returns the s
   invalid evidence 422. Reconciliation always holds, never auto-clears.
 
 This proposed path is deliberately not registered or advertised as an available API.
+
+### Phase 6 Part 1: loyalty core and refund reversal infrastructure
+
+New Customers have a hidden `loyaltyBalance` stored as exact Decimal128 `0.00`.
+Existing Customers without the field are **not** silently initialized or backfilled;
+loyalty writes hold with `LOYALTY_BALANCE_UNINITIALIZED` pending authoritative migration.
+Existing profile/authentication DTOs do not expose this internal field.
+
+`LoyaltyTransaction` stores Customer/Order/Payment IDs, controlled event type,
+source-event ID, original earning ID for reversals, capture reference, exact decimal
+points delta, resulting balance and creation timestamp. Unique indexes protect
+`(sourceEventId, eventType)` and one earning/one full reversal per Payment.
+`REDEMPTION_DEDUCTION` is centralized as an architectural event category only: no
+redemption operation, partial refund, manual adjustment or loyalty API is installed.
+
+All calculations use integer hundredths (`BigInt`) and validated Decimal128 strings,
+not binary floating-point sums. `earnedPoints = eligibleSpend / 100` is implemented
+for exact two-place results. Fractional LKR spend requiring more than two point
+places holds with `LOYALTY_ROUNDING_CONTRACT_REQUIRED`; no floor, half-up or other
+rounding convention is selected. Two-decimal **representation** is not a rounding policy.
+
+`earnPurchasePoints({ paymentId, session? })` accepts source IDs only, re-reads the
+verified applied capture and stored Order amount, and atomically updates balance
+and earning history. It has no live trigger. Its backend-only contract guards remain
+unavailable: ADR-005 section 14 requires Payment success plus Order COMPLETED, while
+ADR-011 section 13 specifies completed Payment plus PROCESSING. No status is chosen.
+The product catalog is Inventory-backed, with mutable free-text categories;
+OrderItems preserve exact inventory references but no authoritative merchandise/
+clinical classification. No item name, category string, total Order amount or client
+eligible-spend value is used as a substitute. Clinical examination fees cannot leak
+into an award: current data remains held with `LOYALTY_ITEM_CLASSIFICATION_REQUIRED`.
+An authoritative Order/Checkout eligibility contract is required, including safe
+handling for legacy items and the category scope noted in ADR-005 section 6.6.
+
+`reverseFullRefundPoints({ paymentId, refundEvidenceId, session? })` compensates only
+an existing, source-linked earning, preserving its original history. It validates the
+refunded capture, exact full-refund audit, reconciliation flags and provider evidence.
+It never invents a deduction for missing history. Insufficient balances or existing
+negative balances hold with `LOYALTY_NEGATIVE_BALANCE_POLICY_REQUIRED`, not clamping,
+partial reversal or assumed debt. `verifyFullRefundPoints` requires matching earning,
+reversal, capture and refund identities plus consistent Customer balance/history;
+later valid earnings do not invalidate an earlier reversal merely by changing balance.
+
+The services use the same Order lock as callbacks/refunds and sequential session
+operations. Supplied sessions must already be transactional; the caller must propagate
+errors and abort the whole workflow, and the service never commits/ends their session.
+Initialize collection/indexes before caller-owned transactions. Owned transactions
+retry driver-labelled transient errors; duplicate-key recovery starts a fresh
+transaction only after abort. Unique indexes and Customer write conflicts protect
+concurrent events, including different Orders belonging to the same Customer.
+
+Profile mutations reject balance changes. Ordinary Customer model saves/queries,
+bulk replacements, and aggregation writes cannot adjust balances; direct loyalty
+model writes/updates/deletes are rejected. The trusted service validates new history
+and uses transaction-bound native collection writes for both balance and ledger.
+Raw DB access/privileged administration bypasses ODM protections and remains an
+operational security boundary, not a tamper-proof audit claim.
+
+Tests explicitly double only the unresolved earning-contract boundaries to exercise
+real balance/ledger writes, precision, concurrency and refund integration. Production
+has no runtime contract bypass. No Order status/history change, inventory restoration,
+reconciliation clearing, earning callback wiring or refund API activation is added.
 
 ## Production-style start
 

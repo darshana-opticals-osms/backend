@@ -125,14 +125,12 @@ describe('Internal manual full-refund evidence infrastructure', () => {
       });
     }
   );
-  it('keeps operational refund recording fail-closed on the real loyalty dependency', async () => {
+  it('requires authoritative context for real loyalty reversal and verification', async () => {
     await expect(applyFullRefundReversal()).rejects.toMatchObject({
-      statusCode: 409,
-      errorCode: 'REFUND_LOYALTY_REVERSAL_UNAVAILABLE',
+      statusCode: 422,
     });
     await expect(verifyFullRefundReversal()).rejects.toMatchObject({
-      statusCode: 409,
-      errorCode: 'REFUND_LOYALTY_REVERSAL_UNAVAILABLE',
+      statusCode: 422,
     });
   });
   it('requires an authenticated manager identity before any refund reads or writes', async () => {

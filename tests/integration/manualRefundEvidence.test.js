@@ -545,20 +545,20 @@ describe('Manual full-refund evidence persistence (no operational endpoint)', ()
     afterEach(() => jest.restoreAllMocks());
 
     it.each(['PROCESSING', 'COMPLETED', 'CANCELLED'])(
-      'fails closed without loyalty reversal for a %s Order and rolls back all provisional writes',
+      'holds missing earning history for a %s Order and rolls back all provisional writes',
       async (status) => {
         const { payment, order } = await fixture();
         await Order.updateOne({ _id: order._id }, { $set: { status } });
         const before = await state();
         await expect(record(payment)).rejects.toMatchObject({
           statusCode: 409,
-          errorCode: 'REFUND_LOYALTY_REVERSAL_UNAVAILABLE',
+          errorCode: 'LOYALTY_EARNING_HISTORY_MISSING',
         });
         expect(await state()).toEqual(before);
         expect(await ManualRefundEvidence.countDocuments()).toBe(0);
       }
     );
-    it('holds matching already-refunded evidence on identical retries when durable reversal verification is unavailable', async () => {
+    it('holds matching already-refunded evidence on identical retries when no durable reversal exists', async () => {
       const { payment } = await fixture({ status: 'refunded' });
       await append(payment, 'record-refund-1');
       const before = await state();
@@ -566,7 +566,7 @@ describe('Manual full-refund evidence persistence (no operational endpoint)', ()
       for (let retry = 0; retry < 2; retry += 1) {
         await expect(record(payment)).rejects.toMatchObject({
           statusCode: 409,
-          errorCode: 'REFUND_LOYALTY_REVERSAL_UNAVAILABLE',
+          errorCode: 'REFUND_LOYALTY_REVERSAL_UNCONFIRMED',
         });
         expect(await state()).toEqual(before);
       }
@@ -581,7 +581,7 @@ describe('Manual full-refund evidence persistence (no operational endpoint)', ()
       await record(payment);
       const before = await state();
       await expect(record(payment)).rejects.toMatchObject({
-        errorCode: 'REFUND_LOYALTY_REVERSAL_UNAVAILABLE',
+        errorCode: 'REFUND_LOYALTY_REVERSAL_UNCONFIRMED',
       });
       expect(await state()).toEqual(before);
       expect(reversal).toHaveBeenCalledTimes(1);

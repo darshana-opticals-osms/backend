@@ -3,6 +3,7 @@ const Payment = require('../models/payment.model');
 const PaymentEvent = require('../models/paymentEvent.model');
 const Order = require('../models/order.model');
 const ManualRefundEvidence = require('../models/manualRefundEvidence.model');
+const LoyaltyTransaction = require('../models/loyaltyTransaction.model');
 const { ROLE_VALUES } = require('../constants/roles');
 const {
   PAYMENT_STATUS,
@@ -30,7 +31,7 @@ const { appendConfirmedManualRefundEvidence } = require('./manualRefundEvidence.
 const loyaltyRefund = require('./loyaltyRefundBoundary.service');
 
 // Internal only. There is deliberately no controller, route or runtime activation flag.
-// Unavailable loyalty application/verification aborts new refunds AND replays in production.
+// Missing earning/reversal evidence or unresolved policy holds abort new refunds AND replays.
 async function recordConfirmedManualFullRefund({ auth, paymentId, evidence, idempotencyKey }) {
   if (!auth) throw new UnauthorizedError('Authentication required.');
   if (auth.role !== ROLE_VALUES.BRANCH_MANAGER)
@@ -40,6 +41,7 @@ async function recordConfirmedManualFullRefund({ auth, paymentId, evidence, idem
     throw new ValidationError('Invalid Payment identifier or idempotency key.');
   const normalized = validateManualRefundEvidence(evidence);
   await ManualRefundEvidence.init();
+  await LoyaltyTransaction.init();
   const identity = await Payment.findById(paymentId).select('orderId').lean();
   if (!identity) throw new NotFoundError('Payment attempt not found.', null, 'PAYMENT_NOT_FOUND');
   const session = await mongoose.startSession();
@@ -171,7 +173,7 @@ async function recordConfirmedManualFullRefund({ auth, paymentId, evidence, idem
             if (update.modifiedCount !== 1)
               throw new ConflictError('Payment state changed.', null, 'REFUND_SOURCE_CONFLICT');
             // Must write an idempotent reversal and balance/history in this SAME session.
-            // Currently always throws. Tests use an explicit test-only boundary double.
+            // No missing-award/zero-point fallback. Any failure rolls back this refund.
             await loyaltyRefund.applyFullRefundReversal({
               payment,
               order,

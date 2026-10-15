@@ -1,25 +1,22 @@
-const { ConflictError } = require('../errors/AppError');
+const loyalty = require('./loyalty.service');
 
-// Activation hold, not a loyalty implementation or a configurable no-op.
-// ADR-011 section 15 requires reversal; ADR-005 requires auditable balance/history writes.
-// Replace only with the implemented, idempotent, session-bound loyalty contract.
-async function applyFullRefundReversal() {
-  throw new ConflictError(
-    'Manual refund recording is inactive until transactional loyalty reversal is available.',
-    null,
-    'REFUND_LOYALTY_REVERSAL_UNAVAILABLE'
-  );
+// Internal full-refund integration only; no financial endpoint is activated.
+// Re-read authoritative records; the caller's DTOs are identifiers, never ledger proof.
+async function applyFullRefundReversal({ payment, refundEvidence, session } = {}) {
+  return loyalty.reverseFullRefundPoints({
+    paymentId: payment?._id?.toString(),
+    refundEvidenceId: refundEvidence?.evidenceId,
+    session,
+  });
 }
 
-// Future contract: return exactly true only after reading authoritative, durable
-// reversal completion for this Payment/refund evidence in the supplied session.
-// Refund evidence or Payment.status alone is never proof of loyalty completion.
-async function verifyFullRefundReversal() {
-  throw new ConflictError(
-    'Refund replay is inactive until durable loyalty reversal verification is available.',
-    null,
-    'REFUND_LOYALTY_REVERSAL_UNAVAILABLE'
-  );
+// True only for persisted matching earning + compensating reversal and consistent balance.
+async function verifyFullRefundReversal({ payment, refundEvidence, session } = {}) {
+  return loyalty.verifyFullRefundPoints({
+    paymentId: payment?._id?.toString(),
+    refundEvidenceId: refundEvidence?.evidenceId,
+    session,
+  });
 }
 
 module.exports = { applyFullRefundReversal, verifyFullRefundReversal };

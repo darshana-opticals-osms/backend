@@ -1,8 +1,19 @@
 const mongoose = require('mongoose');
 const { ROLE_VALUES, CUSTOMER_ROLE_VALUES } = require('../constants/roles');
+const { isPoints, toMinor } = require('../utils/loyaltyDecimal');
+const { ForbiddenError } = require('../errors/AppError');
 
 const customerSchema = new mongoose.Schema(
   {
+    loyaltyBalance: {
+      type: mongoose.Schema.Types.Decimal128,
+      default() {
+        return this.isNew ? '0.00' : undefined;
+      },
+      select: false,
+      immutable: true,
+      validate: isPoints,
+    },
     name: {
       type: String,
       required: true,
@@ -50,14 +61,92 @@ const customerSchema = new mongoose.Schema(
     toJSON: {
       transform(_doc, ret) {
         delete ret.passwordHash;
+        delete ret.loyaltyBalance;
       },
     },
     toObject: {
       transform(_doc, ret) {
         delete ret.passwordHash;
+        delete ret.loyaltyBalance;
       },
     },
   }
 );
+
+function rejectBalanceWrite() {
+  throw new ForbiddenError(
+    'Loyalty balance is maintained only by the loyalty service.',
+    null,
+    'LOYALTY_WRITE_FORBIDDEN'
+  );
+}
+function assertInitialBalance(document) {
+  if (document.loyaltyBalance !== undefined && toMinor(document.loyaltyBalance) !== 0n)
+    rejectBalanceWrite();
+}
+customerSchema.pre('save', function () {
+  if (this.isNew) assertInitialBalance(this);
+  else if (this.isModified('loyaltyBalance')) rejectBalanceWrite();
+});
+customerSchema.pre('insertMany', function (next, documents) {
+  try {
+    for (const document of documents) {
+      if (document.loyaltyBalance !== undefined)
+        assertInitialBalance({
+          loyaltyBalance: mongoose.Types.Decimal128.fromString(String(document.loyaltyBalance)),
+        });
+    }
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+function touchesBalance(update) {
+  if (Array.isArray(update)) return true;
+  if (!update || typeof update !== 'object') return false;
+  return Object.entries(update).some(
+    ([key, value]) =>
+      key === 'loyaltyBalance' ||
+      key.startsWith('loyaltyBalance.') ||
+      (key === '$rename' &&
+        Object.values(value).some((target) => String(target).startsWith('loyaltyBalance'))) ||
+      (key.startsWith('$') && touchesBalance(value))
+  );
+}
+customerSchema.pre(
+  ['updateOne', 'updateMany', 'findOneAndUpdate', 'replaceOne', 'findOneAndReplace'],
+  function () {
+    if (this.op.includes('Replace') || this.op === 'replaceOne' || touchesBalance(this.getUpdate()))
+      rejectBalanceWrite();
+  }
+);
+customerSchema.pre('bulkWrite', function (next, operations) {
+  try {
+    for (const operation of operations) {
+      if (
+        operation.replaceOne ||
+        touchesBalance(operation.updateOne?.update) ||
+        touchesBalance(operation.updateMany?.update)
+      )
+        rejectBalanceWrite();
+      if (operation.insertOne?.document?.loyaltyBalance !== undefined)
+        assertInitialBalance({
+          loyaltyBalance: mongoose.Types.Decimal128.fromString(
+            String(operation.insertOne.document.loyaltyBalance)
+          ),
+        });
+    }
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
+customerSchema.pre('aggregate', function () {
+  if (
+    this.pipeline().some((stage) => Object.hasOwn(stage, '$out') || Object.hasOwn(stage, '$merge'))
+  )
+    rejectBalanceWrite();
+});
 
 module.exports = mongoose.model('Customer', customerSchema);
