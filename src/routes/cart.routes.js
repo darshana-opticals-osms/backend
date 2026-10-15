@@ -100,7 +100,7 @@ const router = express.Router();
  * /cart:
  *   get:
  *     summary: Retrieve the authenticated customer's Cart
- *     description: CUSTOMER-only. Ownership is derived from the verified JWT; an absent Cart is returned as an empty items array and is not persisted.
+ *     description: CUSTOMER-only. Ownership is derived from the verified JWT; an absent Cart is returned as an empty items array and is not persisted. Eligible automatic unpaid reservation expiry restores original inventoryId/quantity selections, preserving current Cart items and adding matching quantities without duplicate rows. Restored selections do not reserve stock or lock prices; a new checkout revalidates current Inventory and creates a new Order. Staff cancellation and refunds do not automatically restore Cart contents.
  *     tags: [Cart]
  *     security:
  *       - bearerAuth: []

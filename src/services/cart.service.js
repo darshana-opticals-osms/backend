@@ -32,8 +32,10 @@ function validateQuantity(quantity) {
   }
 }
 
-async function assertCustomerExists(customerId) {
-  const customerExists = await Customer.exists({ _id: customerId });
+async function assertCustomerExists(customerId, session = null) {
+  const query = Customer.exists({ _id: customerId });
+  if (session) query.session(session);
+  const customerExists = await query;
 
   if (!customerExists) {
     throw new NotFoundError('Customer not found.', null, CUSTOMER_NOT_FOUND);
@@ -135,8 +137,10 @@ function buildAddItemFilter(customerId, inventoryObjectId, quantity) {
   };
 }
 
-async function findCustomerCart(customerId) {
-  return Cart.findOne({ customerId }).select('items').lean();
+async function findCustomerCart(customerId, session = null) {
+  const query = Cart.findOne({ customerId }).select('items');
+  if (session) query.session(session);
+  return query.lean();
 }
 
 function throwQuantityOverflow() {
@@ -147,12 +151,14 @@ function throwQuantityOverflow() {
   );
 }
 
-async function addCartItem(customerId, inventoryId, quantity) {
+async function addCartItem(customerId, inventoryId, quantity, session = null) {
   validateInventoryId(inventoryId);
   validateQuantity(quantity);
-  await assertCustomerExists(customerId);
+  await assertCustomerExists(customerId, session);
 
-  const inventoryExists = await Inventory.exists({ _id: inventoryId });
+  const inventoryQuery = Inventory.exists({ _id: inventoryId });
+  if (session) inventoryQuery.session(session);
+  const inventoryExists = await inventoryQuery;
   if (!inventoryExists) {
     throw new NotFoundError('Inventory item not found.', null, INVENTORY_NOT_FOUND);
   }
@@ -165,10 +171,11 @@ async function addCartItem(customerId, inventoryId, quantity) {
     const cart = await Cart.findOneAndUpdate(filter, pipeline, {
       new: true,
       timestamps: false,
+      ...(session ? { session } : {}),
     });
     if (cart) return toCartResponse(cart);
 
-    const currentCart = await findCustomerCart(customerId);
+    const currentCart = await findCustomerCart(customerId, session);
     if (currentCart) {
       const currentItem = currentCart.items.find(
         (item) => item.inventoryId.toString() === inventoryObjectId.toString()
@@ -182,17 +189,58 @@ async function addCartItem(customerId, inventoryId, quantity) {
     }
 
     try {
-      const createdCart = await Cart.create({
+      const data = {
         customerId,
         items: [{ inventoryId: inventoryObjectId, quantity }],
-      });
+      };
+      const createdCart = session
+        ? (await Cart.create([data], { session }))[0]
+        : await Cart.create(data);
       if (createdCart) return toCartResponse(createdCart);
     } catch (error) {
-      if (error.code !== 11000) throw error;
+      // A duplicate-key error aborts a MongoDB transaction. Its owner must retry
+      // the entire transaction; never continue using that aborted session here.
+      if (error.code !== 11000 || session) throw error;
     }
   }
 
   throw new ConflictError('Cart changed concurrently. Please retry.');
+}
+
+// Internal expiry boundary. The Order lock and restoration guard are owned by
+// the caller; no prices or stock reservations are copied back into the Cart.
+async function restoreCartItems(customerId, items, session) {
+  if (!session?.inTransaction()) {
+    throw new ValidationError('Cart restoration requires an active transaction.');
+  }
+  if (!Array.isArray(items) || !items.length) {
+    throw new ValidationError('Cart restoration requires authoritative Order items.');
+  }
+  for (const item of items) {
+    validateInventoryId(item?.inventoryId);
+    validateQuantity(item?.quantity);
+  }
+  const existing = await Cart.findOne({ customerId }).session(session).lean();
+  if (existing) {
+    // Aggregation updates compare BSON values, whereas document hydration casts
+    // strings to ObjectIds/numbers. Reject malformed storage before that casting
+    // can hide mismatches and append a duplicate logical Inventory reference.
+    if (
+      !Array.isArray(existing.items) ||
+      existing.items.some(
+        (item) =>
+          !(item?.inventoryId instanceof mongoose.Types.ObjectId) ||
+          !Number.isSafeInteger(item.quantity) ||
+          item.quantity < 1
+      )
+    ) {
+      throw new ValidationError('Persisted Cart contains invalid items.');
+    }
+    await Cart.hydrate(existing).validate();
+  }
+  for (const item of items) {
+    await addCartItem(customerId, item.inventoryId, item.quantity, session);
+  }
 }
 
 async function getCustomerCart(customerId) {
@@ -285,4 +333,5 @@ module.exports = {
   updateCartItemQuantity,
   removeCartItem,
   toCartResponse,
+  restoreCartItems,
 };

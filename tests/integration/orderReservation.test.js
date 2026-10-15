@@ -5,6 +5,7 @@ const OrderItem = require('../../src/models/orderItem.model');
 const Inventory = require('../../src/models/inventory.model');
 const Branch = require('../../src/models/branch.model');
 const Customer = require('../../src/models/customer.model');
+const Cart = require('../../src/models/cart.model');
 const Payment = require('../../src/models/payment.model');
 const PaymentEvent = require('../../src/models/paymentEvent.model');
 const ReorderAlert = require('../../src/models/reorderAlert.model');
@@ -63,6 +64,7 @@ describe('Order reservation expiry and restoration', () => {
       PaymentEvent.createIndexes(),
       ReorderAlert.createIndexes(),
       InventoryConfig.createIndexes(),
+      Cart.createIndexes(),
     ]);
   });
   afterAll(async () => {
@@ -135,6 +137,7 @@ describe('Order reservation expiry and restoration', () => {
     expect(stored.statusHistory).toHaveLength(1);
     expect((await Inventory.findById(inventory._id)).quantity).toBe(5);
     expect(sendOrderCancellationNotification).not.toHaveBeenCalled();
+    expect(await Cart.countDocuments({ customerId: order.customerId })).toBe(0);
   }
 
   it('expires unpaid stock exactly once with system history and post-commit notification', async () => {
@@ -148,6 +151,9 @@ describe('Order reservation expiry and restoration', () => {
     const stored = await Order.findById(order._id);
     expect(stored.inventoryRestoredAt).toEqual(now);
     expect(stored.reservationExpiresAt).toEqual(order.reservationExpiresAt);
+    expect((await Cart.findOne({ customerId: stored.customerId })).items).toEqual([
+      expect.objectContaining({ inventoryId: inventory._id, quantity: 2 }),
+    ]);
     expect(stored.statusHistory).toHaveLength(2);
     expect(stored.statusHistory[1].source).toBe('RESERVATION_EXPIRY');
     expect(stored.statusHistory[1].changedBy).toBeNull();
@@ -295,6 +301,7 @@ describe('Order reservation expiry and restoration', () => {
     expect(result.status).toBe('CANCELLED');
     expect((await Inventory.findById(inventory._id)).quantity).toBe(7);
     expect((await Order.findById(order._id)).statusHistory[1].changedBy).toEqual(staffId);
+    expect(await Cart.countDocuments({ customerId: order.customerId })).toBe(0);
   });
   it.each(['pending', 'completed'])('staff cannot release stock for %s payment', async (status) => {
     const { order, inventory } = await reservation();

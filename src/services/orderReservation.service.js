@@ -11,8 +11,10 @@ const { ORDER_STATUS_VALUES } = require('../constants/orderStatuses');
 const { ConflictError, ValidationError } = require('../errors/AppError');
 const { evaluateReorderAlert } = require('./reorderAlert.service');
 const { sendOrderCancellationNotification } = require('./notification.service');
+const { restoreCartItems } = require('./cart.service');
 
 const DEFAULT_BATCH_SIZE = 100;
+const MAX_TRANSACTION_ATTEMPTS = 3;
 
 async function notifyCancellation(order) {
   try {
@@ -44,7 +46,7 @@ async function cancelUnpaidReservation({
   const session = await mongoose.startSession();
   let result;
   try {
-    await session.withTransaction(async () => {
+    const cancelReservation = async () => {
       result = { action: 'skipped', reason: 'ORDER_NOT_ELIGIBLE' };
       const order = await Order.findOneAndUpdate(
         { _id: orderId, status: ORDER_STATUS_VALUES.ORDER_CREATED, inventoryRestoredAt: null },
@@ -121,9 +123,9 @@ async function cancelUnpaidReservation({
         }
         quantities.set(id, quantity);
       }
-      const inventories = await Inventory.find({ _id: { $in: [...quantities.keys()] } }).session(
-        session
-      );
+      const inventories = await Inventory.find({
+        _id: { $in: [...quantities.keys()] },
+      }).session(session);
       if (
         inventories.length !== quantities.size ||
         inventories.some(
@@ -147,7 +149,11 @@ async function cancelUnpaidReservation({
         await evaluateReorderAlert(restored, null, session);
       }
       const updatedOrder = await Order.findOneAndUpdate(
-        { _id: order._id, status: ORDER_STATUS_VALUES.ORDER_CREATED, inventoryRestoredAt: null },
+        {
+          _id: order._id,
+          status: ORDER_STATUS_VALUES.ORDER_CREATED,
+          inventoryRestoredAt: null,
+        },
         {
           $set: {
             status: ORDER_STATUS_VALUES.CANCELLED,
@@ -166,8 +172,25 @@ async function cancelUnpaidReservation({
         { session, new: true, runValidators: true }
       );
       if (!updatedOrder) throw new ConflictError('Order changed during restoration.');
+      if (expiry) {
+        await restoreCartItems(
+          order.customerId,
+          [...quantities].map(([inventoryId, quantity]) => ({ inventoryId, quantity })),
+          session
+        );
+      }
       result = { action: 'cancelled', order: updatedOrder };
-    });
+    };
+    for (let attempt = 0; attempt < MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
+      try {
+        await session.withTransaction(cancelReservation);
+        break;
+      } catch (error) {
+        // Concurrent first-Cart creation can lose the unique Customer index race.
+        // Retry only after withTransaction has aborted all expiry/stock/Cart writes.
+        if (error.code !== 11000 || attempt === MAX_TRANSACTION_ATTEMPTS - 1) throw error;
+      }
+    }
   } finally {
     await session.endSession();
   }
@@ -213,7 +236,7 @@ async function sweepExpiredReservations({
     } catch (error) {
       result.failed.push({
         orderId: candidate._id.toString(),
-        code: error.code || 'RESERVATION_TRANSACTION_FAILED',
+        code: error.errorCode || error.code || 'RESERVATION_TRANSACTION_FAILED',
       });
     }
   }

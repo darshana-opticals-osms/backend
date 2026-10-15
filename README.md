@@ -163,6 +163,37 @@ notification after commit. SMTP failure is logged without undoing cancellation.
 As with existing cancellation notifications, delivery is best effort; this phase
 does not add a durable notification outbox or automatic email retries.
 
+### Cart recovery after automatic unpaid reservation expiry
+
+Once automatic expiry passes all existing financial/reconciliation and exact
+Inventory-reference checks, it restores the expired Order's `inventoryId` and
+quantity selections into that Customer's Cart. Existing items are preserved;
+matching Inventory IDs have quantities added without duplicate rows. An absent
+Cart is created. No historical prices, eligibility snapshots or stock reservation
+are copied into the Cart.
+
+Cart recovery, local payment-session expiry, Inventory release/reorder alerts and
+Order cancellation share the same MongoDB transaction and Order restoration guard.
+Concurrent Cart edits serialize through Cart writes; first-Cart unique-key races
+retry the entire aborted transaction. Invalid persisted Cart data, missing
+references, quantity overflow or a failed Cart write roll back the whole operation
+and are reported for safe retry/review; quantities are never truncated. Repeated
+sweeps cannot restore the same Order twice. Staff cancellation, refunds and browser
+navigation retain their existing behavior and do not trigger this recovery.
+
+Customers review the recovered selections through `GET /api/cart` and use the
+existing `POST /api/checkout`. Checkout revalidates current prices and stock,
+creates a **new Order** and fresh 30-minute reservation, then clears the Cart.
+Payment must target the new Order. The old Order/Payment history remains intact;
+a late verified success remains reconciliation evidence and does not revive the
+old Order, deduct stock again or remove recovered Cart selections.
+
+This requested automatic Cart recovery policy is proposed for team/reviewer
+acceptance: ADR-003 defines Cart ownership, minimal selections and checkout
+revalidation, and ADR-011 defines unpaid expiry, but neither explicitly specifies
+this post-expiry recovery. Accepted ADRs are unchanged. The separate ADR-011
+sections 8/12 ambiguity about retrying the expired Order is not resolved here.
+
 ### PayHere callback and availability contracts
 
 `POST /api/payments/notify` accepts only allowlisted scalar form fields. The
