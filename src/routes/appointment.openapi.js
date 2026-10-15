@@ -4,13 +4,12 @@
  *   schemas:
  *     AppointmentProvider:
  *       type: object
- *       required: [id, name, role, branchId]
+ *       required: [id, name, specialization]
  *       properties:
  *         id: { type: string, example: 66c5d2a9d7e2b8f2d7c4ff12 }
- *         name: { type: string, example: Dr. Gampaha }
- *         role: { type: string, enum: [OPTOMETRIST] }
- *         branchId: { type: string, example: 66c5d2a9d7e2b8f2d7c4ff13 }
- *       description: Returned to CUSTOMERS and authorized Gampaha BRANCH_ASSISTANT staff so staff can create doctor sessions. Email, phone, address, and credentials are not exposed.
+ *         name: { type: string, example: Dr. Nimal Perera }
+ *         specialization: { type: string, example: Ophthalmologist }
+ *       description: Authoritative external Doctor directory profile returned to Customers and authorized Staff. Email, phone, address, and credentials are not exposed.
  *     AppointmentCustomerContact:
  *       type: object
  *       required: [id, name, phone]
@@ -21,10 +20,12 @@
  *       description: Included only for authorized Gampaha Branch Assistants on appointment list/detail responses. Not returned to customers or Branch Managers.
  *     DoctorSession:
  *       type: object
- *       required: [id, staffId, branchId, startAt, endAt, capacity, confirmedCount, remainingCapacity]
+ *       required: [id, branchId, startAt, endAt, capacity, confirmedCount, remainingCapacity]
  *       properties:
  *         id: { type: string }
- *         staffId: { type: string }
+ *         doctorId: { type: string, nullable: true }
+ *         staffId: { type: string, nullable: true }
+ *         doctor: { $ref: '#/components/schemas/Doctor', nullable: true }
  *         branchId: { type: string }
  *         startAt: { type: string, format: date-time, example: '2026-11-01T09:00:00.000Z' }
  *         endAt: { type: string, format: date-time, example: '2026-11-01T10:00:00.000Z' }
@@ -35,10 +36,12 @@
  *     Appointment:
  *       type: object
  *       description: Privacy-safe appointment fields. The optional customer contact projection is present only for authorized Gampaha Branch Assistants; it is omitted for customers and Branch Managers.
- *       required: [id, staffId, dateTime, status]
+ *       required: [id, dateTime, status]
  *       properties:
  *         id: { type: string }
- *         staffId: { type: string }
+ *         doctorId: { type: string, nullable: true }
+ *         staffId: { type: string, nullable: true }
+ *         doctor: { $ref: '#/components/schemas/Doctor', nullable: true }
  *         providerName: { type: string, description: Display name only. }
  *         sessionId: { type: string, nullable: true }
  *         branchId: { type: string, nullable: true, description: Historical branch snapshot; null for legacy data without authoritative branch provenance. }
@@ -51,9 +54,9 @@
  *     DoctorSessionCreateRequest:
  *       type: object
  *       additionalProperties: false
- *       required: [staffId, branchId, startAt, endAt, capacity]
+ *       required: [doctorId, branchId, startAt, endAt, capacity]
  *       properties:
- *         staffId: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
+ *         doctorId: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
  *         branchId: { type: string, pattern: '^[a-fA-F0-9]{24}$', description: Must identify GAMPAHA_CENTRAL. }
  *         startAt: { type: string, format: date-time, description: Valid ISO-8601 timestamp with explicit Z or ±HH:MM timezone. }
  *         endAt: { type: string, format: date-time, description: Valid ISO-8601 timestamp with explicit Z or ±HH:MM timezone. }
@@ -63,7 +66,8 @@
  *       additionalProperties: false
  *       minProperties: 1
  *       properties:
- *         staffId: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
+ *         doctorId: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
+ *         staffId: { type: string, pattern: '^[a-fA-F0-9]{24}$', description: Optional legacy staff optometrist ID. }
  *         branchId: { type: string, pattern: '^[a-fA-F0-9]{24}$', description: Must identify GAMPAHA_CENTRAL. }
  *         startAt: { type: string, format: date-time, description: Valid ISO-8601 timestamp with explicit timezone. }
  *         endAt: { type: string, format: date-time, description: Valid ISO-8601 timestamp with explicit timezone. }

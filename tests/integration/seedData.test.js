@@ -14,6 +14,7 @@ const Payment = require('../../src/models/payment.model');
 const Cart = require('../../src/models/cart.model');
 const ReorderAlert = require('../../src/models/reorderAlert.model');
 const InventoryConfig = require('../../src/models/inventoryConfig.model');
+const Doctor = require('../../src/models/doctor.model');
 const { seedDatabase, PRODUCTION_SAFETY_ERROR } = require('../../src/seed/seed');
 const { DEV_DEFAULT_PASSWORD } = require('../../src/seed/data/users.data');
 const { ROLE_VALUES } = require('../../src/constants/roles');
@@ -43,6 +44,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
       Staff.deleteMany({}),
       Customer.deleteMany({}),
       Admin.deleteMany({}),
+      Doctor.deleteMany({}),
       Branch.deleteMany({}),
     ]);
   });
@@ -62,6 +64,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
       Staff.deleteMany({}),
       Customer.deleteMany({}),
       Admin.deleteMany({}),
+      Doctor.deleteMany({}),
       Branch.deleteMany({}),
     ]);
   });
@@ -81,6 +84,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
       Staff.deleteMany({}),
       Customer.deleteMany({}),
       Admin.deleteMany({}),
+      Doctor.deleteMany({}),
       Branch.deleteMany({}),
     ]);
     await disconnectDatabase();
@@ -96,6 +100,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
     expect(summary.customersCreated).toBeGreaterThan(0);
     expect(summary.inventoryCreated).toBeGreaterThan(0);
     expect(summary.prescriptionsCreated).toBeGreaterThan(0);
+    expect(summary.doctorsCreated).toBeGreaterThan(0);
   });
 
   it('should seed representative Customer accounts with valid bcrypt hashes (AC3, AC7, AC8)', async () => {
@@ -134,6 +139,19 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
     for (const staff of staffMembers) {
       expect(staff.branchId).toBeDefined();
       expect(staff.passwordHash).toMatch(/^\$2[ab]\$12\$/);
+    }
+  });
+
+  it('should seed representative Doctor records into directory (Issue #81)', async () => {
+    await seedDatabase();
+
+    const doctors = await Doctor.find().lean();
+    expect(doctors.length).toBeGreaterThanOrEqual(3);
+    for (const doc of doctors) {
+      expect(doc.name).toBeDefined();
+      expect(doc.specialization).toBeDefined();
+      expect(doc.passwordHash).toBeUndefined();
+      expect(doc.role).toBeUndefined();
     }
   });
 
