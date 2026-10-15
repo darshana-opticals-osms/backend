@@ -130,6 +130,18 @@ function assertNoUnresolvedReconciliation(payment) {
   }
 }
 
+async function assertOrderNotRefunded(orderId, session = null) {
+  const query = Payment.exists({ orderId, status: PAYMENT_STATUS.REFUNDED });
+  if (session) query.session(session);
+  if (await query) {
+    throw new ConflictError(
+      'Order has already been refunded and cannot be paid again.',
+      null,
+      'ORDER_ALREADY_REFUNDED'
+    );
+  }
+}
+
 async function initiatePayment({ customerId, orderId, billingInput = {}, now = new Date() }) {
   if (!mongoose.isValidObjectId(customerId) || !mongoose.isValidObjectId(orderId)) {
     throw new ValidationError('Payment identifiers are invalid.');
@@ -166,6 +178,7 @@ async function initiatePayment({ customerId, orderId, billingInput = {}, now = n
       if (expiresAt <= now) {
         throw new ConflictError('Order payment window has expired.', null, 'ORDER_PAYMENT_EXPIRED');
       }
+      await assertOrderNotRefunded(orderDocument._id, session);
       const completed = await Payment.exists({
         orderId: orderDocument._id,
         status: PAYMENT_STATUS.COMPLETED,
@@ -215,6 +228,7 @@ async function initiatePayment({ customerId, orderId, billingInput = {}, now = n
     if (expiresAt <= now) {
       throw new ConflictError('Order payment window has expired.', null, 'ORDER_PAYMENT_EXPIRED');
     }
+    await assertOrderNotRefunded(orderDocument._id);
     const completed = await Payment.exists({
       orderId: orderDocument._id,
       status: PAYMENT_STATUS.COMPLETED,

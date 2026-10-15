@@ -162,6 +162,61 @@ payment oversight requires a separate approved mapping. Other roles, including
 status access remains separate. Phase 5A provides no status overrides, reconciliation
 clearing, or refund mutations; those require the Phase 5B workflow review.
 
+### Phase 5B Part 1: internal refund evidence infrastructure
+
+`manualRefundEvidence.service` provides an internal append primitive for facts about
+an already confirmed external full refund. It is not connected to a route, controller,
+scheduler or financial transition. The helper requires trusted `BRANCH_MANAGER`
+authentication context and derives Order/capture identity and the recording actor
+from backend context. Evidence amount/currency must exactly match the full original
+Payment under the existing monetary precision contract. The Payment must already
+represent a canonical completed/refunded transaction; late captures on failed or
+cancelled attempts remain outside this primitive's supported source mapping.
+Unresolved reconciliation on the source Payment or any other attempt on its Order
+blocks append/replay with `409 PAYMENT_RECONCILIATION_REQUIRED`; flags are not cleared.
+
+The dedicated audit collection preserves original capture references and records
+the full amount/currency, actor and server recording timestamp. A unique Payment
+index permits one full-refund evidence record for its canonical capture; a unique
+idempotency-key index protects retries. Identical retries return the original DTO;
+changed data/actor/Payment or a second key for an existing record conflicts. This
+prevents duplicate local recording, not duplicate external transfers. No global
+uniqueness assumption is made about external receipt/bank reference formats.
+
+The optional `session` binds all audit/source reads and insertion to the caller's
+MongoDB session, with sequential operations and no nested transaction or commit.
+Initialize the collection/indexes before starting a caller-owned transaction.
+A duplicate-key insertion inside that transaction propagates the original error:
+the caller must abort/retry before recovering an identical committed record. The
+helper never queries an aborted transaction; nontransactional retries retain recovery.
+
+Only amount, currency, optional `refundChannel` (`payhere_portal` or `bank_transfer`)
+and optional scalar `refundReference` are accepted as evidence. Optional references
+are metadata, not proof of transfer. ADR-011 does not define mandatory receipt
+documents, their verification procedure, external-reference formats or execution-time
+proof. Those gaps are intentionally not implemented as mandatory business rules.
+The helper does not independently verify an external refund. Raw receipts, credentials,
+signatures, client-chosen actors/statuses and arbitrary payloads are not accepted.
+Internal keys/hashes and unknown fields are excluded from the explicit response DTO.
+
+Evidence is append-only through application-model save/query/document middleware;
+update, replacement, deletion and batch-write operations are rejected. Raw MongoDB
+collection access or privileged database administration bypasses model middleware:
+this is not database-level tamper-proof storage, and deployment DB permissions remain
+an operational boundary. Original Payment, PaymentEvent, Order, inventory, Customer
+and reconciliation state is unchanged when evidence is appended. Recording evidence
+does not assert that loyalty reversal or other refund side effects have happened.
+
+Payment initiation now rejects an Order containing any `refunded` Payment, including
+duplicate-key recovery, so refunded history cannot accidentally enable repeat checkout.
+No refund/reconciliation mutation endpoint or automatic flag clearing is enabled.
+
+The accepted loyalty ADRs conflict: ADR-005 §14 requires successful Payment **and
+Order COMPLETED** for confirmed earning, while ADR-011 §13 triggers accrual when
+Payment becomes completed and Order moves to **PROCESSING**. Neither rule is changed
+or selected here. No loyalty award, reversal, Order cancellation or inventory
+restoration is performed by this infrastructure.
+
 ## Production-style start
 
 npm start

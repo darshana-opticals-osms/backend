@@ -223,6 +223,101 @@ describe('Payment API and PayHere IPN', () => {
     expect((await Payment.findById(attempt._id)).amount).toBe(order.orderAmount + 1);
   });
 
+  it.each([false, true])(
+    'blocks a refunded Order from checkout, including active-attempt reuse=%s',
+    async (withActive) => {
+      const customer = await createCustomer('pay-refunded@example.com');
+      const order = await createOrder(customer);
+      const branch = await Branch.create({ address: 'Test Branch', contactNumber: '+94332000000' });
+      const inventory = await Inventory.create({
+        branchId: branch._id,
+        itemName: 'Frame',
+        category: 'Frames',
+        brand: 'Brand',
+        price: 2500,
+        quantity: 4,
+      });
+      const refunded = await Payment.create({
+        orderId: order._id,
+        amount: order.orderAmount,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+        status: PAYMENT_STATUS.REFUNDED,
+        providerOrderId: `PAY-${new mongoose.Types.ObjectId()}`,
+        providerTransactionId: 'PH-REFUNDED',
+        expiresAt: order.reservationExpiresAt,
+      });
+      if (withActive)
+        await Payment.create({
+          orderId: order._id,
+          amount: order.orderAmount,
+          method: PAYMENT_METHOD.ONLINE_GATEWAY,
+          status: PAYMENT_STATUS.PENDING,
+          providerOrderId: `PAY-${new mongoose.Types.ObjectId()}`,
+          expiresAt: order.reservationExpiresAt,
+        });
+      const before = await Order.findById(order._id).lean();
+      const responses = await Promise.all([initiate(customer, order), initiate(customer, order)]);
+      expect(responses.map((response) => response.status)).toEqual([409, 409]);
+      for (const response of responses) {
+        expect(response.body.error.code).toBe('ORDER_ALREADY_REFUNDED');
+        expect(response.body).not.toHaveProperty('data.gateway');
+      }
+      expect(await Payment.countDocuments({ orderId: order._id })).toBe(withActive ? 2 : 1);
+      expect((await Payment.findById(refunded._id)).status).toBe(PAYMENT_STATUS.REFUNDED);
+      expect(await Order.findById(order._id).lean()).toEqual(before);
+      expect((await Inventory.findById(inventory._id)).quantity).toBe(4);
+      expect(await PaymentEvent.countDocuments()).toBe(0);
+    }
+  );
+
+  it('rechecks refunded history during duplicate-key recovery rather than returning the winning checkout', async () => {
+    const customer = await createCustomer('pay-refunded-recovery@example.com');
+    const order = await createOrder(customer);
+    const before = await Order.findById(order._id).lean();
+    const saveSpy = jest.spyOn(Payment.prototype, 'save').mockImplementationOnce(async () => {
+      const timestamp = new Date();
+      const base = {
+        orderId: order._id,
+        amount: order.orderAmount,
+        currency: PAYMENT_CURRENCY.LKR,
+        provider: PAYMENT_PROVIDER.PAYHERE,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+        expiresAt: order.reservationExpiresAt,
+        reconciliationRequired: false,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      await Payment.collection.insertMany([
+        {
+          ...base,
+          _id: new mongoose.Types.ObjectId(),
+          status: PAYMENT_STATUS.REFUNDED,
+          providerOrderId: 'PAY-REFUNDED-RACE',
+          providerTransactionId: 'PH-REFUNDED-RACE',
+        },
+        {
+          ...base,
+          _id: new mongoose.Types.ObjectId(),
+          status: PAYMENT_STATUS.PENDING,
+          providerOrderId: 'PAY-WINNING-RACE',
+        },
+      ]);
+      const duplicateError = new Error('simulated concurrent attempt insert');
+      duplicateError.code = 11000;
+      throw duplicateError;
+    });
+    try {
+      const response = await initiate(customer, order);
+      expect(response.status).toBe(409);
+      expect(response.body.error.code).toBe('ORDER_ALREADY_REFUNDED');
+      expect(response.body).not.toHaveProperty('data.gateway');
+      expect(await Payment.countDocuments({ orderId: order._id })).toBe(2);
+      expect(await Order.findById(order._id).lean()).toEqual(before);
+    } finally {
+      saveSpy.mockRestore();
+    }
+  });
+
   it('blocks retry when an expired active attempt still has an uncertain provider outcome', async () => {
     const customer = await createCustomer('pay-expired-attempt@example.com');
     const order = await createOrder(customer);
