@@ -343,6 +343,100 @@ describe('DoctorSession Provider Integration (AC14 - AC18, AC25, AC26)', () => {
       const updatedInDb = await DoctorSession.findById(session._id);
       expect(updatedInDb.doctorId.toString()).toBe(doctorB._id.toString());
     });
+
+    it('should convert legacy session to Doctor, clearing staffId on session and syncing linked appointments', async () => {
+      const optometrist = await Staff.create({
+        name: 'Legacy Optometrist',
+        email: 'optom@darshanaopticals.local',
+        phone: '+94 77 100 0002',
+        address: 'Gampaha',
+        branchId: branch._id,
+        role: ROLE_VALUES.OPTOMETRIST,
+        passwordHash: syntheticHash,
+      });
+
+      const session = await DoctorSession.create({
+        staffId: optometrist._id,
+        branchId: branch._id,
+        startAt: new Date('2026-11-20T09:00:00Z'),
+        endAt: new Date('2026-11-20T12:00:00Z'),
+        capacity: 10,
+        confirmedCount: 1,
+      });
+
+      const appointment = await Appointment.create({
+        customerId: new mongoose.Types.ObjectId(),
+        sessionId: session._id,
+        staffId: optometrist._id,
+        branchId: branch._id,
+        dateTime: session.startAt,
+        status: 'CONFIRMED',
+        position: 1,
+      });
+
+      const response = await request(app)
+        .patch(`/api/doctor-sessions/${session._id}`)
+        .set(
+          'Authorization',
+          `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`
+        )
+        .send({ doctorId: doctorA._id.toString() });
+
+      expect(response.status).toBe(200);
+      expect(response.body.data.doctorId).toBe(doctorA._id.toString());
+      expect(response.body.data.staffId).toBeNull();
+
+      const updatedSession = await DoctorSession.findById(session._id);
+      expect(updatedSession.doctorId.toString()).toBe(doctorA._id.toString());
+      expect(updatedSession.staffId).toBeNull();
+
+      const updatedAppointment = await Appointment.findById(appointment._id);
+      expect(updatedAppointment.doctorId.toString()).toBe(doctorA._id.toString());
+      expect(updatedAppointment.staffId).toBeNull();
+    });
+
+    it('should disallow reassigning a session to a new optometrist via patch', async () => {
+      const optometristA = await Staff.create({
+        name: 'Optometrist A',
+        email: 'optom.a@darshanaopticals.local',
+        phone: '+94 77 100 0003',
+        address: 'Gampaha',
+        branchId: branch._id,
+        role: ROLE_VALUES.OPTOMETRIST,
+        passwordHash: syntheticHash,
+      });
+
+      const optometristB = await Staff.create({
+        name: 'Optometrist B',
+        email: 'optom.b@darshanaopticals.local',
+        phone: '+94 77 100 0004',
+        address: 'Gampaha',
+        branchId: branch._id,
+        role: ROLE_VALUES.OPTOMETRIST,
+        passwordHash: syntheticHash,
+      });
+
+      const session = await DoctorSession.create({
+        staffId: optometristA._id,
+        branchId: branch._id,
+        startAt: new Date('2026-11-22T09:00:00Z'),
+        endAt: new Date('2026-11-22T12:00:00Z'),
+        capacity: 10,
+      });
+
+      const response = await request(app)
+        .patch(`/api/doctor-sessions/${session._id}`)
+        .set(
+          'Authorization',
+          `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`
+        )
+        .send({ staffId: optometristB._id.toString() });
+
+      expect(response.status).toBe(409);
+      expect(response.body.error.message).toContain(
+        'Reassigning sessions to new optometrists is not supported'
+      );
+    });
   });
 
   describe('GET /api/doctor-sessions/available (AC18)', () => {

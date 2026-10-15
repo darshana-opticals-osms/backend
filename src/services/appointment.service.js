@@ -592,8 +592,20 @@ async function updateDoctorSession(sessionId, input, authUser) {
       throw new ValidationError('At least one field must be supplied to update the session.');
     }
 
+    if (
+      patch.staffId !== undefined &&
+      (!session.staffId || String(patch.staffId) !== String(session.staffId))
+    ) {
+      throw new ConflictError(
+        'Reassigning sessions to new optometrists is not supported. Assign an external doctor instead.',
+        null,
+        'OPTOMETRIST_REASSIGNMENT_UNSUPPORTED'
+      );
+    }
+
+    const isConvertingToDoctor = Boolean(patch.doctorId);
     const newDoctorId = patch.doctorId ?? session.doctorId;
-    const newStaffId = patch.staffId ?? session.staffId;
+    const newStaffId = isConvertingToDoctor ? null : (patch.staffId ?? session.staffId);
     const newBranchId = patch.branchId ?? session.branchId;
     const newStartAt = patch.startAt ? parseIsoDate(patch.startAt, 'startAt') : session.startAt;
     const newEndAt = patch.endAt ? parseIsoDate(patch.endAt, 'endAt') : session.endAt;
@@ -634,6 +646,9 @@ async function updateDoctorSession(sessionId, input, authUser) {
         throw new NotFoundError('Doctor not found.');
       }
 
+      if (session.staffId) {
+        await lockFormerProviderScheduling(session.staffId, mongoSession);
+      }
       await lockDoctorScheduling(newDoctorId, mongoSession);
 
       const overlap = await DoctorSession.findOne({
@@ -664,9 +679,6 @@ async function updateDoctorSession(sessionId, input, authUser) {
         throw new ValidationError('Selected session does not reference a valid optometrist.');
       }
 
-      if (String(session.staffId) !== String(newStaffId)) {
-        await lockFormerProviderScheduling(session.staffId, mongoSession);
-      }
       await lockOptometristScheduling(assignedStaff, approvedBranch._id, mongoSession);
 
       const overlap = await DoctorSession.findOne({
@@ -694,8 +706,12 @@ async function updateDoctorSession(sessionId, input, authUser) {
       endAt: newEndAt,
       capacity: nextCapacity,
     };
-    if (newDoctorId) updateFields.doctorId = newDoctorId;
-    if (newStaffId && !newDoctorId) updateFields.staffId = newStaffId;
+    if (newDoctorId) {
+      updateFields.doctorId = newDoctorId;
+      updateFields.staffId = null;
+    } else if (newStaffId) {
+      updateFields.staffId = newStaffId;
+    }
 
     const updated = await DoctorSession.findByIdAndUpdate(sessionId, updateFields, {
       new: true,
@@ -707,8 +723,12 @@ async function updateDoctorSession(sessionId, input, authUser) {
       dateTime: newStartAt,
       branchId: newBranchId,
     };
-    if (newDoctorId) appointmentSyncFields.doctorId = newDoctorId;
-    if (newStaffId && !newDoctorId) appointmentSyncFields.staffId = newStaffId;
+    if (newDoctorId) {
+      appointmentSyncFields.doctorId = newDoctorId;
+      appointmentSyncFields.staffId = null;
+    } else if (newStaffId) {
+      appointmentSyncFields.staffId = newStaffId;
+    }
 
     await syncSessionAppointments(sessionId, appointmentSyncFields, mongoSession);
 
