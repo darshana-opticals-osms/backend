@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const Payment = require('../models/payment.model');
 const PaymentEvent = require('../models/paymentEvent.model');
+const PaymentRetrievalEvidence = require('../models/paymentRetrievalEvidence.model');
 const Order = require('../models/order.model');
 const Customer = require('../models/customer.model');
 const { loadConfig } = require('../config/env');
@@ -471,6 +472,27 @@ async function processVerifiedNotification(fields) {
             currentPayment,
             fields,
             'SUCCESS_WHILE_RECONCILIATION_PENDING',
+            session
+          );
+          return;
+        }
+        // Retrieval cannot complete a payment, but a previously observed distinct
+        // capture is a real conflict, not merely a delayed matching IPN.
+        const distinctRetrievedCapture = await PaymentRetrievalEvidence.exists({
+          paymentId: currentPayment._id,
+          records: {
+            $elemMatch: {
+              providerOrderId: currentPayment.providerOrderId,
+              status: 'RECEIVED',
+              providerTransactionId: { $ne: fields.payment_id },
+            },
+          },
+        }).session(session);
+        if (distinctRetrievedCapture) {
+          result = await markReconciliation(
+            currentPayment,
+            fields,
+            'DISTINCT_SUCCESSFUL_PROVIDER_TRANSACTION',
             session
           );
           return;

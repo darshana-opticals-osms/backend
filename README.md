@@ -144,7 +144,9 @@ active sessions before expiry. Attempts, provider references and verified events
 are retained; expiry creates no fabricated provider event.
 
 An initiation request after the original deadline closes stale local attempts but
-returns `409 ORDER_PAYMENT_EXPIRED` without a new checkout. ADR-011 section 8
+returns `409 ORDER_PAYMENT_EXPIRED` without a new checkout. Once the sweep has
+cancelled that Order, initiation returns `409 ORDER_NOT_PAYABLE` instead; neither
+response permits retry on that expired Order. ADR-011 section 8
 requires an unexpired Order; section 12 also describes a fresh attempt after the
 same 30-minute timeout. Retrying that expired Order needs clarification of this
 contradiction; no extension or stock re-reservation is inferred. A signed failure
@@ -293,9 +295,19 @@ Provider mapping follows the [official Retrieval API](https://support.payhere.lk
 
 **ADR boundary:** ADR-011 sections 10/11 explicitly require cryptographically
 verified IPN for `completed`. Retrieval-only completion remains inactive, including
-on unexpired Orders. Explicit application of a confirmed received-payment
-discrepancy uses existing reconciliation holds; subsequent IPNs preserve those
-holds. For cancelled/expired Orders, evidence records `RETRIEVAL_LATE_SUCCESS` and
+on unexpired Orders. One matching `RECEIVED` observation for an active, unexpired
+attempt on an `ORDER_CREATED` Order, with no conflicting financial state, records
+`RETRIEVAL_SUCCESS_REQUIRES_IPN` as evidence only: it does not set a blocking
+reconciliation flag. A later genuine signed IPN can complete normally. The evidence
+reason is a historical assessment, not the current Payment reconciliation flag.
+Actual mismatches, conflicting attempts/captures, refunds, chargebacks and late
+success retain blocking reconciliation protection; existing flags are never cleared.
+An IPN reporting a different capture from saved `RECEIVED` evidence is also held,
+not treated as the delayed matching notification.
+Even an identical observation replay rechecks current state under the Order lock,
+so expiry or a new conflict can establish a hold without rewriting old evidence.
+Previously stored holds are not automatically cleared by this correction.
+For cancelled/expired Orders, evidence records `RETRIEVAL_LATE_SUCCESS` and
 flags reconciliation without revival, stock deduction, Cart removal, refund or
 loyalty changes. No reconciliation-resolution or flag-clearing API is introduced.
 

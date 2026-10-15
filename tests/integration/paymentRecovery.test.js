@@ -211,33 +211,63 @@ describe('Controlled PayHere retrieval and recovery (mock provider only)', () =>
     expect(await snapshot(data)).toEqual(before);
     expect(await Evidence.countDocuments()).toBe(0);
   });
-  it('records successful missing-IPN evidence once without completing or changing stock/Cart', async () => {
-    const data = await fixture();
-    const before = await snapshot(data);
-    const responses = await Promise.all([
-      post(data.payment, { dryRun: false }),
-      post(data.payment, { dryRun: false }),
-    ]);
-    expect(responses.map((r) => r.status)).toEqual([200, 200]);
-    expect(responses.map((r) => r.body.data.replay).sort()).toEqual([false, true]);
-    expect(await Evidence.countDocuments()).toBe(1);
-    const stored = await snapshot(data);
-    expect(stored.payment).toMatchObject({
-      status: 'pending',
-      providerTransactionId: null,
-      reconciliationRequired: true,
-      reconciliationReason: 'RETRIEVAL_SUCCESS_REQUIRES_IPN',
-    });
-    expect(stored.order.status).toBe('ORDER_CREATED');
-    expect(stored.order.statusHistory).toEqual(before.order.statusHistory);
-    expect(stored.inventory).toEqual(before.inventory);
-    expect(stored.cart).toEqual(before.cart);
-    expect(stored.customer).toEqual(before.customer);
-    expect(stored.events).toEqual([]);
-    const evidence = await Evidence.findOne().lean();
-    expect(evidence.source).toBe('PAYHERE_RETRIEVAL_API');
-    expect(JSON.stringify(evidence)).not.toMatch(/private|secret|access_token|card_no|md5sig/);
-  });
+  it.each(['pending', 'processing'])(
+    'records matching RECEIVED for %s without blocking a delayed signed IPN or its retries',
+    async (status) => {
+      const data = await fixture();
+      await Payment.updateOne({ _id: data.payment._id }, { $set: { status } });
+      const before = await snapshot(data);
+      const responses = await Promise.all([
+        post(data.payment, { dryRun: false }),
+        post(data.payment, { dryRun: false }),
+      ]);
+      expect(responses.map((r) => r.status)).toEqual([200, 200]);
+      expect(responses.map((r) => r.body.data.replay).sort()).toEqual([false, true]);
+      expect(await Evidence.countDocuments()).toBe(1);
+      const stored = await snapshot(data);
+      expect(stored.payment).toMatchObject({
+        status,
+        providerTransactionId: null,
+        reconciliationRequired: false,
+        reconciliationReason: null,
+      });
+      expect(stored.order.status).toBe('ORDER_CREATED');
+      expect(stored.order.statusHistory).toEqual(before.order.statusHistory);
+      expect(stored.inventory).toEqual(before.inventory);
+      expect(stored.cart).toEqual(before.cart);
+      expect(stored.customer).toEqual(before.customer);
+      expect(stored.events).toEqual([]);
+      const evidence = await Evidence.findOne().lean();
+      expect(evidence.source).toBe('PAYHERE_RETRIEVAL_API');
+      expect(evidence.reconciliationReason).toBe('RETRIEVAL_SUCCESS_REQUIRES_IPN');
+      expect(JSON.stringify(evidence)).not.toMatch(/private|secret|access_token|card_no|md5sig/);
+      expect((await callback(data.payment)).status).toBe(200);
+      const completed = await snapshot(data);
+      expect(completed.payment).toMatchObject({
+        status: 'completed',
+        reconciliationRequired: false,
+      });
+      expect(completed.order.status).toBe('PROCESSING');
+      expect(completed.order.statusHistory).toHaveLength(2);
+      expect(completed.events).toHaveLength(1);
+      expect(completed.events[0]).toMatchObject({ action: 'applied', statusCode: '2' });
+      expect(completed.inventory).toEqual(before.inventory);
+      expect(completed.cart).toEqual(before.cart);
+      expect(completed.customer).toEqual(before.customer);
+      expect((await callback(data.payment)).status).toBe(200);
+      const replay = await post(data.payment, { dryRun: false });
+      expect(replay.status).toBe(200);
+      expect(replay.body.data.replay).toBe(true);
+      expect(await Evidence.countDocuments()).toBe(1);
+      expect(await Evidence.findOne().lean()).toEqual(evidence);
+      const afterRetry = await snapshot(data);
+      expect(afterRetry.payment).toEqual(completed.payment);
+      expect(afterRetry.order.statusHistory).toEqual(completed.order.statusHistory);
+      expect(afterRetry.events).toEqual(completed.events);
+      expect(afterRetry.inventory).toEqual(before.inventory);
+      expect(afterRetry.cart).toEqual(before.cart);
+    }
+  );
   it('records late provider success after genuine expiry without reviving or altering restored stock/Cart', async () => {
     const data = await fixture({ reservationExpiresAt: new Date(Date.now() - 1000) });
     expect((await cancelUnpaidReservation({ orderId: data.order._id, expiry: true })).action).toBe(
@@ -291,7 +321,15 @@ describe('Controlled PayHere retrieval and recovery (mock provider only)', () =>
       expect(response.body.data.evidence.reconciliationReason).toBe('RETRIEVAL_CONTEXT_MISMATCH');
       expect((await Payment.findById(data.payment._id)).status).toBe('pending');
       expect((await Order.findById(data.order._id)).status).toBe('ORDER_CREATED');
+      expect((await Payment.findById(data.payment._id)).reconciliationRequired).toBe(true);
       expect(await PaymentEvent.countDocuments()).toBe(0);
+      const held = await snapshot(data);
+      expect((await callback(data.payment)).status).toBe(200);
+      const after = await snapshot(data);
+      expect(after.payment.status).toBe('pending');
+      expect(after.order.statusHistory).toEqual(held.order.statusHistory);
+      expect(after.inventory).toEqual(held.inventory);
+      expect(after.cart).toEqual(held.cart);
     }
   );
   it('detects distinct captures instead of selecting a convenient successful row', async () => {
@@ -303,7 +341,94 @@ describe('Controlled PayHere retrieval and recovery (mock provider only)', () =>
     );
     expect(response.body.data.evidence.records).toHaveLength(2);
     expect((await Payment.findById(data.payment._id)).providerTransactionId).toBeNull();
+    expect((await Payment.findById(data.payment._id)).reconciliationRequired).toBe(true);
+    expect((await callback(data.payment)).status).toBe(200);
+    expect((await Payment.findById(data.payment._id)).status).toBe('pending');
+    expect((await Order.findById(data.order._id)).status).toBe('ORDER_CREATED');
   });
+  it.each(['failed', 'cancelled', 'refunded', 'completed'])(
+    'holds a %s attempt without applied IPN proof even when the Order is unexpired',
+    async (status) => {
+      const data = await fixture();
+      await Payment.updateOne({ _id: data.payment._id }, { $set: { status } });
+      const before = await snapshot(data);
+      expect((await post(data.payment, { dryRun: false })).status).toBe(200);
+      const after = await snapshot(data);
+      expect(after.payment).toMatchObject({ status, reconciliationRequired: true });
+      expect(after.order.statusHistory).toEqual(before.order.statusHistory);
+      expect(after.inventory).toEqual(before.inventory);
+      expect(after.cart).toEqual(before.cart);
+      expect(after.events).toHaveLength(0);
+      expect(await Evidence.countDocuments()).toBe(1);
+    }
+  );
+  it('holds a distinct stored provider transaction reference instead of exempting awaiting IPN', async () => {
+    const data = await fixture();
+    await Payment.updateOne(
+      { _id: data.payment._id },
+      { $set: { providerTransactionId: 'PH-OTHER-CAPTURE' } }
+    );
+    const response = await post(data.payment, { dryRun: false });
+    expect(response.status).toBe(200);
+    expect(response.body.data.evidence.reconciliationReason).toBe('RETRIEVAL_CONTEXT_MISMATCH');
+    expect((await Payment.findById(data.payment._id)).reconciliationRequired).toBe(true);
+    expect((await callback(data.payment)).status).toBe(200);
+    expect((await Payment.findById(data.payment._id)).status).toBe('pending');
+    expect((await Order.findById(data.order._id)).status).toBe('ORDER_CREATED');
+  });
+  it('holds a signed success for a different capture than the recorded RECEIVED observation', async () => {
+    const data = await fixture();
+    expect((await post(data.payment, { dryRun: false })).status).toBe(200);
+    const before = await snapshot(data);
+    const fields = { ...signed(data.payment), payment_id: 'PH-DISTINCT-CAPTURE' };
+    fields.md5sig = createNotificationSignature(fields, 'retrieval-checkout-test-secret');
+    expect((await request(app).post('/api/payments/notify').type('form').send(fields)).status).toBe(
+      200
+    );
+    const after = await snapshot(data);
+    expect(after.payment).toMatchObject({
+      status: 'pending',
+      reconciliationRequired: true,
+      reconciliationReason: 'DISTINCT_SUCCESSFUL_PROVIDER_TRANSACTION',
+    });
+    expect(after.order.statusHistory).toEqual(before.order.statusHistory);
+    expect(after.inventory).toEqual(before.inventory);
+    expect(after.cart).toEqual(before.cart);
+    expect(after.events).toHaveLength(1);
+    expect(after.events[0]).toMatchObject({
+      action: 'reconciliation_required',
+      providerTransactionId: 'PH-DISTINCT-CAPTURE',
+    });
+    expect(await Evidence.countDocuments()).toBe(1);
+  });
+  it.each(['completed', 'refunded', 'reconciliation'])(
+    'preserves Order-wide protection when another attempt has %s financial state',
+    async (state) => {
+      const data = await fixture();
+      await Payment.create({
+        orderId: data.order._id,
+        amount: 200,
+        method: 'online_gateway',
+        providerOrderId: 'PAY-other-attempt',
+        providerTransactionId: 'PH-OTHER-CAPTURE',
+        status: state === 'reconciliation' ? 'failed' : state,
+        reconciliationRequired: state === 'reconciliation',
+        reconciliationReason: state === 'reconciliation' ? 'LATE_SUCCESS_TERMINAL_ATTEMPT' : null,
+      });
+      const before = await snapshot(data);
+      const response = await post(data.payment, { dryRun: false });
+      expect(response.status).toBe(200);
+      expect(response.body.data.evidence.reconciliationReason).toBe('RETRIEVAL_CONTEXT_MISMATCH');
+      expect((await Payment.findById(data.payment._id)).reconciliationRequired).toBe(true);
+      expect((await callback(data.payment)).status).toBe(200);
+      const after = await snapshot(data);
+      expect(after.payment.status).toBe('pending');
+      expect(after.order.statusHistory).toEqual(before.order.statusHistory);
+      expect(after.inventory).toEqual(before.inventory);
+      expect(after.cart).toEqual(before.cart);
+      expect(after.events[0]).toMatchObject({ action: 'reconciliation_required' });
+    }
+  );
   it.each(['REFUND REQUESTED', 'REFUND PROCESSING', 'REFUNDED', 'CHARGEBACKED'])(
     'audits %s without recording an OSMS refund or loyalty effects',
     async (status) => {
@@ -333,6 +458,9 @@ describe('Controlled PayHere retrieval and recovery (mock provider only)', () =>
       }
     );
     await post(data.payment, { dryRun: false });
+    expect((await callback(data.payment)).status).toBe(200);
+    expect((await Payment.findById(data.payment._id)).status).toBe('pending');
+    expect((await PaymentEvent.findOne()).reason).toBe('SUCCESS_WHILE_RECONCILIATION_PENDING');
     providerResponse = { status: -1, data: null };
     await post(data.payment, { dryRun: false });
     const payment = await Payment.findById(data.payment._id);
@@ -360,21 +488,18 @@ describe('Controlled PayHere retrieval and recovery (mock provider only)', () =>
     const responses = await Promise.all([
       post(data.payment, { dryRun: false }),
       callback(data.payment),
+      post(data.payment, { dryRun: false }),
+      callback(data.payment),
     ]);
-    expect(responses.map((r) => r.status)).toEqual([200, 200]);
+    expect(responses.map((r) => r.status)).toEqual([200, 200, 200, 200]);
     const after = await snapshot(data);
-    if (after.payment.status === 'completed') {
-      expect(after.order.status).toBe('PROCESSING');
-      expect(after.order.statusHistory).toHaveLength(2);
-    } else {
-      expect(after.payment.status).toBe('pending');
-      expect(after.payment.reconciliationRequired).toBe(true);
-      expect(after.order.status).toBe('ORDER_CREATED');
-      expect(after.order.statusHistory).toHaveLength(1);
-    }
+    expect(after.payment).toMatchObject({ status: 'completed', reconciliationRequired: false });
+    expect(after.order.status).toBe('PROCESSING');
+    expect(after.order.statusHistory).toHaveLength(2);
     expect(after.inventory).toEqual(before.inventory);
     expect(after.cart).toEqual(before.cart);
     expect(after.events).toHaveLength(1);
+    expect(after.events[0]).toMatchObject({ action: 'applied', statusCode: '2' });
     expect(await Evidence.countDocuments()).toBe(1);
   });
   it('does not open a transaction across HTTP and rechecks callback completion after retrieval', async () => {
@@ -428,8 +553,74 @@ describe('Controlled PayHere retrieval and recovery (mock provider only)', () =>
     expect(after.inventory).toEqual(before.inventory);
     expect(after.cart).toEqual(before.cart);
   });
+  it('reassesses an identical nonblocking observation after expiry without rewriting evidence', async () => {
+    const data = await fixture();
+    expect((await post(data.payment, { dryRun: false })).status).toBe(200);
+    expect((await Payment.findById(data.payment._id)).reconciliationRequired).toBe(false);
+    const evidence = await Evidence.findOne().lean();
+    // Only this isolated fixture changes: simulate crossing the original deadline.
+    await Order.collection.updateOne(
+      { _id: data.order._id },
+      { $set: { reservationExpiresAt: new Date(Date.now() - 1000) } }
+    );
+    expect((await cancelUnpaidReservation({ orderId: data.order._id, expiry: true })).action).toBe(
+      'cancelled'
+    );
+    const before = await snapshot(data);
+    const response = await post(data.payment, { dryRun: false });
+    expect(response.status).toBe(200);
+    expect(response.body.data.replay).toBe(true);
+    expect(await Payment.findById(data.payment._id)).toMatchObject({
+      status: 'cancelled',
+      reconciliationRequired: true,
+      reconciliationReason: 'RETRIEVAL_LATE_SUCCESS',
+    });
+    expect(await Evidence.findOne().lean()).toEqual(evidence);
+    expect(await Evidence.countDocuments()).toBe(1);
+    expect((await callback(data.payment)).status).toBe(200);
+    const after = await snapshot(data);
+    expect(after.order.status).toBe('CANCELLED');
+    expect(after.order.statusHistory).toEqual(before.order.statusHistory);
+    expect(after.order.inventoryRestoredAt).toEqual(before.order.inventoryRestoredAt);
+    expect(after.inventory).toEqual(before.inventory);
+    expect(after.cart).toEqual(before.cart);
+  });
+  it('serializes concurrent expiry and retrieval without revival or duplicate Inventory/Cart restoration', async () => {
+    const data = await fixture({ reservationExpiresAt: new Date(Date.now() - 1000) });
+    const [recovery, expiry] = await Promise.all([
+      post(data.payment, { dryRun: false }),
+      cancelUnpaidReservation({ orderId: data.order._id, expiry: true }),
+    ]);
+    expect(recovery.status).toBe(200);
+    expect((await Payment.findById(data.payment._id)).reconciliationRequired).toBe(true);
+    const beforeRetry = await snapshot(data);
+    if (expiry.action === 'cancelled') {
+      expect(beforeRetry.order.status).toBe('CANCELLED');
+      expect(beforeRetry.inventory.quantity).toBe(7);
+      expect(beforeRetry.cart.items).toHaveLength(1);
+      expect(beforeRetry.cart.items[0].quantity).toBe(2);
+    } else {
+      expect(expiry).toMatchObject({ action: 'held', reason: 'PAYMENT_RECONCILIATION_REQUIRED' });
+      expect(beforeRetry.order.status).toBe('ORDER_CREATED');
+      expect(beforeRetry.inventory.quantity).toBe(5);
+      expect(beforeRetry.cart).toBeNull();
+    }
+    await cancelUnpaidReservation({ orderId: data.order._id, expiry: true });
+    expect((await callback(data.payment)).status).toBe(200);
+    expect((await callback(data.payment)).status).toBe(200);
+    const afterRetry = await snapshot(data);
+    expect(afterRetry.payment.status).toBe(beforeRetry.payment.status);
+    expect(afterRetry.order.statusHistory).toEqual(beforeRetry.order.statusHistory);
+    expect(afterRetry.order.inventoryRestoredAt).toEqual(beforeRetry.order.inventoryRestoredAt);
+    expect(afterRetry.inventory).toEqual(beforeRetry.inventory);
+    expect(afterRetry.cart).toEqual(beforeRetry.cart);
+    expect(afterRetry.events).toHaveLength(1);
+    expect(afterRetry.events[0].action).toBe('reconciliation_required');
+    expect(await Evidence.countDocuments()).toBe(1);
+  });
   it('rolls back the Order lock and reconciliation flag if audit persistence fails', async () => {
     const data = await fixture();
+    providerResponse.data[0].amount = 199;
     const before = await snapshot(data);
     jest.spyOn(Evidence, 'create').mockRejectedValueOnce(new Error('test audit insert failure'));
     await expect(

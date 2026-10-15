@@ -99,6 +99,13 @@ async function assess(payment, order, observation, session = null) {
     order.reservationExpiresAt <= new Date()
   )
     return 'RETRIEVAL_LATE_SUCCESS';
+  const otherConflict = Payment.exists({
+    orderId: payment.orderId,
+    _id: { $ne: payment._id },
+    $or: [{ reconciliationRequired: true }, { status: { $in: ['completed', 'refunded'] } }],
+  });
+  if (session) otherConflict.session(session);
+  if (await otherConflict) return 'RETRIEVAL_CONTEXT_MISMATCH';
   // ADR-011 sections 10/11 require verified IPN for completion. Do not synthesize one.
   return 'RETRIEVAL_SUCCESS_REQUIRES_IPN';
 }
@@ -174,17 +181,24 @@ async function recoverPayment({ auth, paymentId, dryRun = true }) {
       )
         throw new ConflictError('Payment context changed during verification.');
       saved = await Evidence.findOne({ paymentId, observationKey }).session(session);
-      if (saved) {
-        replay = true;
-        return;
-      }
       const reason = await assess(current, lockedOrder, observation, session);
-      if (reason && !current.reconciliationRequired) {
+      // A matching capture still awaiting its authoritative IPN is evidence,
+      // not a conflict. Never clear an existing hold or exempt terminal attempts.
+      const awaitingIpn =
+        reason === 'RETRIEVAL_SUCCESS_REQUIRES_IPN' &&
+        ['pending', 'processing'].includes(current.status);
+      if (reason && !awaitingIpn && !current.reconciliationRequired) {
         await Payment.updateOne(
           { _id: paymentId },
           { $set: { reconciliationRequired: true, reconciliationReason: reason } },
           { session }
         );
+      }
+      // Reassess even identical provider observations: expiry or a financial
+      // conflict may have committed since this append-only snapshot was saved.
+      if (saved) {
+        replay = true;
+        return;
       }
       [saved] = await Evidence.create(
         [

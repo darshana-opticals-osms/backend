@@ -33,7 +33,7 @@ const paymentNotificationRouter = express.Router();
  * /payments/{paymentId}/recovery:
  *   post:
  *     summary: Investigate a PayHere attempt; optionally record reconciliation evidence
- *     description: BRANCH_MANAGER only. Defaults to dry-run and performs authenticated server-to-server Retrieval API reads only. Explicit dryRun false appends sanitized retrieval evidence and may flag unresolved financial discrepancies. No Payment/Order status change, IPN fabrication, flag clearing, refund, loyalty, Inventory or Cart effect. ADR-011 requires IPN for completion. Pending, absent and decline-or-error responses do not prove that no capture exists. Network calls precede the transaction. Provider failures return safe 503 errors with no evidence or financial writes.
+ *     description: BRANCH_MANAGER only. Defaults to dry-run and performs authenticated server-to-server Retrieval API reads only. Explicit dryRun false appends sanitized retrieval evidence and may flag actual financial conflicts. One matching RECEIVED record for an active/unexpired attempt on an ORDER_CREATED Order without conflicting financial state records RETRIEVAL_SUCCESS_REQUIRES_IPN without setting a blocking flag; a later signed IPN can complete normally. Existing holds are never cleared. Identical observation replays recheck current state without rewriting evidence. No Payment/Order status change, IPN fabrication, flag clearing, refund, loyalty, Inventory or Cart effect. ADR-011 requires IPN for completion. Pending, absent and decline-or-error responses do not prove that no capture exists. Network calls precede the transaction. Provider failures return safe 503 errors with no evidence or financial writes.
  *     tags: [Payments]
  *     security: [{ bearerAuth: [] }]
  *     parameters:
@@ -147,7 +147,7 @@ const paymentNotificationRouter = express.Router();
  *         records:
  *           type: array
  *           items: { $ref: '#/components/schemas/RetrievedPayment' }
- *         reconciliationReason: { type: string, nullable: true }
+ *         reconciliationReason: { type: string, nullable: true, description: Historical assessment. RETRIEVAL_SUCCESS_REQUIRES_IPN is informational for an otherwise eligible active attempt; this field is not the current Payment blocking flag. }
  *         observedAt: { type: string, format: date-time }
  *         createdAt: { type: string, format: date-time }
  */

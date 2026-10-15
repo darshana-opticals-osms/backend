@@ -20,6 +20,17 @@ describe('Swagger documentation integrity', () => {
         .code
     ).toBe('PAYMENT_UNAVAILABLE');
   });
+  it('documents retrieval evidence as nonblocking while preserving signed-IPN authority', () => {
+    const recovery = swaggerSpec.paths['/payments/{paymentId}/recovery'].post;
+    expect(recovery.description).toMatch(/without setting a blocking flag/);
+    expect(recovery.description).toMatch(/Existing holds are never cleared/);
+    expect(recovery.description).toMatch(/replays recheck current state/);
+    expect(recovery.description).toMatch(/ADR-011 requires IPN for completion/);
+    expect(
+      swaggerSpec.components.schemas.PaymentRetrievalEvidence.properties.reconciliationReason
+        .description
+    ).toMatch(/not the current Payment blocking flag/);
+  });
   const expectedOperations = [
     'GET /health',
     'POST /auth/register',
