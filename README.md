@@ -38,6 +38,30 @@ Authentication configuration:
   and never commit the real value.
 - `JWT_EXPIRES_IN` controls access-token lifetime and defaults to `24h`.
 
+## Chatbot session budget (issue #77)
+
+The backend shares a fixed 30-minute usage window across tabs, devices and JWTs
+for each authenticated Customer. Twenty messages means ten question/reply
+exchanges. Each admitted query reserves two slots before retrieval/provider work,
+including unsupported and failed requests. Manual retries count again; automatic
+adapter retries use the original reservation. Refresh, logout/login, tab close
+and clearing browser history do not reset the budget.
+
+Existing widget requests and successful responses remain compatible. Exhaustion
+returns `429` with `error.code = CHATBOT_SESSION_EXHAUSTED` and `Retry-After`
+seconds until expiry. Per-minute rejection retains `RATE_LIMIT_EXCEEDED`. Usage
+storage failure returns safe `503` `CHATBOT_USAGE_UNAVAILABLE` before retrieval
+or provider work. The widget should distinguish these error codes. No reset API
+exists.
+
+Only a Customer reference, window timestamps and count are retained in
+`chatbotusages`. MongoDB TTL cleanup deletes expired records asynchronously;
+expiry is enforced independently of cleanup. Customer model deletion removes
+usage. Raw database/bulk deletions bypass model hooks and must explicitly remove
+matching usage records. No conversation text is stored. Deployment must ensure
+the `expiresAt` TTL index exists when automatic index creation is disabled.
+See the [approved contract](docs/chatbot-session-budget-proposal.md).
+
 ## Development
 
 Start the backend in development mode:

@@ -17,6 +17,11 @@ const router = express.Router();
  *       Processes a customer question statelessly using grounded OSMS Knowledge Area articles and AI RAG generation.
  *       Full message logs are not persisted on the server for customer privacy (managed in browser sessionStorage).
  *       Requires authenticated CUSTOMER role.
+ *       A shared fixed 30-minute Customer usage window permits 20 messages (10 question/reply exchanges).
+ *       Each admitted query reserves two messages, including unsupported replies and failed requests.
+ *       Manual retries/replays count again; automatic provider retries use the same reservation.
+ *       Refresh, logout/login, tab close and clearing history do not reset usage. No reset endpoint exists.
+ *       Only Customer reference, window timestamps and count are stored; expired usage uses MongoDB TTL cleanup.
  *     tags:
  *       - Chatbot
  *     security:
@@ -78,7 +83,31 @@ const router = express.Router();
  *       403:
  *         description: Forbidden — restricted to CUSTOMER role.
  *       429:
- *         description: Too Many Requests — rate limit exceeded (10 requests/min).
+ *         description: Per-minute limit (RATE_LIMIT_EXCEEDED) or shared session budget (CHATBOT_SESSION_EXHAUSTED) exceeded.
+ *         headers:
+ *           Retry-After:
+ *             description: Seconds until usage window expiry for CHATBOT_SESSION_EXHAUSTED.
+ *             schema:
+ *               type: integer
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                       enum: [RATE_LIMIT_EXCEEDED, CHATBOT_SESSION_EXHAUSTED]
+ *                     message:
+ *                       type: string
+ *                       example: Chatbot session message limit reached. Please try again later.
+ *       503:
+ *         description: Usage admission unavailable (CHATBOT_USAGE_UNAVAILABLE); no retrieval or provider work performed.
  */
 router.post(
   ['/v1/chatbot/query', '/chatbot/query'],

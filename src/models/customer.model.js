@@ -149,4 +149,22 @@ customerSchema.pre('aggregate', function () {
     rejectBalanceWrite();
 });
 
+// Account deletion must also remove ephemeral chatbot usage metadata.
+customerSchema.pre(['deleteOne', 'deleteMany', 'findOneAndDelete'], async function () {
+  const query = this.model.find(this.getFilter()).select('_id');
+  if (this.op !== 'deleteMany') query.limit(1);
+  const customers = await query.session(this.getOptions().session || null).lean();
+  this.chatbotUsageCustomerIds = customers.map((customer) => customer._id);
+});
+customerSchema.post(['deleteOne', 'deleteMany', 'findOneAndDelete'], async function () {
+  const Usage = require('./chatbotUsage.model');
+  await Usage.deleteMany({ _id: { $in: this.chatbotUsageCustomerIds || [] } }).session(
+    this.getOptions().session || null
+  );
+});
+customerSchema.post('deleteOne', { document: true, query: false }, async function () {
+  const Usage = require('./chatbotUsage.model');
+  await Usage.deleteOne({ _id: this._id }).session(this.$session());
+});
+
 module.exports = mongoose.model('Customer', customerSchema);

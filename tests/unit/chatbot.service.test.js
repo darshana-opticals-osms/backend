@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const KnowledgeArea = require('../../src/models/knowledgeArea.model');
 const Chatbot = require('../../src/models/chatbot.model');
+const Usage = require('../../src/models/chatbotUsage.model');
 const ChatbotService = require('../../src/services/chatbot.service');
 const MockChatbotAdapter = require('../../src/services/adapters/MockChatbotAdapter');
 const {
@@ -29,6 +30,7 @@ describe('ChatbotService (Unit tests)', () => {
   beforeEach(async () => {
     await KnowledgeArea.deleteMany({});
     await Chatbot.deleteMany({});
+    await Usage.deleteMany({});
 
     // Seed baseline test knowledge
     await KnowledgeArea.create([

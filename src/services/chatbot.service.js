@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const ChatbotUsageService = require('./chatbotUsage.service');
 const Chatbot = require('../models/chatbot.model');
 const KnowledgeRetrievalService = require('./knowledgeRetrieval.service');
 const GeminiChatbotAdapter = require('./adapters/GeminiChatbotAdapter');
@@ -115,6 +116,7 @@ ${groundedContextText}`;
       );
     }
 
+    await ChatbotUsageService.reserve(customerId);
     const chatId = `chat_${crypto.randomUUID()}`;
 
     // 1. Enforce Clinical Boundary Defense
