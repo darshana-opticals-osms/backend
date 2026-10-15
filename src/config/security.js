@@ -24,6 +24,7 @@ const CORS_CONFIG = {
   origin: CORS_ORIGINS,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['Retry-After'],
   credentials: true,
 };
 
