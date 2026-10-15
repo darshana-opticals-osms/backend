@@ -6,6 +6,7 @@ const {
   processVerifiedNotification,
 } = require('../services/payment.service');
 const { validatePayHereNotification } = require('../validations/payment.validation');
+const monitoring = require('../services/paymentMonitoring.service');
 
 const initiatePayment = catchAsync(async (req, res) => {
   const result = await initiatePaymentService({
@@ -31,4 +32,31 @@ const receivePayHereNotification = catchAsync(async (req, res) => {
   return res.status(200).type('text/plain').send('OK');
 });
 
-module.exports = { initiatePayment, getOwnOrderPaymentStatus, receivePayHereNotification };
+const listManagementPayments = catchAsync(async (req, res) => {
+  const result = await monitoring.listManagementPayments({ role: req.auth.role, query: req.query });
+  return res.status(200).json({ success: true, data: result });
+});
+const getManagementPayment = catchAsync(async (req, res) => {
+  const result = await monitoring.getManagementPayment({
+    role: req.auth.role,
+    paymentId: req.params.paymentId,
+  });
+  return res.status(200).json({ success: true, data: result });
+});
+const listManagementPaymentEvents = catchAsync(async (req, res) => {
+  const result = await monitoring.listManagementPaymentEvents({
+    role: req.auth.role,
+    paymentId: req.params.paymentId,
+    query: req.query,
+  });
+  return res.status(200).json({ success: true, data: result });
+});
+
+module.exports = {
+  initiatePayment,
+  getOwnOrderPaymentStatus,
+  receivePayHereNotification,
+  listManagementPayments,
+  getManagementPayment,
+  listManagementPaymentEvents,
+};

@@ -127,6 +127,41 @@ notification after commit. SMTP failure is logged without undoing cancellation.
 As with existing cancellation notifications, delivery is best effort; this phase
 does not add a durable notification outbox or automatic email retries.
 
+### Management payment monitoring
+
+Phase 5A adds three authenticated, read-only endpoints restricted to `BRANCH_MANAGER`:
+
+- `GET /api/payments`: all historical attempts with optional `status`, `orderId`,
+  exact `providerTransactionId`, and `reconciliationRequired=true|false` filters.
+- `GET /api/payments/:paymentId`: one attempt's approved financial metadata.
+- `GET /api/payments/:paymentId/events`: that attempt's stored verified audit evidence,
+  optionally filtered by `action`, `statusCode`, and exact `providerTransactionId`.
+
+Both lists accept `page` (1–10000, default 1), `limit` (1–100, default 25), and
+`sortOrder=asc|desc`. Payment `sortBy` allows `createdAt` (default), `updatedAt`,
+`amount`, or `status`; event sorting allows `verifiedAt` (default) or `createdAt`.
+Sorting includes an ID tie-breaker. Lists return
+`{ success: true, data: { items, pagination: { page, limit, total, totalPages } } }`;
+detail returns `{ success: true, data: payment }`. These are live monitoring reads,
+not a frozen accounting report; records and totals may change during callbacks.
+Unknown parameters and non-scalar filter values are rejected with 422.
+
+Payment reference search matches the stored Payment reference; event reference
+search also reveals distinct provider transactions retained as reconciliation
+evidence. Verified event success does not imply that its Payment or Order transition
+was applied: inspect event `action`/`reason` and the Payment reconciliation flag.
+Absent legacy reconciliation flags are treated as false. Known backend reason codes
+are exposed; unknown/free-text legacy reasons are returned as null without modifying
+the persisted evidence. DTOs exclude signatures, idempotency/event keys, raw payloads,
+card data, merchant credentials, and customer profile information.
+
+Monitoring follows the existing role-wide Order oversight scope. Payment/Order
+records do not provide an authoritative branch ownership mapping; branch-restricted
+payment oversight requires a separate approved mapping. Other roles, including
+`SYSTEM_ADMIN`, cannot access these management endpoints. Customer own-Order payment
+status access remains separate. Phase 5A provides no status overrides, reconciliation
+clearing, or refund mutations; those require the Phase 5B workflow review.
+
 ## Production-style start
 
 npm start

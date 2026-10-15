@@ -37,6 +37,9 @@ describe('Swagger documentation integrity', () => {
     'POST /payments/initiate',
     'POST /payments/notify',
     'GET /orders/{orderId}/payment-status',
+    'GET /payments',
+    'GET /payments/{paymentId}',
+    'GET /payments/{paymentId}/events',
     'GET /appointments/providers',
     'GET /doctor-sessions/available',
     'POST /doctor-sessions',
@@ -283,6 +286,48 @@ describe('Swagger documentation integrity', () => {
       'id',
       'name',
       'phone',
+    ]);
+  });
+
+  it('documents BRANCH_MANAGER-only monitoring, bounded pagination and explicit financial DTOs', () => {
+    for (const path of ['/payments', '/payments/{paymentId}', '/payments/{paymentId}/events']) {
+      const operation = swaggerSpec.paths[path].get;
+      expect(operation.description).toMatch(/BRANCH_MANAGER only/);
+      expect(operation.security).toEqual([{ bearerAuth: [] }]);
+      expect(operation.responses).toEqual(
+        expect.objectContaining({
+          200: expect.any(Object),
+          401: expect.any(Object),
+          403: expect.any(Object),
+          422: expect.any(Object),
+          500: expect.any(Object),
+        })
+      );
+    }
+    expect(swaggerSpec.components.parameters.PaymentMonitoringPage.schema).toMatchObject({
+      minimum: 1,
+      maximum: 10000,
+      default: 1,
+    });
+    expect(swaggerSpec.components.parameters.PaymentMonitoringLimit.schema).toMatchObject({
+      minimum: 1,
+      maximum: 100,
+      default: 25,
+    });
+    for (const name of ['ManagementPayment', 'ManagementPaymentEvent']) {
+      const schema = swaggerSpec.components.schemas[name];
+      expect(schema.additionalProperties).toBe(false);
+      expect(schema.properties.providerTransactionId).toBeDefined();
+      for (const field of ['merchantSecret', 'md5sig', 'eventKey', 'rawPayload', 'card_no', '__v'])
+        expect(schema.properties).not.toHaveProperty(field);
+    }
+    expect(
+      swaggerSpec.components.schemas.ManagementPayment.properties.reconciliationRequired
+    ).toEqual({ type: 'boolean' });
+    expect(swaggerSpec.components.schemas.ManagementPaymentEvent.properties.action.enum).toEqual([
+      'applied',
+      'duplicate',
+      'reconciliation_required',
     ]);
   });
 });

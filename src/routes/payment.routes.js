@@ -7,11 +7,19 @@ const {
   initiatePayment,
   getOwnOrderPaymentStatus,
   receivePayHereNotification,
+  listManagementPayments,
+  getManagementPayment,
+  listManagementPaymentEvents,
 } = require('../controllers/payment.controller');
 const {
   validatePaymentInitiation,
   validatePaymentStatusRequest,
 } = require('../validations/payment.validation');
+const {
+  validatePaymentMonitoringList,
+  validatePaymentMonitoringDetail,
+  validatePaymentMonitoringEvents,
+} = require('../validations/paymentMonitoring.validation');
 
 const paymentRouter = express.Router();
 const paymentNotificationRouter = express.Router();
@@ -140,6 +148,216 @@ paymentRouter.get(
   authorizeRoles(ROLE_VALUES.CUSTOMER),
   validate(validatePaymentStatusRequest),
   getOwnOrderPaymentStatus
+);
+
+/**
+ * @openapi
+ * components:
+ *   schemas:
+ *     ManagementPayment:
+ *       type: object
+ *       additionalProperties: false
+ *       description: Approved financial metadata only. Known backend reason codes are returned; unknown or free-text legacy reasons are null. No customer profile, credentials, signatures, raw callback bodies, or idempotency keys.
+ *       properties:
+ *         paymentId: { type: string }
+ *         orderId: { type: string }
+ *         amount: { type: number }
+ *         currency: { type: string, enum: [LKR] }
+ *         method: { type: string, enum: [card, cash, bank_transfer, online_gateway] }
+ *         status: { type: string, enum: [pending, processing, completed, failed, cancelled, refunded] }
+ *         provider: { type: string, enum: [payhere] }
+ *         providerOrderId: { type: string, nullable: true }
+ *         providerTransactionId: { type: string, nullable: true }
+ *         providerPaymentMethod: { type: string, nullable: true }
+ *         failureReason: { type: string, nullable: true }
+ *         expiresAt: { type: string, format: date-time, nullable: true }
+ *         reconciliationRequired: { type: boolean }
+ *         reconciliationReason: { type: string, nullable: true }
+ *         createdAt: { type: string, format: date-time }
+ *         updatedAt: { type: string, format: date-time }
+ *     ManagementPaymentEvent:
+ *       type: object
+ *       additionalProperties: false
+ *       description: Stored verified evidence; not every event applies a Payment state transition. Event amount and currency are provider observations, including mismatches. Unknown/free-text reasons are null. Signatures, event keys and raw payloads are never returned.
+ *       properties:
+ *         eventId: { type: string }
+ *         paymentId: { type: string }
+ *         orderId: { type: string }
+ *         provider: { type: string, enum: [payhere] }
+ *         providerOrderId: { type: string }
+ *         providerTransactionId: { type: string, nullable: true }
+ *         statusCode: { type: string, enum: ['2', '0', '-1', '-2', '-3'] }
+ *         amount: { type: string }
+ *         currency: { type: string, description: Observed provider currency; may differ from expected LKR. }
+ *         action: { type: string, enum: [applied, duplicate, reconciliation_required] }
+ *         reason: { type: string, nullable: true }
+ *         verifiedAt: { type: string, format: date-time }
+ *         createdAt: { type: string, format: date-time }
+ *     PaymentMonitoringPagination:
+ *       type: object
+ *       additionalProperties: false
+ *       properties:
+ *         page: { type: integer, minimum: 1, maximum: 10000 }
+ *         limit: { type: integer, minimum: 1, maximum: 100 }
+ *         total: { type: integer, minimum: 0 }
+ *         totalPages: { type: integer, minimum: 0 }
+ *     ManagementPaymentListResponse:
+ *       type: object
+ *       properties:
+ *         success: { type: boolean, example: true }
+ *         data:
+ *           type: object
+ *           properties:
+ *             items:
+ *               type: array
+ *               items: { $ref: '#/components/schemas/ManagementPayment' }
+ *             pagination: { $ref: '#/components/schemas/PaymentMonitoringPagination' }
+ *     ManagementPaymentEventListResponse:
+ *       type: object
+ *       properties:
+ *         success: { type: boolean, example: true }
+ *         data:
+ *           type: object
+ *           properties:
+ *             items:
+ *               type: array
+ *               items: { $ref: '#/components/schemas/ManagementPaymentEvent' }
+ *             pagination: { $ref: '#/components/schemas/PaymentMonitoringPagination' }
+ *   parameters:
+ *     PaymentMonitoringPage:
+ *       in: query
+ *       name: page
+ *       schema: { type: integer, minimum: 1, maximum: 10000, default: 1 }
+ *     PaymentMonitoringLimit:
+ *       in: query
+ *       name: limit
+ *       schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+ *     PaymentMonitoringSortOrder:
+ *       in: query
+ *       name: sortOrder
+ *       schema: { type: string, enum: [asc, desc], default: desc }
+ *     PaymentMonitoringProviderReference:
+ *       in: query
+ *       name: providerTransactionId
+ *       description: Exact, case-sensitive scalar reference; no regex matching. At most 120 characters and no control characters.
+ *       schema: { type: string, minLength: 1, maxLength: 120 }
+ *     PaymentMonitoringId:
+ *       in: path
+ *       name: paymentId
+ *       required: true
+ *       schema: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
+ * /payments:
+ *   get:
+ *     summary: Monitor historical Payment attempts
+ *     description: BRANCH_MANAGER only; role-wide oversight matching existing Order tracking. Read-only. Filters combine with AND and include every historical attempt, not just the latest. Provider reference filters the stored Payment reference, not event-only references. Unknown parameters and array/object values are rejected. Live pagination uses a stable ID tie-breaker; concurrent callbacks may change totals between reads. Default order is createdAt descending.
+ *     tags: [Payments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { $ref: '#/components/parameters/PaymentMonitoringPage' }
+ *       - { $ref: '#/components/parameters/PaymentMonitoringLimit' }
+ *       - { $ref: '#/components/parameters/PaymentMonitoringSortOrder' }
+ *       - { $ref: '#/components/parameters/PaymentMonitoringProviderReference' }
+ *       - in: query
+ *         name: sortBy
+ *         schema: { type: string, enum: [createdAt, updatedAt, amount, status], default: createdAt }
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [pending, processing, completed, failed, cancelled, refunded] }
+ *       - in: query
+ *         name: orderId
+ *         schema: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
+ *       - in: query
+ *         name: reconciliationRequired
+ *         schema: { type: boolean }
+ *     responses:
+ *       200:
+ *         description: Safe historical Payment page, including reconciliation flags.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ManagementPaymentListResponse' }
+ *       401: { $ref: '#/components/responses/Unauthorized' }
+ *       403: { $ref: '#/components/responses/Forbidden' }
+ *       422: { $ref: '#/components/responses/ValidationError' }
+ *       500: { $ref: '#/components/responses/InternalServerError' }
+ * /payments/{paymentId}:
+ *   get:
+ *     summary: Inspect one Payment attempt
+ *     description: BRANCH_MANAGER only. Read-only safe financial metadata. No query parameters accepted; no automatic reconciliation clearing or status mutation.
+ *     tags: [Payments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { $ref: '#/components/parameters/PaymentMonitoringId' }
+ *     responses:
+ *       200:
+ *         description: Safe Payment attempt detail.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data: { $ref: '#/components/schemas/ManagementPayment' }
+ *       401: { $ref: '#/components/responses/Unauthorized' }
+ *       403: { $ref: '#/components/responses/Forbidden' }
+ *       404: { $ref: '#/components/responses/NotFound' }
+ *       422: { $ref: '#/components/responses/ValidationError' }
+ *       500: { $ref: '#/components/responses/InternalServerError' }
+ * /payments/{paymentId}/events:
+ *   get:
+ *     summary: Inspect verified Payment audit evidence
+ *     description: BRANCH_MANAGER only. Read-only and scoped to this attempt. All stored event actions are included by default. Known Payment with no events returns an empty page; missing Payment returns 404. Provider reference filters event references, including distinct captured transactions recorded for reconciliation. Live pagination uses a stable ID tie-breaker. Unknown parameters and array/object values are rejected. Default order is verifiedAt descending.
+ *     tags: [Payments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { $ref: '#/components/parameters/PaymentMonitoringId' }
+ *       - { $ref: '#/components/parameters/PaymentMonitoringPage' }
+ *       - { $ref: '#/components/parameters/PaymentMonitoringLimit' }
+ *       - { $ref: '#/components/parameters/PaymentMonitoringSortOrder' }
+ *       - { $ref: '#/components/parameters/PaymentMonitoringProviderReference' }
+ *       - in: query
+ *         name: sortBy
+ *         schema: { type: string, enum: [verifiedAt, createdAt], default: verifiedAt }
+ *       - in: query
+ *         name: action
+ *         schema: { type: string, enum: [applied, duplicate, reconciliation_required] }
+ *       - in: query
+ *         name: statusCode
+ *         schema: { type: string, enum: ['2', '0', '-1', '-2', '-3'] }
+ *     responses:
+ *       200:
+ *         description: Safe verified-event page. An observed success does not necessarily mean its financial state was applied.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ManagementPaymentEventListResponse' }
+ *       401: { $ref: '#/components/responses/Unauthorized' }
+ *       403: { $ref: '#/components/responses/Forbidden' }
+ *       404: { $ref: '#/components/responses/NotFound' }
+ *       422: { $ref: '#/components/responses/ValidationError' }
+ *       500: { $ref: '#/components/responses/InternalServerError' }
+ */
+paymentRouter.get(
+  '/payments',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER),
+  validate(validatePaymentMonitoringList),
+  listManagementPayments
+);
+paymentRouter.get(
+  '/payments/:paymentId',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER),
+  validate(validatePaymentMonitoringDetail),
+  getManagementPayment
+);
+paymentRouter.get(
+  '/payments/:paymentId/events',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER),
+  validate(validatePaymentMonitoringEvents),
+  listManagementPaymentEvents
 );
 
 module.exports = { paymentRouter, paymentNotificationRouter };
