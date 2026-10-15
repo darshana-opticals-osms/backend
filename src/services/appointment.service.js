@@ -107,12 +107,35 @@ const toPublicAppointment = (appointment, { includeCustomerContact = false } = {
       ? appointment.customerId
       : null;
 
+  const doctor =
+    appointment.doctorId &&
+    typeof appointment.doctorId === 'object' &&
+    appointment.doctorId.name
+      ? appointment.doctorId
+      : null;
+
   return {
     id: appointment._id ? appointment._id.toString() : appointment.id,
+    doctorId: doctor
+      ? doctor._id.toString()
+      : appointment.doctorId
+        ? appointment.doctorId.toString()
+        : null,
+    doctorName: doctor?.name,
+    specialization: doctor?.specialization,
+    doctor: doctor
+      ? {
+          id: doctor._id.toString(),
+          name: doctor.name,
+          specialization: doctor.specialization,
+        }
+      : undefined,
     staffId: appointment.staffId?._id
       ? appointment.staffId._id.toString()
-      : appointment.staffId?.toString(),
-    providerName: appointment.staffId?.name,
+      : appointment.staffId
+        ? appointment.staffId.toString()
+        : null,
+    providerName: doctor?.name || appointment.staffId?.name,
     ...(includeCustomerContact && customer
       ? {
           customer: {
@@ -652,15 +675,26 @@ async function createAppointment(input, authUser) {
       );
     }
 
-    const staff = await Staff.findById(session.staffId).session(mongoSession).lean();
-    if (
-      !staff ||
-      staff.role !== ROLE_VALUES.OPTOMETRIST ||
-      String(staff.branchId) !== String(approvedBranch._id)
-    ) {
-      throw new ValidationError('Selected session does not reference a valid optometrist.');
+    let doctor = null;
+    let staff = null;
+    if (session.doctorId) {
+      doctor = await Doctor.findById(session.doctorId).session(mongoSession).lean();
+      if (!doctor) {
+        throw new ValidationError('Selected session does not reference a valid doctor.');
+      }
+    } else if (session.staffId) {
+      staff = await Staff.findById(session.staffId).session(mongoSession).lean();
+      if (
+        !staff ||
+        staff.role !== ROLE_VALUES.OPTOMETRIST ||
+        String(staff.branchId) !== String(approvedBranch._id)
+      ) {
+        throw new ValidationError('Selected session does not reference a valid optometrist.');
+      }
+      await lockOptometristScheduling(staff, approvedBranch._id, mongoSession);
+    } else {
+      throw new ValidationError('Selected session does not have an assigned provider.');
     }
-    await lockOptometristScheduling(staff, approvedBranch._id, mongoSession);
 
     const now = new Date(Date.now());
     const earliestAllowed = new Date(session.startAt.getTime() - MIN_BOOKING_LEAD_TIME_MS);
@@ -721,7 +755,8 @@ async function createAppointment(input, authUser) {
           customerId,
           sessionId,
           branchId: approvedBranch._id,
-          staffId: session.staffId,
+          doctorId: session.doctorId || null,
+          staffId: session.staffId || null,
           dateTime: session.startAt,
           status: APPOINTMENT_STATUS_VALUES.CONFIRMED,
           position: nextPosition,
@@ -731,10 +766,9 @@ async function createAppointment(input, authUser) {
     );
 
     const createdAppointment = created.toObject ? created.toObject() : created;
-    return toPublicAppointment({
-      ...createdAppointment,
-      staffId: { _id: staff._id, name: staff.name },
-    });
+    if (doctor) createdAppointment.doctorId = doctor;
+    if (staff) createdAppointment.staffId = { _id: staff._id, name: staff.name };
+    return toPublicAppointment(createdAppointment);
   });
 }
 
@@ -745,6 +779,7 @@ async function listAppointments(authUser) {
   if (authUser.role === ROLE_VALUES.CUSTOMER) {
     const appointments = await Appointment.find({ customerId: authUser.userId })
       .sort({ createdAt: -1 })
+      .populate('doctorId', 'name specialization')
       .populate('staffId', 'name')
       .lean();
     return appointments.map((appointment) => toPublicAppointment(appointment));
@@ -758,6 +793,7 @@ async function listAppointments(authUser) {
       $or: [{ sessionId: { $in: sessionIds } }, { branchId: approvedBranch._id }],
     })
       .sort({ createdAt: -1 })
+      .populate('doctorId', 'name specialization')
       .populate('staffId', 'name')
       .lean();
     if (authUser.role === ROLE_VALUES.BRANCH_ASSISTANT) {
@@ -777,7 +813,9 @@ async function getAppointmentById(appointmentId, authUser) {
     throw new ValidationError('appointmentId must be a valid MongoDB ObjectId.');
   }
 
-  const appointmentQuery = Appointment.findById(appointmentId).populate('staffId', 'name');
+  const appointmentQuery = Appointment.findById(appointmentId)
+    .populate('doctorId', 'name specialization')
+    .populate('staffId', 'name');
   if (authUser?.role === ROLE_VALUES.BRANCH_ASSISTANT) {
     appointmentQuery.populate('customerId', 'name phone');
   }
@@ -937,15 +975,26 @@ async function reassignAppointment(appointmentId, sessionId, authUser) {
     }
     await ensureSessionScope(targetSession, 'Access forbidden.', mongoSession);
 
-    const targetStaff = await Staff.findById(targetSession.staffId).session(mongoSession).lean();
-    if (
-      !targetStaff ||
-      targetStaff.role !== ROLE_VALUES.OPTOMETRIST ||
-      String(targetStaff.branchId) !== String(targetSession.branchId)
-    ) {
-      throw new ValidationError('Selected target session does not reference a valid optometrist.');
+    let targetDoctor = null;
+    let targetStaff = null;
+    if (targetSession.doctorId) {
+      targetDoctor = await Doctor.findById(targetSession.doctorId).session(mongoSession).lean();
+      if (!targetDoctor) {
+        throw new ValidationError('Selected target session does not reference a valid doctor.');
+      }
+    } else if (targetSession.staffId) {
+      targetStaff = await Staff.findById(targetSession.staffId).session(mongoSession).lean();
+      if (
+        !targetStaff ||
+        targetStaff.role !== ROLE_VALUES.OPTOMETRIST ||
+        String(targetStaff.branchId) !== String(targetSession.branchId)
+      ) {
+        throw new ValidationError('Selected target session does not reference a valid optometrist.');
+      }
+      await lockOptometristScheduling(targetStaff, targetSession.branchId, mongoSession);
+    } else {
+      throw new ValidationError('Selected target session does not have an assigned provider.');
     }
-    await lockOptometristScheduling(targetStaff, targetSession.branchId, mongoSession);
 
     const approvedBranch = await getApprovedGampahaBranch(mongoSession);
     if (String(targetSession.branchId) !== String(approvedBranch._id)) {
@@ -1013,7 +1062,8 @@ async function reassignAppointment(appointmentId, sessionId, authUser) {
       { _id: appointment._id },
       {
         $set: {
-          staffId: targetSession.staffId,
+          doctorId: targetSession.doctorId || null,
+          staffId: targetSession.staffId || null,
           sessionId: targetSession._id,
           branchId: targetSession.branchId,
           dateTime: targetSession.startAt,

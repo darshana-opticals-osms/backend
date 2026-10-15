@@ -10,11 +10,21 @@ const appointmentSchema = new mongoose.Schema(
       index: true,
     },
 
+    doctorId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Doctor',
+      index: true,
+      required: function () {
+        return !this.staffId;
+      },
+    },
+
+    // Retained for historical / read compatibility (AC28)
     staffId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Staff',
-      required: true,
       index: true,
+      default: null,
     },
 
     sessionId: {

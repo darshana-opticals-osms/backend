@@ -71,6 +71,32 @@ describe('Appointment service validation and response mapping', () => {
       confirmedCount: 2,
     });
 
+    const doctorObj = {
+      _id: doctorId,
+      name: 'Dr. Nimal Perera',
+      specialization: 'Ophthalmologist',
+    };
+    const doctorAppointment = toPublicAppointment({
+      _id: new mongoose.Types.ObjectId(),
+      customerId: new mongoose.Types.ObjectId(),
+      doctorId: doctorObj,
+      sessionId: new mongoose.Types.ObjectId(),
+      branchId: new mongoose.Types.ObjectId(),
+      dateTime: new Date('2026-10-12T09:00:00Z'),
+      status: 'CONFIRMED',
+      position: 1,
+    });
+
+    expect(doctorAppointment.doctorId).toBe(doctorId.toString());
+    expect(doctorAppointment.doctorName).toBe('Dr. Nimal Perera');
+    expect(doctorAppointment.specialization).toBe('Ophthalmologist');
+    expect(doctorAppointment.doctor).toEqual({
+      id: doctorId.toString(),
+      name: 'Dr. Nimal Perera',
+      specialization: 'Ophthalmologist',
+    });
+    expect(doctorAppointment.providerName).toBe('Dr. Nimal Perera');
+
     expect(appointment.staffId).toBe(providerId.toString());
     expect(appointment.providerName).toBe('Dr. Example');
     expect(appointment).not.toHaveProperty('customerId');
