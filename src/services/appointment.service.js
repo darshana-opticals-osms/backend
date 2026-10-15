@@ -1,9 +1,10 @@
-﻿const mongoose = require('mongoose');
+const mongoose = require('mongoose');
 const Branch = require('../models/branch.model');
 const Customer = require('../models/customer.model');
 const Staff = require('../models/staff.model');
 const Appointment = require('../models/appointment.model');
 const DoctorSession = require('../models/doctorSession.model');
+const Doctor = require('../models/doctor.model');
 const { ROLE_VALUES } = require('../constants/roles');
 const { APPOINTMENT_STATUS_VALUES } = require('../constants/appointmentStatuses');
 const {
@@ -65,16 +66,37 @@ const toPublicProvider = (staff) => ({
   branchId: staff.branchId ? staff.branchId.toString() : staff.branchId,
 });
 
-const toPublicSession = (session) => ({
-  id: session._id ? session._id.toString() : session.id,
-  staffId: session.staffId ? session.staffId.toString() : session.staffId,
-  branchId: session.branchId ? session.branchId.toString() : session.branchId,
-  startAt: session.startAt,
-  endAt: session.endAt,
-  capacity: session.capacity,
-  confirmedCount: session.confirmedCount ?? 0,
-  remainingCapacity: Math.max((session.capacity ?? 0) - (session.confirmedCount ?? 0), 0),
-});
+const toPublicSession = (session) => {
+  const doctor =
+    session.doctorId && typeof session.doctorId === 'object' && session.doctorId.name
+      ? session.doctorId
+      : null;
+
+  return {
+    id: session._id ? session._id.toString() : session.id,
+    doctorId: doctor
+      ? doctor._id.toString()
+      : session.doctorId
+        ? session.doctorId.toString()
+        : null,
+    doctorName: doctor?.name,
+    specialization: doctor?.specialization,
+    doctor: doctor
+      ? {
+          id: doctor._id.toString(),
+          name: doctor.name,
+          specialization: doctor.specialization,
+        }
+      : undefined,
+    staffId: session.staffId ? session.staffId.toString() : null,
+    branchId: session.branchId ? session.branchId.toString() : session.branchId,
+    startAt: session.startAt,
+    endAt: session.endAt,
+    capacity: session.capacity,
+    confirmedCount: session.confirmedCount ?? 0,
+    remainingCapacity: Math.max((session.capacity ?? 0) - (session.confirmedCount ?? 0), 0),
+  };
+};
 
 const toPublicAppointment = (appointment, { includeCustomerContact = false } = {}) => {
   const customer =
@@ -267,6 +289,7 @@ async function appointmentBelongsToBranch(appointment, branchId) {
 }
 
 async function lockOptometristScheduling(staff, branchId, mongoSession) {
+  if (!staff || !staff._id) return;
   const result = await Staff.updateOne(
     {
       _id: staff._id,
@@ -283,14 +306,6 @@ async function lockOptometristScheduling(staff, branchId, mongoSession) {
       'PROVIDER_CHANGED'
     );
   }
-}
-
-async function lockFormerProviderScheduling(staffId, mongoSession) {
-  await Staff.updateOne(
-    { _id: staffId },
-    { $inc: { schedulingVersion: 1 } },
-    { session: mongoSession, timestamps: false }
-  );
 }
 
 async function ensureSessionScope(
@@ -386,24 +401,19 @@ async function listAvailableSessions(authUser = null) {
   ) {
     await assertAuthorizedStaffAccess(authUser, [authUser.role]);
     const sessions = await DoctorSession.find({ branchId: approvedBranch._id })
+      .populate('doctorId', 'name specialization')
       .sort({ startAt: -1 })
       .lean();
     return sessions.map((session) => toPublicSession(session));
   }
 
-  const eligibleProviders = await Staff.find({
-    role: ROLE_VALUES.OPTOMETRIST,
-    branchId: approvedBranch._id,
-  })
-    .select('_id')
-    .lean();
   const earliestBookable = new Date(now.getTime() + MIN_BOOKING_LEAD_TIME_MS);
   const sessions = await DoctorSession.find({
     branchId: approvedBranch._id,
-    staffId: { $in: eligibleProviders.map((provider) => provider._id) },
     startAt: { $gte: earliestBookable },
     $expr: { $lt: ['$confirmedCount', '$capacity'] },
   })
+    .populate('doctorId', 'name specialization')
     .sort({ startAt: 1 })
     .lean();
 
@@ -419,27 +429,24 @@ async function createDoctorSession(input, authUser) {
     await assertAuthorizedStaffAccess(authUser, [ROLE_VALUES.BRANCH_ASSISTANT], mongoSession);
 
     const body = { ...input };
-    const allowedKeys = new Set(['staffId', 'branchId', 'startAt', 'endAt', 'capacity']);
+    const allowedKeys = new Set(['doctorId', 'branchId', 'startAt', 'endAt', 'capacity']);
     for (const key of Object.keys(body)) {
       if (!allowedKeys.has(key)) {
         throw new ValidationError(`${key} is not allowed for doctor session creation.`);
       }
     }
 
-    const { staffId, branchId, startAt, endAt, capacity } = body;
-    if (!staffId || !mongoose.isValidObjectId(staffId)) {
-      throw new ValidationError('staffId must be a valid MongoDB ObjectId.');
+    const { doctorId, branchId, startAt, endAt, capacity } = body;
+    if (!doctorId || !mongoose.isValidObjectId(doctorId)) {
+      throw new ValidationError('doctorId must be a valid MongoDB ObjectId.');
     }
     if (!branchId || !mongoose.isValidObjectId(branchId)) {
       throw new ValidationError('branchId must be a valid MongoDB ObjectId.');
     }
 
-    const assignedStaff = await Staff.findById(staffId).session(mongoSession).lean();
-    if (!assignedStaff) {
-      throw new NotFoundError('Staff member not found.');
-    }
-    if (assignedStaff.role !== ROLE_VALUES.OPTOMETRIST) {
-      throw new ValidationError('Only optometrists may be assigned to a doctor session.');
+    const assignedDoctor = await Doctor.findById(doctorId).session(mongoSession).lean();
+    if (!assignedDoctor) {
+      throw new NotFoundError('Doctor not found.');
     }
 
     const approvedBranch = await getApprovedGampahaBranch(mongoSession);
@@ -448,13 +455,6 @@ async function createDoctorSession(input, authUser) {
         'Doctor sessions are only supported at the approved Gampaha Main Branch.',
         null,
         'INVALID_BRANCH'
-      );
-    }
-    if (String(assignedStaff.branchId) !== String(approvedBranch._id)) {
-      throw new ConflictError(
-        'The assigned optometrist must belong to the approved Gampaha Main Branch.',
-        null,
-        'INVALID_PROVIDER_BRANCH'
       );
     }
 
@@ -467,10 +467,8 @@ async function createDoctorSession(input, authUser) {
       throw new ValidationError('capacity must be a positive safe integer.');
     }
 
-    await lockOptometristScheduling(assignedStaff, approvedBranch._id, mongoSession);
-
     const overlap = await DoctorSession.findOne({
-      staffId,
+      doctorId,
       startAt: { $lt: endDate },
       endAt: { $gt: startDate },
     })
@@ -479,7 +477,7 @@ async function createDoctorSession(input, authUser) {
 
     if (overlap) {
       throw new ConflictError(
-        'The optometrist already has an overlapping session.',
+        'The doctor already has an overlapping session.',
         null,
         'OVERLAPPING_SESSION'
       );
@@ -488,7 +486,7 @@ async function createDoctorSession(input, authUser) {
     const [created] = await DoctorSession.create(
       [
         {
-          staffId,
+          doctorId,
           branchId,
           startAt: startDate,
           endAt: endDate,
@@ -499,7 +497,9 @@ async function createDoctorSession(input, authUser) {
       { session: mongoSession }
     );
 
-    return toPublicSession(created.toObject ? created.toObject() : created);
+    const createdObj = created.toObject ? created.toObject() : created;
+    createdObj.doctorId = assignedDoctor;
+    return toPublicSession(createdObj);
   });
 }
 
@@ -526,7 +526,7 @@ async function updateDoctorSession(sessionId, input, authUser) {
     );
 
     const patch = { ...input };
-    const allowedKeys = new Set(['staffId', 'branchId', 'startAt', 'endAt', 'capacity']);
+    const allowedKeys = new Set(['doctorId', 'branchId', 'startAt', 'endAt', 'capacity']);
     for (const key of Object.keys(patch)) {
       if (!allowedKeys.has(key)) {
         throw new ValidationError(`${key} is not allowed for doctor session updates.`);
@@ -536,7 +536,7 @@ async function updateDoctorSession(sessionId, input, authUser) {
       throw new ValidationError('At least one field must be supplied to update the session.');
     }
 
-    const newStaffId = patch.staffId ?? session.staffId;
+    const newDoctorId = patch.doctorId ?? session.doctorId;
     const newBranchId = patch.branchId ?? session.branchId;
     const newStartAt = patch.startAt ? parseIsoDate(patch.startAt, 'startAt') : session.startAt;
     const newEndAt = patch.endAt ? parseIsoDate(patch.endAt, 'endAt') : session.endAt;
@@ -556,12 +556,13 @@ async function updateDoctorSession(sessionId, input, authUser) {
       );
     }
 
-    const assignedStaff = await Staff.findById(newStaffId).session(mongoSession).lean();
-    if (!assignedStaff) {
-      throw new NotFoundError('Staff member not found.');
+    if (!newDoctorId || !mongoose.isValidObjectId(newDoctorId)) {
+      throw new ValidationError('doctorId must be a valid MongoDB ObjectId.');
     }
-    if (assignedStaff.role !== ROLE_VALUES.OPTOMETRIST) {
-      throw new ValidationError('Only optometrists may be assigned to a doctor session.');
+
+    const assignedDoctor = await Doctor.findById(newDoctorId).session(mongoSession).lean();
+    if (!assignedDoctor) {
+      throw new NotFoundError('Doctor not found.');
     }
 
     const approvedBranch = await getApprovedGampahaBranch(mongoSession);
@@ -572,22 +573,10 @@ async function updateDoctorSession(sessionId, input, authUser) {
         'INVALID_BRANCH'
       );
     }
-    if (String(assignedStaff.branchId) !== String(approvedBranch._id)) {
-      throw new ConflictError(
-        'The assigned optometrist must belong to the approved Gampaha Main Branch.',
-        null,
-        'INVALID_PROVIDER_BRANCH'
-      );
-    }
-
-    if (String(session.staffId) !== String(newStaffId)) {
-      await lockFormerProviderScheduling(session.staffId, mongoSession);
-    }
-    await lockOptometristScheduling(assignedStaff, approvedBranch._id, mongoSession);
 
     const overlap = await DoctorSession.findOne({
       _id: { $ne: sessionId },
-      staffId: newStaffId,
+      doctorId: newDoctorId,
       startAt: { $lt: newEndAt },
       endAt: { $gt: newStartAt },
     })
@@ -595,7 +584,7 @@ async function updateDoctorSession(sessionId, input, authUser) {
       .lean();
     if (overlap) {
       throw new ConflictError(
-        'The optometrist already has an overlapping session.',
+        'The doctor already has an overlapping session.',
         null,
         'OVERLAPPING_SESSION'
       );
@@ -604,7 +593,7 @@ async function updateDoctorSession(sessionId, input, authUser) {
     const updated = await DoctorSession.findByIdAndUpdate(
       sessionId,
       {
-        staffId: newStaffId,
+        doctorId: newDoctorId,
         branchId: newBranchId,
         startAt: newStartAt,
         endAt: newEndAt,
@@ -616,13 +605,14 @@ async function updateDoctorSession(sessionId, input, authUser) {
     await syncSessionAppointments(
       sessionId,
       {
-        staffId: newStaffId,
+        doctorId: newDoctorId,
         dateTime: newStartAt,
         branchId: newBranchId,
       },
       mongoSession
     );
 
+    updated.doctorId = assignedDoctor;
     return toPublicSession(updated);
   });
 }

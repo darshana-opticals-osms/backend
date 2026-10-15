@@ -2,11 +2,20 @@ const mongoose = require('mongoose');
 
 const doctorSessionSchema = new mongoose.Schema(
   {
+    doctorId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Doctor',
+      index: true,
+      required: function () {
+        return !this.staffId;
+      },
+    },
+    // Retain staffId as optional for historical read/legacy compatibility (AC28)
     staffId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Staff',
-      required: true,
       index: true,
+      default: null,
     },
     branchId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -53,8 +62,13 @@ const doctorSessionSchema = new mongoose.Schema(
 );
 
 doctorSessionSchema.index(
+  { doctorId: 1, startAt: 1, endAt: 1 },
+  { name: 'doctor_session_doctor_overlap_index', sparse: true }
+);
+
+doctorSessionSchema.index(
   { staffId: 1, startAt: 1, endAt: 1 },
-  { name: 'doctor_session_staff_overlap_index' }
+  { name: 'doctor_session_staff_overlap_index', sparse: true }
 );
 
 doctorSessionSchema.index(
