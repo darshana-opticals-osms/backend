@@ -1,6 +1,6 @@
 const loyalty = require('./loyalty.service');
 
-// Internal full-refund integration only; no financial endpoint is activated.
+// Internal boundary used by the guarded manual full-refund recording transaction.
 // Re-read authoritative records; the caller's DTOs are identifiers, never ledger proof.
 async function applyFullRefundReversal({ payment, refundEvidence, session } = {}) {
   return loyalty.reverseFullRefundPoints({
@@ -19,4 +19,16 @@ async function verifyFullRefundReversal({ payment, refundEvidence, session } = {
   });
 }
 
-module.exports = { applyFullRefundReversal, verifyFullRefundReversal };
+async function verifyNeverEarnedFullRefund({ payment, refundEvidence, session } = {}) {
+  return loyalty.verifyNeverEarnedFullRefund({
+    paymentId: payment?._id?.toString(),
+    refundEvidenceId: refundEvidence?.evidenceId,
+    session,
+  });
+}
+
+module.exports = {
+  applyFullRefundReversal,
+  verifyFullRefundReversal,
+  verifyNeverEarnedFullRefund,
+};

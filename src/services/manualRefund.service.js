@@ -30,8 +30,9 @@ const { formatAmount } = require('./adapters/PayHerePaymentAdapter');
 const { appendConfirmedManualRefundEvidence } = require('./manualRefundEvidence.service');
 const loyaltyRefund = require('./loyaltyRefundBoundary.service');
 
-// Internal only. There is deliberately no controller, route or runtime activation flag.
-// Missing earning/reversal evidence or unresolved policy holds abort new refunds AND replays.
+// Records an already executed external full refund; never calls a provider refund API.
+// Missing earning/reversal evidence on a completed Order, or unresolved policy,
+// holds abort new refunds AND replays.
 async function recordConfirmedManualFullRefund({ auth, paymentId, evidence, idempotencyKey }) {
   if (!auth) throw new UnauthorizedError('Authentication required.');
   if (auth.role !== ROLE_VALUES.BRANCH_MANAGER)
@@ -172,16 +173,29 @@ async function recordConfirmedManualFullRefund({ auth, paymentId, evidence, idem
             );
             if (update.modifiedCount !== 1)
               throw new ConflictError('Payment state changed.', null, 'REFUND_SOURCE_CONFLICT');
-            // Must write an idempotent reversal and balance/history in this SAME session.
-            // No missing-award/zero-point fallback. Any failure rolls back this refund.
-            await loyaltyRefund.applyFullRefundReversal({
+            // An Order that never reached COMPLETED cannot have earned under ADR-005.
+            // Otherwise a durable reversal is mandatory in this SAME transaction.
+            const neverEarned = await loyaltyRefund.verifyNeverEarnedFullRefund({
               payment,
               order,
               refundEvidence,
               session,
             });
+            if (!neverEarned)
+              await loyaltyRefund.applyFullRefundReversal({
+                payment,
+                order,
+                refundEvidence,
+                session,
+              });
           } else if (
             (await loyaltyRefund.verifyFullRefundReversal({
+              payment,
+              order,
+              refundEvidence,
+              session,
+            })) !== true &&
+            (await loyaltyRefund.verifyNeverEarnedFullRefund({
               payment,
               order,
               refundEvidence,

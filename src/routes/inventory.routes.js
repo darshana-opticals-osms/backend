@@ -24,12 +24,19 @@ const {
   authorizeReorderAlertsBranchParam,
 } = require('../middleware/authorizeBranchInventory');
 const { ROLE_VALUES } = require('../constants/roles');
+const { ITEM_CLASSIFICATIONS } = require('../constants/itemClassification');
 const { ForbiddenError } = require('../errors/AppError');
 
 const REQUIRED_CREATE_FIELDS = ['branchId', 'itemName', 'category', 'brand', 'price', 'quantity'];
-const CREATE_FIELDS = new Set([...REQUIRED_CREATE_FIELDS, 'imageUrl', 'imagePublicId']);
+const CREATE_FIELDS = new Set([
+  ...REQUIRED_CREATE_FIELDS,
+  'imageUrl',
+  'imagePublicId',
+  'itemClassification',
+]);
 
 const UPDATE_FIELDS = new Set([
+  'itemClassification',
   'branchId',
   'itemName',
   'category',
@@ -48,6 +55,12 @@ const validateObjectBody = (body, errors) => {
     return false;
   }
 
+  if (
+    Object.hasOwn(body, 'itemClassification') &&
+    !ITEM_CLASSIFICATIONS.includes(body.itemClassification)
+  ) {
+    errors.push({ field: 'itemClassification', message: 'Use UNKNOWN, MERCHANDISE or CLINICAL.' });
+  }
   return true;
 };
 

@@ -10,6 +10,7 @@ const {
   listManagementPayments,
   getManagementPayment,
   listManagementPaymentEvents,
+  recordManualFullRefund,
 } = require('../controllers/payment.controller');
 const {
   validatePaymentInitiation,
@@ -23,6 +24,72 @@ const {
 
 const paymentRouter = express.Router();
 const paymentNotificationRouter = express.Router();
+
+/**
+ * @openapi
+ * /payments/{paymentId}/refunds:
+ *   post:
+ *     summary: Record an already executed manual full refund
+ *     description: BRANCH_MANAGER only. This does NOT transfer funds. The manager confirms an external full refund through the PayHere portal or corporate bank transfer. Requires matching verified capture and full amount/currency. An existing earning requires a durable compensating reversal; a pre-completion Order with a valid never-COMPLETED status history, no Payment loyalty events and consistent Customer balance needs no reversal. Completed Orders with missing earning history, reconciliation, unsafe balances or conflicting evidence return 409 and roll back all changes. Payment, audit evidence and required loyalty reversal commit atomically; Order status and inventory never change. An identical actor/key/body replay verifies the same durable outcome. Partial refunds and reconciliation resolution are not supported.
+ *     tags: [Payments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - { $ref: '#/components/parameters/PaymentMonitoringId' }
+ *       - in: header
+ *         name: Idempotency-Key
+ *         required: true
+ *         schema: { type: string, minLength: 1, maxLength: 120 }
+ *         description: Stable nonempty scalar key without control characters, reused for identical retries only.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             additionalProperties: false
+ *             required: [amount, currency]
+ *             properties:
+ *               amount: { type: number, minimum: 0, multipleOf: 0.01, description: Must match the full original captured amount. }
+ *               currency: { type: string, enum: [LKR] }
+ *               refundChannel: { type: string, enum: [payhere_portal, bank_transfer] }
+ *               refundReference: { type: string, minLength: 1, maxLength: 120, description: Optional sanitized external reference; never raw receipts or credentials. }
+ *     responses:
+ *       200:
+ *         description: Recorded full refund or verified identical replay.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     paymentId: { type: string }
+ *                     orderId: { type: string }
+ *                     status: { type: string, enum: [refunded] }
+ *                     amount: { type: number }
+ *                     currency: { type: string, enum: [LKR] }
+ *                     refundEvidence: { $ref: '#/components/schemas/ManualRefundEvidence' }
+ *       401: { $ref: '#/components/responses/Unauthorized' }
+ *       403: { $ref: '#/components/responses/Forbidden' }
+ *       404: { $ref: '#/components/responses/NotFound' }
+ *       409: { $ref: '#/components/responses/Conflict' }
+ *       422: { $ref: '#/components/responses/ValidationError' }
+ *       500: { $ref: '#/components/responses/InternalServerError' }
+ */
+paymentRouter.post(
+  '/payments/:paymentId/refunds',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER),
+  validate((req) =>
+    Object.keys(req.query).length
+      ? [{ field: 'query', message: 'Query parameters are not supported.' }]
+      : []
+  ),
+  recordManualFullRefund
+);
 
 /**
  * @openapi

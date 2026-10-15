@@ -217,7 +217,9 @@ Payment becomes completed and Order moves to **PROCESSING**. Neither rule is cha
 or selected here. No loyalty award, reversal, Order cancellation or inventory
 restoration is performed by this infrastructure.
 
-### Phase 5B Part 2: inactive manual full-refund orchestration
+### Phase 5B Part 2: inactive manual full-refund orchestration (historical)
+
+For activated behavior, see "Final loyalty and manual full-refund integration" below.
 
 `manualRefund.service.recordConfirmedManualFullRefund` is internal only: no refund
 controller, route, scheduler, Swagger mutation operation or runtime enable flag is
@@ -289,7 +291,54 @@ amount, currency, refundEvidence } }`; identical actor/key/payload returns the s
 
 This proposed path is deliberately not registered or advertised as an available API.
 
-### Phase 6 Part 1: loyalty core and refund reversal infrastructure
+### Final loyalty and manual full-refund integration (current behavior)
+
+This section supersedes the historical phase descriptions below and the previously
+inactive refund proposal above. The approved integration uses ADR-005 section 14:
+a verified completed Payment **and** the authorized Order transition to COMPLETED.
+ADR-011 section 13 still describes earlier earning at PROCESSING; that discrepancy
+is recorded here, not implemented or edited in either accepted ADR.
+
+- Inventory `itemClassification` is explicitly `UNKNOWN` (default), `MERCHANDISE`
+  or `CLINICAL`. Existing manager inventory create/update permissions apply;
+  SYSTEM_ADMIN remains price-only. Category strings never determine classification.
+- Checkout copies this server-owned fact into the immutable OrderItem snapshot
+  and derives `loyaltyEligibility` as UNKNOWN, ELIGIBLE or INELIGIBLE respectively.
+  No legacy backfill is performed; later Inventory edits cannot reclassify a sale.
+  Persisted item price, quantity, Inventory/Order references and the snapshot are
+  protected from Mongoose saves, updates, replacements, batch edits and deletion.
+  Only the explicit non-production seed reset and disposable test fixtures use raw
+  collection cleanup; privileged raw database access remains outside model guards.
+- Eligible spend sums snapshotted merchandise prices times quantities using integer
+  cents. Clinical eye-test/examination fees are excluded. Unknown, missing or
+  inconsistent classification/amounts hold processing rather than substitute totals.
+  Divide the aggregate spend by 100, rounding final points once with ROUND_HALF_UP.
+- Order completion, verified-source earning ledger and Customer balance commit in
+  one transaction. A failure rolls back completion and its audit history as well.
+  No points are awarded by payment IPNs or the PROCESSING transition.
+- `POST /api/payments/:paymentId/refunds` is now active for BRANCH_MANAGER only.
+  Required header: `Idempotency-Key` (1-120 characters, no controls). Body:
+  `{ amount, currency: "LKR", refundChannel?, refundReference? }`; the amount must
+  equal the full verified capture. Channels remain `payhere_portal`/`bank_transfer`.
+  This records a manager-confirmed **already executed external refund**, not a
+  transfer, external receipt verification, or a refund-eligibility decision.
+- Successful recording/replay returns 200 with the sanitized contract above.
+  Capture evidence, immutable refund audit and Payment refunded status must agree.
+  Existing earned points require a real compensating reversal in the same transaction.
+  Before Order COMPLETED, a valid lifecycle history, no Payment loyalty events and a
+  consistent Customer balance establish that no award occurred; no reversal is made.
+  Identical replay verifies the same condition. Order status, inventory and provider
+  events remain unchanged. Conflicting evidence/idempotency identity is rejected.
+
+Reconciliation, missing awards for completed Orders, incomplete lifecycle history,
+legacy uninitialized balances and unsafe negative-balance deductions remain 409 holds.
+Missing ledger entries alone never establish a zero-point award. Explicit clinical-only
+sales can record a calculated zero award
+and its linked compensating reversal. No reconciliation resolution, redemption,
+arbitrary adjustment, partial/automatic refund or automatic inventory restoration
+is activated. Existing review patches and accepted ADRs are unchanged.
+
+### Phase 6 Part 1: loyalty core and refund reversal infrastructure (historical)
 
 New Customers have a hidden `loyaltyBalance` stored as exact Decimal128 `0.00`.
 Existing Customers without the field are **not** silently initialized or backfilled;
@@ -352,7 +401,7 @@ real balance/ledger writes, precision, concurrency and refund integration. Produ
 has no runtime contract bypass. No Order status/history change, inventory restoration,
 reconciliation clearing, earning callback wiring or refund API activation is added.
 
-### Phase 6 Part 2A: immutable checkout classification context
+### Phase 6 Part 2A: immutable checkout classification context (historical)
 
 Every new checkout OrderItem has an internal `classificationSnapshot` built only
 from the Inventory records already read in the checkout transaction:

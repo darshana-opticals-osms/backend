@@ -53,7 +53,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
     await Promise.all([
       Payment.deleteMany({}),
       Order.deleteMany({}),
-      OrderItem.deleteMany({}),
+      OrderItem.collection.deleteMany({}),
       Customer.deleteMany({}),
     ]);
   });

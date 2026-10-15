@@ -3,6 +3,8 @@ const Order = require('../models/order.model');
 const OrderItem = require('../models/orderItem.model');
 const Customer = require('../models/customer.model');
 const Payment = require('../models/payment.model');
+const LoyaltyTransaction = require('../models/loyaltyTransaction.model');
+const { earnPurchasePoints } = require('./loyalty.service');
 const { PAYMENT_STATUS } = require('../constants/payment');
 const { ROLE_VALUES } = require('../constants/roles');
 const {
@@ -15,7 +17,7 @@ const {
 } = require('../constants/orderStatuses');
 const { sendOrderCancellationNotification } = require('./notification.service');
 const { cancelUnpaidReservation } = require('./orderReservation.service');
-const { NotFoundError, ValidationError } = require('../errors/AppError');
+const { NotFoundError, ValidationError, ConflictError } = require('../errors/AppError');
 
 const ORDER_NOT_FOUND = 'ORDER_NOT_FOUND';
 
@@ -320,6 +322,49 @@ async function updateOrderStatus(orderId, requestedStatus, staffUserId) {
 
   const previousStatus = order.status;
   const now = new Date();
+
+  if (trimmedStatus === ORDER_STATUS_VALUES.COMPLETED) {
+    // Completion and its award commit together, coordinated with callbacks/refunds
+    // through the same Order write. Unknown legacy context fails closed, not zero.
+    await LoyaltyTransaction.init();
+    const session = await mongoose.startSession();
+    let completed;
+    try {
+      await session.withTransaction(async () => {
+        completed = await Order.findOneAndUpdate(
+          { _id: orderId, status: previousStatus, statusUpdatedAt: order.statusUpdatedAt },
+          {
+            $inc: { __v: 1 },
+            $set: { status: trimmedStatus, statusUpdatedAt: now },
+            $push: {
+              statusHistory: { status: trimmedStatus, changedAt: now, changedBy: staffUserId },
+            },
+          },
+          { session, new: true, runValidators: true }
+        );
+        if (!completed)
+          throw new ValidationError(
+            'Order changed concurrently.',
+            null,
+            'CONCURRENT_STATUS_UPDATE'
+          );
+        const payment = await Payment.findOne({ orderId, status: PAYMENT_STATUS.COMPLETED })
+          .session(session)
+          .lean();
+        if (!payment)
+          throw new ConflictError(
+            'Verified completed Payment required.',
+            null,
+            'LOYALTY_PAYMENT_INELIGIBLE'
+          );
+        await earnPurchasePoints({ paymentId: payment._id.toString(), session });
+      });
+    } finally {
+      await session.endSession();
+    }
+    const items = await OrderItem.find({ orderId }).lean();
+    return shapeOrderDetail(completed, items, { isStaff: true });
+  }
 
   if (
     previousStatus === ORDER_STATUS_VALUES.ORDER_CREATED &&

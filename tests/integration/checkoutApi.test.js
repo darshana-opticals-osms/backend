@@ -70,7 +70,7 @@ describe('Secure Checkout API', () => {
   beforeEach(async () => {
     await Promise.all([
       Cart.deleteMany({}),
-      OrderItem.deleteMany({}),
+      OrderItem.collection.deleteMany({}),
       Order.deleteMany({}),
       Inventory.deleteMany({}),
       Customer.deleteMany({}),
@@ -165,6 +165,7 @@ describe('Secure Checkout API', () => {
         source: 'Inventory',
         sourceInventoryId: item.inventoryId,
         category: 'Frames',
+        itemClassification: 'UNKNOWN',
         loyaltyEligibility: 'UNKNOWN',
       });
     }
@@ -208,6 +209,34 @@ describe('Secure Checkout API', () => {
       const item = await OrderItem.findOne({ orderId: response.body.data.order.id });
       return { ...fixture, item };
     }
+    it.each([
+      ['MERCHANDISE', 'ELIGIBLE'],
+      ['CLINICAL', 'INELIGIBLE'],
+    ])(
+      'snapshots explicit server classification %s, retaining it after Inventory changes',
+      async (classification, eligibility) => {
+        const fixture = await setup();
+        await Inventory.updateOne(
+          { _id: fixture.inventory._id },
+          { $set: { itemClassification: classification } }
+        );
+        const response = await fixture.checkout();
+        expect(response.status).toBe(201);
+        await Inventory.updateOne(
+          { _id: fixture.inventory._id },
+          { $set: { itemClassification: 'UNKNOWN', category: 'Changed' } }
+        );
+        const item = await OrderItem.findOne({ orderId: response.body.data.order.id }).lean();
+        expect(item.classificationSnapshot).toMatchObject({
+          itemClassification: classification,
+          loyaltyEligibility: eligibility,
+          category: 'Frames',
+        });
+        expect(await deriveEligibleSpendForOrder(item.orderId)).toBe(
+          classification === 'MERCHANDISE' ? '24.50' : '0.00'
+        );
+      }
+    );
     it('ignores forged classification fields in persisted Cart lines and copies only Inventory facts', async () => {
       const fixture = await setup();
       await Cart.collection.updateOne(
@@ -231,6 +260,7 @@ describe('Secure Checkout API', () => {
         source: 'Inventory',
         sourceInventoryId: fixture.inventory._id,
         category: 'Frames',
+        itemClassification: 'UNKNOWN',
         loyaltyEligibility: 'UNKNOWN',
       });
       expect(item.inventoryId).toEqual(fixture.inventory._id);
@@ -388,6 +418,93 @@ describe('Secure Checkout API', () => {
         before
       );
     });
+    it('protects persisted price, quantity and source relationships across Mongoose write paths', async () => {
+      const { item, inventory } = await checkedOut();
+      const original = await OrderItem.collection.findOne({ _id: item._id });
+      const order = await Order.findById(item.orderId).lean();
+      const stock = (await Inventory.findById(inventory._id)).quantity;
+      const changes = [
+        { price: 0.01 },
+        { quantity: 1 },
+        { inventoryId: new mongoose.Types.ObjectId() },
+        { orderId: new mongoose.Types.ObjectId() },
+      ];
+      for (const change of changes) {
+        for (const operation of ['updateOne', 'updateMany', 'findOneAndUpdate'])
+          await expect(
+            OrderItem[operation]({ _id: item._id }, { $set: change })
+          ).rejects.toMatchObject({
+            errorCode: 'ORDER_ITEM_FINANCIAL_IMMUTABLE',
+          });
+        const document = await OrderItem.findById(item._id);
+        Object.assign(document, change);
+        await expect(document.save()).rejects.toMatchObject({
+          errorCode: 'ORDER_ITEM_FINANCIAL_IMMUTABLE',
+        });
+        await expect(
+          OrderItem.bulkWrite([
+            { updateOne: { filter: { _id: item._id }, update: { $set: change } } },
+          ])
+        ).rejects.toMatchObject({ errorCode: 'ORDER_ITEM_FINANCIAL_IMMUTABLE' });
+      }
+      for (const update of [
+        { $inc: { price: 1 } },
+        { $unset: { orderId: '' } },
+        { $rename: { itemName: 'price' } },
+      ])
+        await expect(OrderItem.updateOne({ _id: item._id }, update)).rejects.toMatchObject({
+          errorCode: 'ORDER_ITEM_FINANCIAL_IMMUTABLE',
+        });
+      await expect(
+        OrderItem.updateOne({ _id: item._id }, [{ $set: { price: 1 } }])
+      ).rejects.toMatchObject({
+        statusCode: 409,
+      });
+      for (const operation of ['replaceOne', 'findOneAndReplace'])
+        await expect(
+          OrderItem[operation](
+            { _id: item._id },
+            {
+              orderId: item.orderId,
+              inventoryId: item.inventoryId,
+              itemName: item.itemName,
+              price: 0.01,
+              quantity: 1,
+            }
+          )
+        ).rejects.toMatchObject({ statusCode: 409 });
+      for (const operation of [
+        { updateMany: { filter: { _id: item._id }, update: { $inc: { quantity: 1 } } } },
+        {
+          replaceOne: {
+            filter: { _id: item._id },
+            replacement: { orderId: item.orderId, price: 1, quantity: 1 },
+          },
+        },
+      ])
+        await expect(OrderItem.bulkWrite([operation])).rejects.toMatchObject({ statusCode: 409 });
+      expect(await OrderItem.collection.findOne({ _id: item._id })).toEqual(original);
+      expect((await Order.findById(item.orderId)).orderAmount).toBe(order.orderAmount);
+      expect((await Inventory.findById(inventory._id)).quantity).toBe(stock);
+    });
+    it('rejects ordinary OrderItem deletion while test-only native cleanup remains explicit', async () => {
+      const { item } = await checkedOut();
+      const filter = { _id: item._id };
+      const before = await OrderItem.collection.findOne(filter);
+      for (const operation of [
+        () => OrderItem.deleteOne(filter),
+        () => OrderItem.deleteMany(filter),
+        () => OrderItem.findOneAndDelete(filter),
+        () => OrderItem.findByIdAndDelete(item._id),
+        () => OrderItem.findById(item._id).then((document) => document.deleteOne()),
+        () => OrderItem.bulkWrite([{ deleteOne: { filter } }]),
+        () => OrderItem.bulkWrite([{ deleteMany: { filter } }]),
+      ])
+        await expect(operation()).rejects.toMatchObject({
+          errorCode: 'ORDER_ITEM_FINANCIAL_IMMUTABLE',
+        });
+      expect(await OrderItem.collection.findOne(filter)).toEqual(before);
+    });
     it('rolls back inserted snapshots, Order, stock and Cart when a later checkout step fails', async () => {
       const { customer, inventory, checkout } = await setup();
       const findAndUpdate = Inventory.findOneAndUpdate.bind(Inventory);
@@ -398,6 +515,7 @@ describe('Secure Checkout API', () => {
           source: 'Inventory',
           sourceInventoryId: inventory._id,
           category: 'Frames',
+          itemClassification: 'UNKNOWN',
           loyaltyEligibility: 'UNKNOWN',
         });
         await findAndUpdate(...args);

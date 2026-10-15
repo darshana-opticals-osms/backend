@@ -7,6 +7,7 @@ const OrderItem = require('../models/orderItem.model');
 const { ORDER_STATUS_VALUES } = require('../constants/orderStatuses');
 const { ConflictError, NotFoundError, ValidationError } = require('../errors/AppError');
 const { deductInventoryStock } = require('./inventory.service');
+const { ITEM_CLASSIFICATIONS, LOYALTY_ELIGIBILITY } = require('../constants/itemClassification');
 
 const CUSTOMER_NOT_FOUND = 'CUSTOMER_NOT_FOUND';
 const CART_NOT_FOUND = 'CART_NOT_FOUND';
@@ -94,13 +95,17 @@ function buildOrderItems(cartItems, inventoryById) {
       throw new ValidationError('Order amount exceeds the supported monetary range.');
     }
 
+    const itemClassification = ITEM_CLASSIFICATIONS.includes(inventory.itemClassification)
+      ? inventory.itemClassification
+      : 'UNKNOWN';
     return {
       inventoryId: inventory._id,
       classificationSnapshot: {
         source: 'Inventory',
         sourceInventoryId: inventory._id,
         category: typeof inventory.category === 'string' ? inventory.category : null,
-        loyaltyEligibility: 'UNKNOWN',
+        itemClassification,
+        loyaltyEligibility: LOYALTY_ELIGIBILITY[itemClassification],
       },
       itemName: inventory.itemName,
       price: unitPriceCents / 100,

@@ -1,7 +1,7 @@
-const { ConflictError, ValidationError } = require('../errors/AppError');
+const { ValidationError } = require('../errors/AppError');
 
 // Integer hundredths internally; Decimal128 strings at persistence/DTO boundaries.
-// Never round binary floats or invent the missing business rounding convention.
+// Never round binary floats.
 function toMinor(value) {
   const text =
     typeof value === 'string' ? value : value?._bsontype === 'Decimal128' ? value.toString() : '';
@@ -34,13 +34,8 @@ function isPoints(value) {
 function calculateEarnedPoints(eligibleSpend) {
   const cents = toMinor(eligibleSpend);
   if (cents < 0n) throw new ValidationError('Eligible spend cannot be negative.');
-  if (cents % 100n !== 0n)
-    throw new ConflictError(
-      'The loyalty rounding convention is not specified.',
-      null,
-      'LOYALTY_ROUNDING_CONTRACT_REQUIRED'
-    );
-  return fromMinor(cents / 100n);
+  // Spend has already been aggregated. Round the final nonnegative points once, HALF_UP.
+  return fromMinor((cents + 50n) / 100n);
 }
 
 module.exports = { toMinor, fromMinor, isPoints, calculateEarnedPoints };

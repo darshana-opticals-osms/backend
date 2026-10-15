@@ -1,8 +1,8 @@
 const mongoose = require('mongoose');
 const { ConflictError } = require('../errors/AppError');
+const { ITEM_CLASSIFICATIONS, LOYALTY_ELIGIBILITY } = require('../constants/itemClassification');
 
-// Recorded Inventory facts, not a category-to-loyalty policy. UNKNOWN is the only
-// supported eligibility value until an authoritative classification contract exists.
+// Immutable checkout-time Inventory facts, never inferred from free-text category.
 const classificationSnapshotSchema = new mongoose.Schema(
   {
     source: { type: String, enum: ['Inventory'], required: true, immutable: true },
@@ -13,11 +13,23 @@ const classificationSnapshotSchema = new mongoose.Schema(
       immutable: true,
     },
     category: { type: String, default: null, immutable: true },
+    itemClassification: {
+      type: String,
+      enum: ITEM_CLASSIFICATIONS,
+      default: 'UNKNOWN',
+      immutable: true,
+    },
     loyaltyEligibility: {
       type: String,
-      enum: ['UNKNOWN'],
+      enum: Object.values(LOYALTY_ELIGIBILITY),
       required: true,
       immutable: true,
+      validate: {
+        validator(value) {
+          return value === LOYALTY_ELIGIBILITY[this.itemClassification];
+        },
+        message: 'Eligibility must match the authoritative item classification.',
+      },
     },
   },
   { _id: false, strict: 'throw' }
@@ -79,6 +91,27 @@ function rejectSnapshotWrite() {
     'ORDER_ITEM_SNAPSHOT_IMMUTABLE'
   );
 }
+function rejectFinancialWrite() {
+  throw new ConflictError(
+    'Persisted OrderItem financial references and amounts cannot be changed or deleted.',
+    null,
+    'ORDER_ITEM_FINANCIAL_IMMUTABLE'
+  );
+}
+const FINANCIAL_FIELDS = ['orderId', 'inventoryId', 'price', 'quantity'];
+function financialPath(path) {
+  return FINANCIAL_FIELDS.some((field) => path === field || path.startsWith(`${field}.`));
+}
+function touchesFinancial(update) {
+  if (Array.isArray(update)) return true;
+  if (!update || typeof update !== 'object') return false;
+  return Object.entries(update).some(
+    ([key, value]) =>
+      financialPath(key) ||
+      (key === '$rename' && Object.values(value).some((target) => financialPath(String(target)))) ||
+      (key.startsWith('$') && touchesFinancial(value))
+  );
+}
 function touchesSnapshot(update) {
   // Pipelines/replacements can erase historical context without naming the field.
   if (Array.isArray(update)) return true;
@@ -98,6 +131,8 @@ function touchesSnapshot(update) {
 }
 orderItemSchema.pre('save', function () {
   if (!this.isNew && this.isModified('classificationSnapshot')) rejectSnapshotWrite();
+  if (!this.isNew && FINANCIAL_FIELDS.some((field) => this.isModified(field)))
+    rejectFinancialWrite();
 });
 orderItemSchema.pre(
   ['updateOne', 'updateMany', 'findOneAndUpdate', 'replaceOne', 'findOneAndReplace'],
@@ -108,6 +143,7 @@ orderItemSchema.pre(
       touchesSnapshot(this.getUpdate())
     )
       rejectSnapshotWrite();
+    if (touchesFinancial(this.getUpdate())) rejectFinancialWrite();
   }
 );
 orderItemSchema.pre('bulkWrite', function (next, operations) {
@@ -119,11 +155,24 @@ orderItemSchema.pre('bulkWrite', function (next, operations) {
         touchesSnapshot(operation.updateMany?.update)
       )
         rejectSnapshotWrite();
+      if (
+        operation.deleteOne ||
+        operation.deleteMany ||
+        touchesFinancial(operation.updateOne?.update) ||
+        touchesFinancial(operation.updateMany?.update)
+      )
+        rejectFinancialWrite();
     }
     next();
   } catch (error) {
     next(error);
   }
+});
+orderItemSchema.pre(['deleteOne', 'deleteMany', 'findOneAndDelete'], function () {
+  rejectFinancialWrite();
+});
+orderItemSchema.pre('deleteOne', { document: true, query: false }, function () {
+  rejectFinancialWrite();
 });
 orderItemSchema.pre('aggregate', function () {
   if (

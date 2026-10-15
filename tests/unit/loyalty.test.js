@@ -13,21 +13,22 @@ describe('Loyalty decimal core and controlled persistence', () => {
     ['250', '2.50'],
     ['320.00', '3.20'],
     ['0.00', '0.00'],
+    ['0.01', '0.00'],
+    ['0.49', '0.00'],
+    ['0.50', '0.01'],
+    ['100.49', '1.00'],
+    ['100.50', '1.01'],
+    ['100.99', '1.01'],
     ['90071992547409.00', '900719925474.09'],
   ])('calculates exact eligible spend %s / 100 as %s without binary rounding', (spend, points) => {
     expect(calculateEarnedPoints(spend)).toBe(points);
     expect(fromMinor(toMinor(points))).toBe(points);
   });
-  it.each(['0.01', '100.50', '100.99', '1.005', 250, NaN, 'Infinity', '-1.00'])(
-    'does not invent rounding or coerce invalid input %s',
-    (value) => {
-      expect(() => calculateEarnedPoints(value)).toThrow();
-    }
-  );
-  it('reports the actual rounding contract gap rather than flooring or choosing half-up', () => {
-    expect(() => calculateEarnedPoints('250.50')).toThrow(
-      expect.objectContaining({ errorCode: 'LOYALTY_ROUNDING_CONTRACT_REQUIRED' })
-    );
+  it.each(['1.005', 250, NaN, 'Infinity', '-1.00'])('does not coerce invalid input %s', (value) => {
+    expect(() => calculateEarnedPoints(value)).toThrow();
+  });
+  it('rounds the final aggregate once using ROUND_HALF_UP rather than rounding each line', () => {
+    expect(calculateEarnedPoints(fromMinor(toMinor('100.25') + toMinor('100.25')))).toBe('2.01');
   });
   it('adds/subtracts decimal hundredths exactly and rejects excessive precision', () => {
     expect(fromMinor(toMinor('0.10') + toMinor('0.20'))).toBe('0.30');

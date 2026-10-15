@@ -202,6 +202,10 @@ router.get(
  *       On successful transition, updates status, records timestamp, and appends
  *       audit entry to embedded statusHistory. When transitioning to CANCELLED,
  *       dispatches an automated notification to the customer with branch refund guidance.
+ *       COMPLETED requires a verified completed Payment and resolvable checkout item
+ *       classification. Order completion, Customer balance and idempotent loyalty history
+ *       commit atomically. Unresolved classification, legacy balance/history or
+ *       reconciliation holds return 409 without completing the Order. No earning at PROCESSING.
  *     tags: [Orders]
  *     security:
  *       - bearerAuth: []
@@ -234,6 +238,8 @@ router.get(
  *                   example: true
  *                 data:
  *                   $ref: '#/components/schemas/OrderDetail'
+ *       409:
+ *         description: Loyalty classification, verified capture, legacy balance/history or reconciliation prevents atomic Order completion.
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  *       403:

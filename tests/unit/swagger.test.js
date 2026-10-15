@@ -40,6 +40,7 @@ describe('Swagger documentation integrity', () => {
     'GET /payments',
     'GET /payments/{paymentId}',
     'GET /payments/{paymentId}/events',
+    'POST /payments/{paymentId}/refunds',
     'GET /appointments/providers',
     'GET /doctor-sessions/available',
     'POST /doctor-sessions',
@@ -94,6 +95,7 @@ describe('Swagger documentation integrity', () => {
       '/payments/notify',
     ];
     const protectedPaths = [
+      '/payments/{paymentId}/refunds',
       '/profile/me',
       '/admin/staff',
       '/inventory',

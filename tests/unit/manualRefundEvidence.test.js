@@ -12,6 +12,7 @@ const { recordConfirmedManualFullRefund } = require('../../src/services/manualRe
 const {
   applyFullRefundReversal,
   verifyFullRefundReversal,
+  verifyNeverEarnedFullRefund,
 } = require('../../src/services/loyaltyRefundBoundary.service');
 
 describe('Internal manual full-refund evidence infrastructure', () => {
@@ -132,6 +133,7 @@ describe('Internal manual full-refund evidence infrastructure', () => {
     await expect(verifyFullRefundReversal()).rejects.toMatchObject({
       statusCode: 422,
     });
+    await expect(verifyNeverEarnedFullRefund()).rejects.toMatchObject({ statusCode: 422 });
   });
   it('requires an authenticated manager identity before any refund reads or writes', async () => {
     await expect(recordConfirmedManualFullRefund({})).rejects.toMatchObject({ statusCode: 401 });
@@ -166,13 +168,18 @@ describe('Internal manual full-refund evidence infrastructure', () => {
         statusCode: 422,
       });
   });
-  it('documents read-only evidence visibility without publishing an inactive refund mutation', () => {
+  it('documents evidence visibility and only the guarded full-refund recording endpoint', () => {
     const spec = require('../../src/config/swagger');
     expect(spec.components.schemas.ManagementPayment.properties.refundEvidence).toBeDefined();
     expect(spec.components.schemas.ManualRefundEvidence.nullable).toBe(true);
     expect(spec.components.schemas.ManualRefundEvidence.properties).not.toHaveProperty(
       'requestHash'
     );
-    expect(Object.keys(spec.paths).filter((path) => /refund/.test(path))).toEqual([]);
+    expect(Object.keys(spec.paths).filter((path) => /refund/.test(path))).toEqual([
+      '/payments/{paymentId}/refunds',
+    ]);
+    expect(spec.paths['/payments/{paymentId}/refunds'].post.parameters).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'Idempotency-Key', required: true })])
+    );
   });
 });

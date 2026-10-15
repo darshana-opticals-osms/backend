@@ -351,6 +351,12 @@ const options = {
           type: 'object',
           required: ['_id', 'branchId', 'itemName', 'category', 'brand', 'price', 'quantity'],
           properties: {
+            itemClassification: {
+              type: 'string',
+              enum: ['UNKNOWN', 'MERCHANDISE', 'CLINICAL'],
+              description:
+                'Explicit catalog classification. Missing legacy data is UNKNOWN; never inferred from category.',
+            },
             _id: {
               type: 'string',
               example: '64d4a3ff3baf9d2b8a33d1a1',
@@ -422,6 +428,13 @@ const options = {
           type: 'object',
           required: ['branchId', 'itemName', 'category', 'brand', 'price', 'quantity'],
           properties: {
+            itemClassification: {
+              type: 'string',
+              enum: ['UNKNOWN', 'MERCHANDISE', 'CLINICAL'],
+              default: 'UNKNOWN',
+              description:
+                'BRANCH_MANAGER-maintained classification; clinical eye-test/examination fees are CLINICAL. No inferred eligibility.',
+            },
             branchId: {
               type: 'string',
               example: '64d4a3ff3baf9d2b8a33d1a2',
@@ -464,6 +477,12 @@ const options = {
           type: 'object',
           minProperties: 1,
           properties: {
+            itemClassification: {
+              type: 'string',
+              enum: ['UNKNOWN', 'MERCHANDISE', 'CLINICAL'],
+              description:
+                'BRANCH_MANAGER only, for future checkouts. Never changes historical OrderItem snapshots.',
+            },
             branchId: {
               type: 'string',
               example: '64d4a3ff3baf9d2b8a33d1a2',

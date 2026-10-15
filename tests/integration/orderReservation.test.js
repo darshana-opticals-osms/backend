@@ -257,14 +257,14 @@ describe('Order reservation expiry and restoration', () => {
   });
   it('legacy missing reference blocks all restoration without guessing', async () => {
     const { order, item, inventory } = await reservation();
-    await OrderItem.updateOne({ _id: item._id }, { $set: { inventoryId: null } });
+    await OrderItem.collection.updateOne({ _id: item._id }, { $set: { inventoryId: null } });
     const result = await sweepExpiredReservations({ now });
     expect(result.held[0].reason).toBe('INVENTORY_RESTORATION_UNVERIFIABLE');
     await expectUnchanged(order, inventory);
   });
   it('missing Inventory blocks restoration', async () => {
     const { order, item, inventory } = await reservation();
-    await OrderItem.updateOne(
+    await OrderItem.collection.updateOne(
       { _id: item._id },
       { $set: { inventoryId: new mongoose.Types.ObjectId() } }
     );

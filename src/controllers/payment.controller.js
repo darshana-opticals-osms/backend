@@ -7,6 +7,17 @@ const {
 } = require('../services/payment.service');
 const { validatePayHereNotification } = require('../validations/payment.validation');
 const monitoring = require('../services/paymentMonitoring.service');
+const { recordConfirmedManualFullRefund } = require('../services/manualRefund.service');
+
+const recordManualFullRefund = catchAsync(async (req, res) => {
+  const result = await recordConfirmedManualFullRefund({
+    auth: req.auth,
+    paymentId: req.params.paymentId,
+    evidence: req.body,
+    idempotencyKey: req.get('Idempotency-Key'),
+  });
+  return res.status(200).json({ success: true, data: result });
+});
 
 const initiatePayment = catchAsync(async (req, res) => {
   const result = await initiatePaymentService({
@@ -53,6 +64,7 @@ const listManagementPaymentEvents = catchAsync(async (req, res) => {
 });
 
 module.exports = {
+  recordManualFullRefund,
   initiatePayment,
   getOwnOrderPaymentStatus,
   receivePayHereNotification,

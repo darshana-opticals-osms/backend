@@ -7,6 +7,10 @@ const ManualRefundEvidence = require('../models/manualRefundEvidence.model');
 const LoyaltyTransaction = require('../models/loyaltyTransaction.model');
 const { LOYALTY_EVENT_TYPE: TYPE } = require('../constants/loyalty');
 const {
+  ORDER_STATUS_VALUES: ORDER,
+  isValidStatusTransition,
+} = require('../constants/orderStatuses');
+const {
   PAYMENT_STATUS,
   PAYMENT_PROVIDER,
   PAYMENT_METHOD,
@@ -190,11 +194,12 @@ async function append(context, data, session) {
   return shape(document);
 }
 
-// Internal only; no route, callback, Order hook or scheduler calls this operation.
+// Internal only; the authorized COMPLETED transition supplies its transaction session.
 async function earnPurchasePoints(input) {
   validateInput(input);
   return inTransaction(input.session, async (session) => {
     const context = await source(input.paymentId, session, false);
+    await eligibility.assertEarningContract(context.order, session);
     const previous = await LoyaltyTransaction.findOne({
       paymentId: context.payment._id,
       eventType: TYPE.EARN_PURCHASE,
@@ -207,7 +212,6 @@ async function earnPurchasePoints(input) {
       await balance(context.order.customerId, session);
       return shape(previous);
     }
-    await eligibility.assertEarningContract(context.order, session);
     const spend = await eligibility.deriveEligibleSpendForOrder(context.order._id, session);
     if (toMinor(spend) > BigInt(formatAmount(context.order.orderAmount).replace('.', '')))
       throw conflict(
@@ -227,7 +231,7 @@ async function earnPurchasePoints(input) {
   });
 }
 
-async function refundSource(input, session) {
+async function refundEvidenceSource(input, session) {
   const context = await source(input.paymentId, session, true);
   const evidence = await ManualRefundEvidence.findById(input.refundEvidenceId)
     .session(session)
@@ -245,6 +249,10 @@ async function refundSource(input, session) {
       'Full-refund evidence does not match its capture.',
       'LOYALTY_REFUND_SOURCE_MISMATCH'
     );
+  return { ...context, evidence };
+}
+async function refundSource(input, session) {
+  const context = await refundEvidenceSource(input, session);
   const earning = await LoyaltyTransaction.findOne({
     paymentId: context.payment._id,
     eventType: TYPE.EARN_PURCHASE,
@@ -262,7 +270,38 @@ async function refundSource(input, session) {
     toMinor(earning.pointsDelta) < 0n
   )
     throw conflict('Original earning identity conflicts.', 'LOYALTY_SOURCE_CONFLICT');
-  return { ...context, earning, evidence };
+  return { ...context, earning };
+}
+// A valid ADR-004 history proves this Order has never reached ADR-005's award trigger.
+// Absence of ledger rows by itself is never proof, especially for COMPLETED Orders.
+function hasNeverCompleted(order) {
+  const history = order.statusHistory;
+  return (
+    [ORDER.PROCESSING, ORDER.READY_FOR_PICKUP, ORDER.PICKED_UP, ORDER.CANCELLED].includes(
+      order.status
+    ) &&
+    Array.isArray(history) &&
+    history.length >= 2 &&
+    history[0]?.status === ORDER.ORDER_CREATED &&
+    history.at(-1)?.status === order.status &&
+    history.some((entry) => entry?.status === ORDER.PROCESSING) &&
+    history.every(
+      (entry, index) =>
+        entry?.status !== ORDER.COMPLETED &&
+        (index === 0 || isValidStatusTransition(history[index - 1]?.status, entry?.status))
+    )
+  );
+}
+async function verifyNeverEarnedFullRefund(input) {
+  validateInput(input, true);
+  return inTransaction(input.session, async (session) => {
+    const context = await refundEvidenceSource(input, session);
+    if (!hasNeverCompleted(context.order)) return false;
+    if (await LoyaltyTransaction.exists({ paymentId: context.payment._id }).session(session))
+      return false;
+    await balance(context.order.customerId, session);
+    return true;
+  });
 }
 function matchesReversal(reversal, context) {
   return (
@@ -322,4 +361,9 @@ async function verifyFullRefundPoints(input) {
   });
 }
 
-module.exports = { earnPurchasePoints, reverseFullRefundPoints, verifyFullRefundPoints };
+module.exports = {
+  earnPurchasePoints,
+  reverseFullRefundPoints,
+  verifyFullRefundPoints,
+  verifyNeverEarnedFullRefund,
+};

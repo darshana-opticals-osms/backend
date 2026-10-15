@@ -490,10 +490,10 @@ describe('Manual full-refund evidence persistence (no operational endpoint)', ()
     expect(persisted).not.toHaveProperty('requestHash');
     expect(() => new ManualRefundEvidence({ ...persisted, md5sig: 'secret' })).toThrow();
   });
-  it('does not activate refund or reconciliation mutation routes', async () => {
+  it('does not activate unrelated refund or reconciliation mutation routes', async () => {
     const { payment } = await fixture();
     const token = jwt.sign(auth, process.env.JWT_SECRET, { algorithm: 'HS256', expiresIn: '1h' });
-    for (const route of ['refunds', 'refund', 'reconciliation', 'resolve']) {
+    for (const route of ['refund', 'reconciliation', 'resolve']) {
       const response = await request(app)
         .post(`/api/payments/${payment._id}/${route}`)
         .set('Authorization', `Bearer ${token}`)

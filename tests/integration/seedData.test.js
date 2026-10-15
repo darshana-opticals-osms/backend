@@ -30,7 +30,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
 
     await connectDatabase();
     await Promise.all([
-      OrderItem.deleteMany({}),
+      OrderItem.collection.deleteMany({}),
       Payment.deleteMany({}),
       Order.deleteMany({}),
       Appointment.deleteMany({}),
@@ -49,7 +49,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
 
   beforeEach(async () => {
     await Promise.all([
-      OrderItem.deleteMany({}),
+      OrderItem.collection.deleteMany({}),
       Payment.deleteMany({}),
       Order.deleteMany({}),
       Appointment.deleteMany({}),
@@ -68,7 +68,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
 
   afterAll(async () => {
     await Promise.all([
-      OrderItem.deleteMany({}),
+      OrderItem.collection.deleteMany({}),
       Payment.deleteMany({}),
       Order.deleteMany({}),
       Appointment.deleteMany({}),

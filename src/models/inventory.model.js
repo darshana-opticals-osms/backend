@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { ITEM_CLASSIFICATIONS } = require('../constants/itemClassification');
 
 const inventorySchema = new mongoose.Schema(
   {
@@ -19,6 +20,8 @@ const inventorySchema = new mongoose.Schema(
       required: [true, 'category is required.'],
       trim: true,
     },
+    // Manager-maintained explicit classification; legacy records remain unresolved.
+    itemClassification: { type: String, enum: ITEM_CLASSIFICATIONS, default: 'UNKNOWN' },
     brand: {
       type: String,
       required: [true, 'brand is required.'],

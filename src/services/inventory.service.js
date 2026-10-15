@@ -13,6 +13,7 @@ const INVALID_INVENTORY_REFERENCE = 'INVALID_INVENTORY_REFERENCE';
 const INSUFFICIENT_STOCK = 'INSUFFICIENT_STOCK';
 
 const INVENTORY_UPDATE_FIELDS = [
+  'itemClassification',
   'branchId',
   'itemName',
   'category',

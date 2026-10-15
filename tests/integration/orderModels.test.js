@@ -22,11 +22,19 @@ describe('Order and Order Item models', () => {
 
     await connectDatabase();
 
-    await Promise.all([OrderItem.deleteMany({}), Order.deleteMany({}), Customer.deleteMany({})]);
+    await Promise.all([
+      OrderItem.collection.deleteMany({}),
+      Order.deleteMany({}),
+      Customer.deleteMany({}),
+    ]);
   });
 
   afterEach(async () => {
-    await Promise.all([OrderItem.deleteMany({}), Order.deleteMany({}), Customer.deleteMany({})]);
+    await Promise.all([
+      OrderItem.collection.deleteMany({}),
+      Order.deleteMany({}),
+      Customer.deleteMany({}),
+    ]);
   });
 
   afterAll(async () => {

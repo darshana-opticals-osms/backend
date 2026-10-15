@@ -53,7 +53,8 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
   // Note: Reset destructively removes all local development records in these collections (both seeded and custom development records).
   if (reset) {
     await KnowledgeArea.deleteMany({});
-    await OrderItem.deleteMany({});
+    // Explicit development reset bypasses the application-level OrderItem write guard.
+    await OrderItem.collection.deleteMany({});
     await Payment.deleteMany({});
     await Order.deleteMany({});
     await Appointment.deleteMany({});

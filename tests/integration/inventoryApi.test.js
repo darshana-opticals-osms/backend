@@ -102,6 +102,41 @@ describe('Inventory management API', () => {
     expect(storedInventory).not.toBeNull();
     expect(storedInventory.quantity).toBe(5);
   });
+  it('allows explicit manager classification only for future checkout snapshots and rejects invented values', async () => {
+    const token = createToken();
+    const created = await request(app)
+      .post('/api/inventory')
+      .set('Authorization', `Bearer ${token}`)
+      .send(buildInventoryPayload(defaultBranch._id, { itemClassification: 'MERCHANDISE' }));
+    expect(created.status).toBe(201);
+    const item = await Inventory.findOne({ branchId: defaultBranch._id });
+    expect(item.itemClassification).toBe('MERCHANDISE');
+    const updated = await request(app)
+      .patch(`/api/inventory/${item._id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ itemClassification: 'CLINICAL' });
+    expect(updated.status).toBe(200);
+    expect((await Inventory.findById(item._id)).itemClassification).toBe('CLINICAL');
+    for (const value of ['Frames', null, true, { $ne: 'UNKNOWN' }]) {
+      expect(
+        (
+          await request(app)
+            .patch(`/api/inventory/${item._id}`)
+            .set('Authorization', `Bearer ${token}`)
+            .send({ itemClassification: value })
+        ).status
+      ).toBe(422);
+    }
+    expect(
+      (
+        await request(app)
+          .patch(`/api/inventory/${item._id}`)
+          .set('Authorization', `Bearer ${createToken({ role: ROLE_VALUES.SYSTEM_ADMIN })}`)
+          .send({ itemClassification: 'MERCHANDISE' })
+      ).status
+    ).toBe(403);
+    expect((await Inventory.findById(item._id)).itemClassification).toBe('CLINICAL');
+  });
 
   it('should reject a Branch Manager attempting to create inventory for another branch with 403 Forbidden', async () => {
     const branchA = await createBranch({ address: 'Branch A' });
