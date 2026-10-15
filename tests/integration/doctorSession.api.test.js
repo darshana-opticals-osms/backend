@@ -154,6 +154,31 @@ describe('DoctorSession Provider Integration (AC14 - AC18, AC25, AC26)', () => {
       expect(inDb.doctorId.toString()).toBe(doctorA._id.toString());
     });
 
+    it('should default branchId to the approved Gampaha branch when omitted', async () => {
+      const payload = {
+        doctorId: doctorA._id.toString(),
+        startAt: '2026-11-21T09:00:00Z',
+        endAt: '2026-11-21T12:00:00Z',
+        capacity: 10,
+      };
+
+      const response = await request(app)
+        .post('/api/doctor-sessions')
+        .set(
+          'Authorization',
+          `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`
+        )
+        .send(payload);
+
+      expect(response.status).toBe(201);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.branchId).toBe(branch._id.toString());
+
+      const inDb = await DoctorSession.findById(response.body.data.id);
+      expect(inDb).not.toBeNull();
+      expect(inDb.branchId.toString()).toBe(branch._id.toString());
+    });
+
     it('should reject nonexistent doctorId with 404 (AC15)', async () => {
       const nonExistentId = '507f1f77bcf86cd799439099';
       const payload = {

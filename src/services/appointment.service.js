@@ -479,11 +479,14 @@ async function createDoctorSession(input, authUser) {
       }
     }
 
-    const { doctorId, branchId, startAt, endAt, capacity } = body;
+    const { doctorId, branchId: suppliedBranchId, startAt, endAt, capacity } = body;
     if (!doctorId || !mongoose.isValidObjectId(doctorId)) {
       throw new ValidationError('doctorId must be a valid MongoDB ObjectId.');
     }
-    if (!branchId || !mongoose.isValidObjectId(branchId)) {
+    if (
+      suppliedBranchId !== undefined &&
+      (!suppliedBranchId || !mongoose.isValidObjectId(suppliedBranchId))
+    ) {
       throw new ValidationError('branchId must be a valid MongoDB ObjectId.');
     }
 
@@ -493,6 +496,7 @@ async function createDoctorSession(input, authUser) {
     }
 
     const approvedBranch = await getApprovedGampahaBranch(mongoSession);
+    const branchId = suppliedBranchId || approvedBranch._id;
     if (String(branchId) !== String(approvedBranch._id)) {
       throw new ConflictError(
         'Doctor sessions are only supported at the approved Gampaha Main Branch.',

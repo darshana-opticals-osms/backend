@@ -35,7 +35,7 @@ const ensureDoctorSessionBody = (req) => {
   if (!isObjectIdString(body.doctorId)) {
     errors.push({ field: 'doctorId', message: 'doctorId must be a valid MongoDB ObjectId.' });
   }
-  if (!isObjectIdString(body.branchId)) {
+  if (body.branchId !== undefined && !isObjectIdString(body.branchId)) {
     errors.push({ field: 'branchId', message: 'branchId must be a valid MongoDB ObjectId.' });
   }
   if (typeof body.startAt !== 'string' || !body.startAt.trim()) {

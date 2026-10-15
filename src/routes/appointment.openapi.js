@@ -54,10 +54,10 @@
  *     DoctorSessionCreateRequest:
  *       type: object
  *       additionalProperties: false
- *       required: [doctorId, branchId, startAt, endAt, capacity]
+ *       required: [doctorId, startAt, endAt, capacity]
  *       properties:
  *         doctorId: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
- *         branchId: { type: string, pattern: '^[a-fA-F0-9]{24}$', description: Must identify GAMPAHA_CENTRAL. }
+ *         branchId: { type: string, pattern: '^[a-fA-F0-9]{24}$', description: Optional; defaults to approved GAMPAHA_CENTRAL branch. }
  *         startAt: { type: string, format: date-time, description: Valid ISO-8601 timestamp with explicit Z or ±HH:MM timezone. }
  *         endAt: { type: string, format: date-time, description: Valid ISO-8601 timestamp with explicit Z or ±HH:MM timezone. }
  *         capacity: { type: integer, minimum: 1 }
