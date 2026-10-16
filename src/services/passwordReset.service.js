@@ -5,7 +5,7 @@ const Admin = require('../models/admin.model');
 const { ROLE_VALUES } = require('../constants/roles');
 const { BadRequestError, ValidationError } = require('../errors/AppError');
 const { hashPassword } = require('./auth.service');
-const { sendPasswordResetNotification } = require('./notification.service');
+const notificationService = require('./notification.service');
 
 const TOKEN_EXPIRY_MINUTES = 15;
 const RESET_TOKEN_BYTE_LENGTH = 32;
@@ -137,7 +137,7 @@ async function requestPasswordReset(emailInput, options = {}) {
 
   // AC20, AC23: Safely attempt email delivery. If delivery fails, return identical generic response.
   try {
-    await sendPasswordResetNotification(
+    await notificationService.sendPasswordResetNotification(
       {
         to: normalizedEmail,
         resetUrl,
