@@ -124,7 +124,17 @@ async function requestPasswordReset(emailInput, options = {}) {
   // AC11: Replace prior unused reset token with the newest active token
   targetDoc.passwordResetTokenHash = tokenHash;
   targetDoc.passwordResetExpiresAt = expiresAt;
-  await targetDoc.save();
+
+  try {
+    await targetDoc.save();
+  } catch {
+    // Review finding 3: Handle persistence failures safely without exposing account eligibility.
+    // Retain safe operational logging for diagnosis and abort email dispatch.
+    console.error(
+      '[PasswordResetService] Failed to persist reset token state due to database operational failure.'
+    );
+    return { ...GENERIC_FORGOT_PASSWORD_RESPONSE };
+  }
 
   // AC22: Build reset link from approved frontend configuration
   const frontendBaseUrl = (
@@ -135,18 +145,31 @@ async function requestPasswordReset(emailInput, options = {}) {
 
   const resetUrl = `${frontendBaseUrl}/reset-password?token=${rawToken}`;
 
-  // AC20, AC23: Safely attempt email delivery. If delivery fails, return identical generic response.
-  try {
-    await notificationService.sendPasswordResetNotification(
-      {
-        to: normalizedEmail,
-        resetUrl,
-        minutesValid: TOKEN_EXPIRY_MINUTES,
-      },
-      options.notificationOptions || {}
-    );
-  } catch (err) {
-    console.warn(`[PasswordResetService] Notification dispatch caught error: ${err.message}`);
+  // Review finding 1 & 2: Decouple SMTP notification delivery from the HTTP response path.
+  // Dispatching asynchronously off the response path ensures identical fast response times
+  // for both existing and non-existing accounts, preventing timing-based account enumeration.
+  // Exception logging uses safe, controlled operational messages without untrusted err.message strings.
+  const dispatchNotification = async () => {
+    try {
+      await notificationService.sendPasswordResetNotification(
+        {
+          to: normalizedEmail,
+          resetUrl,
+          minutesValid: TOKEN_EXPIRY_MINUTES,
+        },
+        options.notificationOptions || {}
+      );
+    } catch {
+      console.warn(
+        '[PasswordResetService] Password reset notification delivery encountered an operational failure.'
+      );
+    }
+  };
+
+  if (options.awaitDispatch) {
+    await dispatchNotification();
+  } else {
+    setImmediate(dispatchNotification);
   }
 
   return { ...GENERIC_FORGOT_PASSWORD_RESPONSE };

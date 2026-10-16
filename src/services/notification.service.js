@@ -288,9 +288,15 @@ async function sendPasswordResetNotification({ to, resetUrl, minutesValid = 15 }
 
     return { delivered: true, simulated: false, messageId: info.messageId };
   } catch (err) {
-    // AC24: Log only safe operational failure info. Never log raw token or reset URL.
-    console.warn(`[NotificationService] Failed to send password reset email: ${err.message}`);
-    return { delivered: false, simulated: false, error: err.message };
+    // AC24 / Review finding: Avoid logging untrusted err.message which may contain tokens, URLs, or PII.
+    const safeErrorCategory =
+      err && typeof err.code === 'string' && /^[A-Z0-9_]+$/i.test(err.code)
+        ? err.code
+        : 'TRANSPORT_ERROR';
+    console.warn(
+      `[NotificationService] Failed to send password reset email (${safeErrorCategory}).`
+    );
+    return { delivered: false, simulated: false, error: safeErrorCategory };
   }
 }
 

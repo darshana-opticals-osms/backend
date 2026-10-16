@@ -303,7 +303,41 @@ describe('NotificationService (ADR-004 §17)', () => {
 
       expect(result.delivered).toBe(false);
       expect(result.simulated).toBe(false);
-      expect(result.error).toBe('SMTP Connection Refused');
+      expect(result.error).toBe('TRANSPORT_ERROR');
+    });
+
+    it('does not log untrusted error messages containing sensitive tokens or reset URLs (Review Finding 2)', async () => {
+      const sensitiveToken = 'leak_candidate_token_123456';
+      const sensitiveUrl = `https://app.example.com/reset?token=${sensitiveToken}`;
+      const untrustedError = new Error(
+        `Failed to deliver to user@example.com with reset link ${sensitiveUrl}`
+      );
+      untrustedError.code = 'ECONNRESET';
+      const mockSendMail = jest.fn().mockRejectedValue(untrustedError);
+      const mockTransporter = { sendMail: mockSendMail };
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const result = await sendPasswordResetNotification(
+        {
+          to: 'user@example.com',
+          resetUrl: sensitiveUrl,
+        },
+        { transporter: mockTransporter }
+      );
+
+      expect(result.delivered).toBe(false);
+      expect(result.error).toBe('ECONNRESET');
+
+      // Verify that console.warn did NOT leak the sensitive token, recipient email, or raw error message
+      expect(warnSpy).toHaveBeenCalled();
+      const loggedMessage = warnSpy.mock.calls.map((c) => c.join(' ')).join(' ');
+      expect(loggedMessage).not.toContain(sensitiveToken);
+      expect(loggedMessage).not.toContain('user@example.com');
+      expect(loggedMessage).not.toContain('Failed to deliver');
+      expect(loggedMessage).toContain('ECONNRESET');
+
+      warnSpy.mockRestore();
     });
   });
 });

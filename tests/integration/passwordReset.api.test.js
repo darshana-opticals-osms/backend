@@ -37,7 +37,8 @@ describe('Password Recovery API Integration (Issue #83)', () => {
     sendEmailSpy = jest.spyOn(notificationService, 'sendPasswordResetNotification');
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await flushBackgroundDispatches();
     sendEmailSpy.mockRestore();
   });
 
@@ -85,8 +86,11 @@ describe('Password Recovery API Integration (Issue #83)', () => {
     });
   };
 
+  const flushBackgroundDispatches = () => new Promise((resolve) => setTimeout(resolve, 50));
+
   // Helper to extract raw token from notification spy call
-  const extractDispatchedToken = () => {
+  const extractDispatchedToken = async () => {
+    await flushBackgroundDispatches();
     if (sendEmailSpy.mock.calls.length === 0) return null;
     const lastCall = sendEmailSpy.mock.calls[sendEmailSpy.mock.calls.length - 1][0];
     const match = lastCall.resetUrl.match(/[?&]token=([^&]+)/);
@@ -112,8 +116,8 @@ describe('Password Recovery API Integration (Issue #83)', () => {
       });
 
       // Verify email was dispatched with raw token
+      const rawToken = await extractDispatchedToken();
       expect(sendEmailSpy).toHaveBeenCalledTimes(1);
-      const rawToken = extractDispatchedToken();
       expect(rawToken).toBeTruthy();
       expect(rawToken).toHaveLength(64);
 
@@ -137,6 +141,7 @@ describe('Password Recovery API Integration (Issue #83)', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.message).toContain('If an eligible account exists');
+      await flushBackgroundDispatches();
       expect(sendEmailSpy).toHaveBeenCalledTimes(1);
 
       const staffDoc = await Staff.findOne({ email: 'bob.staff@example.com' }).select(
@@ -189,6 +194,7 @@ describe('Password Recovery API Integration (Issue #83)', () => {
         .send({ email: '  CASE.SENSITIVE@EXAMPLE.COM  ' });
 
       expect(res.status).toBe(200);
+      await flushBackgroundDispatches();
       expect(sendEmailSpy).toHaveBeenCalledTimes(1);
       expect(sendEmailSpy.mock.calls[0][0].to).toBe('case.sensitive@example.com');
     });
@@ -236,7 +242,7 @@ describe('Password Recovery API Integration (Issue #83)', () => {
       await request(app)
         .post('/api/auth/forgot-password')
         .send({ email: 'alice.customer@example.com' });
-      const firstRawToken = extractDispatchedToken();
+      const firstRawToken = await extractDispatchedToken();
 
       const docAfterFirst = await Customer.findOne({ email: 'alice.customer@example.com' }).select(
         '+passwordResetTokenHash'
@@ -247,7 +253,7 @@ describe('Password Recovery API Integration (Issue #83)', () => {
       await request(app)
         .post('/api/auth/forgot-password')
         .send({ email: 'alice.customer@example.com' });
-      const secondRawToken = extractDispatchedToken();
+      const secondRawToken = await extractDispatchedToken();
 
       const docAfterSecond = await Customer.findOne({ email: 'alice.customer@example.com' }).select(
         '+passwordResetTokenHash'
@@ -274,6 +280,7 @@ describe('Password Recovery API Integration (Issue #83)', () => {
     it('returns generic response even if email notification dispatch fails (AC23)', async () => {
       await seedCustomer();
       sendEmailSpy.mockRejectedValue(new Error('SMTP Connection Refused'));
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
       const res = await request(app)
         .post('/api/auth/forgot-password')
@@ -282,6 +289,56 @@ describe('Password Recovery API Integration (Issue #83)', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.message).toContain('If an eligible account exists');
+
+      await flushBackgroundDispatches();
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[PasswordResetService] Password reset notification delivery encountered an operational failure.'
+      );
+      warnSpy.mockRestore();
+    });
+
+    it('returns generic response immediately without blocking on slow SMTP delivery (Review Finding 1)', async () => {
+      await seedCustomer();
+
+      // Mock slow SMTP delivery that resolves asynchronously on next tick
+      sendEmailSpy.mockImplementation(
+        () => new Promise((resolve) => setImmediate(() => resolve({ delivered: true })))
+      );
+
+      const startTime = Date.now();
+      const res = await request(app)
+        .post('/api/auth/forgot-password')
+        .send({ email: 'alice.customer@example.com' });
+      const duration = Date.now() - startTime;
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      // HTTP response returns quickly without waiting for slow SMTP
+      expect(duration).toBeLessThan(250);
+    });
+
+    it('returns generic response and aborts email dispatch if database persistence fails (Review Finding 3)', async () => {
+      await seedCustomer();
+
+      const saveSpy = jest
+        .spyOn(Customer.prototype, 'save')
+        .mockRejectedValueOnce(new Error('Simulated DB write failure'));
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      const res = await request(app)
+        .post('/api/auth/forgot-password')
+        .send({ email: 'alice.customer@example.com' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.message).toContain('If an eligible account exists');
+
+      await flushBackgroundDispatches();
+      // Email must NOT be dispatched when persistence fails
+      expect(sendEmailSpy).not.toHaveBeenCalled();
+
+      saveSpy.mockRestore();
+      errorSpy.mockRestore();
     });
   });
 
@@ -296,7 +353,7 @@ describe('Password Recovery API Integration (Issue #83)', () => {
       await request(app)
         .post('/api/auth/forgot-password')
         .send({ email: 'alice.customer@example.com' });
-      const rawToken = extractDispatchedToken();
+      const rawToken = await extractDispatchedToken();
 
       // Submit reset password
       const resetRes = await request(app).post('/api/auth/reset-password').send({
@@ -338,7 +395,7 @@ describe('Password Recovery API Integration (Issue #83)', () => {
       await seedStaff(ROLE_VALUES.OPTOMETRIST);
 
       await request(app).post('/api/auth/forgot-password').send({ email: 'bob.staff@example.com' });
-      const rawToken = extractDispatchedToken();
+      const rawToken = await extractDispatchedToken();
 
       const resetRes = await request(app).post('/api/auth/reset-password').send({
         token: rawToken,
@@ -363,7 +420,7 @@ describe('Password Recovery API Integration (Issue #83)', () => {
       await request(app)
         .post('/api/auth/forgot-password')
         .send({ email: 'alice.customer@example.com' });
-      const rawToken = extractDispatchedToken();
+      const rawToken = await extractDispatchedToken();
 
       // First use succeeds
       const firstUse = await request(app).post('/api/auth/reset-password').send({
@@ -387,7 +444,7 @@ describe('Password Recovery API Integration (Issue #83)', () => {
       await request(app)
         .post('/api/auth/forgot-password')
         .send({ email: 'alice.customer@example.com' });
-      const rawToken = extractDispatchedToken();
+      const rawToken = await extractDispatchedToken();
 
       // Expire token in database
       await Customer.updateOne(
@@ -441,7 +498,7 @@ describe('Password Recovery API Integration (Issue #83)', () => {
       await request(app)
         .post('/api/auth/forgot-password')
         .send({ email: 'alice.customer@example.com' });
-      const rawToken = extractDispatchedToken();
+      const rawToken = await extractDispatchedToken();
 
       // Dispatch 2 concurrent requests using the same token
       const [res1, res2] = await Promise.all([

@@ -26,9 +26,15 @@ jest.mock('../../src/services/notification.service');
 describe('PasswordResetService (Issue #83)', () => {
   const originalEnv = process.env;
 
+  const flushBackgroundDispatches = () => new Promise((resolve) => setTimeout(resolve, 50));
+
   beforeEach(() => {
     jest.clearAllMocks();
     process.env = { ...originalEnv };
+  });
+
+  afterEach(async () => {
+    await flushBackgroundDispatches();
   });
 
   afterAll(() => {
@@ -134,7 +140,9 @@ describe('PasswordResetService (Issue #83)', () => {
       Admin.exists.mockResolvedValue(false);
       notificationService.sendPasswordResetNotification.mockResolvedValue({ delivered: true });
 
-      const result = await requestPasswordReset('  CUSTOMER@EXAMPLE.COM  ');
+      const result = await requestPasswordReset('  CUSTOMER@EXAMPLE.COM  ', {
+        awaitDispatch: true,
+      });
 
       expect(result).toEqual(GENERIC_FORGOT_PASSWORD_RESPONSE);
       expect(mockCustomer.save).toHaveBeenCalledTimes(1);
@@ -158,7 +166,7 @@ describe('PasswordResetService (Issue #83)', () => {
       Admin.exists.mockResolvedValue(false);
       notificationService.sendPasswordResetNotification.mockResolvedValue({ delivered: true });
 
-      const result = await requestPasswordReset('optom@example.com');
+      const result = await requestPasswordReset('optom@example.com', { awaitDispatch: true });
 
       expect(result).toEqual(GENERIC_FORGOT_PASSWORD_RESPONSE);
       expect(mockStaff.save).toHaveBeenCalledTimes(1);
@@ -178,9 +186,96 @@ describe('PasswordResetService (Issue #83)', () => {
         new Error('SMTP connection timed out')
       );
 
-      const result = await requestPasswordReset('customer@example.com');
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const result = await requestPasswordReset('customer@example.com', { awaitDispatch: true });
 
       expect(result).toEqual(GENERIC_FORGOT_PASSWORD_RESPONSE);
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[PasswordResetService] Password reset notification delivery encountered an operational failure.'
+      );
+      warnSpy.mockRestore();
+    });
+
+    it('handles token persistence failure safely without dispatching email (Review Finding 3)', async () => {
+      const mockCustomer = {
+        email: 'customer@example.com',
+        role: ROLE_VALUES.CUSTOMER,
+        save: jest.fn().mockRejectedValue(new Error('Mongo write error: connection lost')),
+      };
+      Customer.find.mockResolvedValue([mockCustomer]);
+      Staff.find.mockResolvedValue([]);
+      Admin.exists.mockResolvedValue(false);
+
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      const result = await requestPasswordReset('customer@example.com', { awaitDispatch: true });
+
+      expect(result).toEqual(GENERIC_FORGOT_PASSWORD_RESPONSE);
+      expect(mockCustomer.save).toHaveBeenCalledTimes(1);
+      // Review finding 3: Must NOT dispatch email if token persistence fails
+      expect(notificationService.sendPasswordResetNotification).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to persist reset token state')
+      );
+
+      errorSpy.mockRestore();
+    });
+
+    it('returns generic response immediately even during slow notification dispatch (Review Finding 1)', async () => {
+      const mockCustomer = {
+        email: 'customer@example.com',
+        role: ROLE_VALUES.CUSTOMER,
+        save: jest.fn().mockResolvedValue(true),
+      };
+      Customer.find.mockResolvedValue([mockCustomer]);
+      Staff.find.mockResolvedValue([]);
+      Admin.exists.mockResolvedValue(false);
+
+      // Simulate slow SMTP delivery that resolves asynchronously on next tick
+      notificationService.sendPasswordResetNotification.mockImplementation(
+        () => new Promise((resolve) => setImmediate(() => resolve({ delivered: true })))
+      );
+
+      const startTime = Date.now();
+      const result = await requestPasswordReset('customer@example.com'); // default: non-blocking dispatch
+      const duration = Date.now() - startTime;
+
+      expect(result).toEqual(GENERIC_FORGOT_PASSWORD_RESPONSE);
+      // HTTP response returns immediately without waiting for slow SMTP
+      expect(duration).toBeLessThan(100);
+    });
+
+    it('does not log untrusted error message if notification delivery throws sensitive error (Review Finding 2)', async () => {
+      const mockCustomer = {
+        email: 'customer@example.com',
+        role: ROLE_VALUES.CUSTOMER,
+        save: jest.fn().mockResolvedValue(true),
+      };
+      Customer.find.mockResolvedValue([mockCustomer]);
+      Staff.find.mockResolvedValue([]);
+      Admin.exists.mockResolvedValue(false);
+
+      const sensitiveToken = 'leaked_raw_secret_token_abc';
+      const sensitiveUrl = `http://localhost:3000/reset?token=${sensitiveToken}`;
+      notificationService.sendPasswordResetNotification.mockRejectedValue(
+        new Error(`SMTP network failure for ${sensitiveUrl}`)
+      );
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const result = await requestPasswordReset('customer@example.com', { awaitDispatch: true });
+
+      expect(result).toEqual(GENERIC_FORGOT_PASSWORD_RESPONSE);
+      expect(warnSpy).toHaveBeenCalled();
+      const loggedText = warnSpy.mock.calls.map((c) => c.join(' ')).join(' ');
+      expect(loggedText).not.toContain(sensitiveToken);
+      expect(loggedText).not.toContain(sensitiveUrl);
+      expect(loggedText).toContain(
+        'Password reset notification delivery encountered an operational failure'
+      );
+
+      warnSpy.mockRestore();
     });
   });
 
