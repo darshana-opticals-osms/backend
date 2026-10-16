@@ -1,4 +1,6 @@
 const mongoose = require('mongoose');
+const Customer = require('../../src/models/customer.model');
+const LoyaltyTransaction = require('../../src/models/loyaltyTransaction.model');
 const { getOwnLoyalty, shapeTransaction } = require('../../src/services/loyaltyRead.service');
 const {
   validateOwnLoyaltyRequest,
@@ -6,6 +8,8 @@ const {
 } = require('../../src/validations/loyalty.validation');
 
 describe('Customer own-loyalty read contract', () => {
+  afterEach(() => jest.restoreAllMocks());
+
   it('shapes an explicit safe DTO with fixed two-decimal strings', () => {
     const record = {
       _id: new mongoose.Types.ObjectId(),
@@ -60,6 +64,44 @@ describe('Customer own-loyalty read contract', () => {
       statusCode: 422,
       errorCode: 'VALIDATION_ERROR',
     });
+  });
+
+  it('applies the bounded query timeout to Customer history and count operations', async () => {
+    const customerId = new mongoose.Types.ObjectId();
+    const customerLean = jest.fn().mockResolvedValue({
+      _id: customerId,
+      loyaltyBalance: mongoose.Types.Decimal128.fromString('0.00'),
+    });
+    jest.spyOn(Customer, 'findOne').mockReturnValue({
+      select: jest.fn().mockReturnValue({ lean: customerLean }),
+    });
+
+    const historyLean = jest.fn().mockResolvedValue([]);
+    const historyMaxTimeMS = jest.fn().mockReturnValue({ lean: historyLean });
+    const historyQuery = {
+      select: jest.fn(),
+      sort: jest.fn(),
+      skip: jest.fn(),
+      limit: jest.fn(),
+      maxTimeMS: historyMaxTimeMS,
+    };
+    historyQuery.select.mockReturnValue(historyQuery);
+    historyQuery.sort.mockReturnValue(historyQuery);
+    historyQuery.skip.mockReturnValue(historyQuery);
+    historyQuery.limit.mockReturnValue(historyQuery);
+    jest.spyOn(LoyaltyTransaction, 'find').mockReturnValue(historyQuery);
+
+    const countMaxTimeMS = jest.fn().mockResolvedValue(0);
+    jest.spyOn(LoyaltyTransaction, 'countDocuments').mockReturnValue({
+      maxTimeMS: countMaxTimeMS,
+    });
+
+    await expect(getOwnLoyalty({ customerId: customerId.toString() })).resolves.toMatchObject({
+      balance: '0.00',
+      transactions: [],
+    });
+    expect(historyMaxTimeMS).toHaveBeenCalledWith(5000);
+    expect(countMaxTimeMS).toHaveBeenCalledWith(5000);
   });
 
   it.each([

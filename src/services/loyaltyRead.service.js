@@ -64,8 +64,9 @@ async function getOwnLoyalty({ customerId, query = {} }) {
       .sort({ createdAt: -1, _id: -1 })
       .skip(skip)
       .limit(limit)
+      .maxTimeMS(5000)
       .lean(),
-    LoyaltyTransaction.countDocuments(filter),
+    LoyaltyTransaction.countDocuments(filter).maxTimeMS(5000),
   ]);
 
   return {
