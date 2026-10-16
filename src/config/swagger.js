@@ -87,6 +87,62 @@ const options = {
             data: { $ref: '#/components/schemas/OwnLoyaltyData' },
           },
         },
+        ManagementLoyaltyTransaction: {
+          type: 'object',
+          additionalProperties: false,
+          required: [
+            'id',
+            'customerId',
+            'orderId',
+            'paymentId',
+            'type',
+            'pointsDelta',
+            'balanceAfter',
+            'createdAt',
+          ],
+          properties: {
+            id: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' },
+            customerId: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' },
+            orderId: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' },
+            paymentId: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' },
+            type: {
+              type: 'string',
+              enum: ['EARN_PURCHASE', 'REFUND_REVERSAL', 'REDEMPTION_DEDUCTION'],
+            },
+            pointsDelta: {
+              type: 'string',
+              pattern: '^-?\\d+\\.\\d{2}$',
+              example: '10.00',
+            },
+            balanceAfter: {
+              type: 'string',
+              pattern: '^-?\\d+\\.\\d{2}$',
+              example: '12.50',
+            },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        ManagementLoyaltyData: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['transactions', 'pagination'],
+          properties: {
+            transactions: {
+              type: 'array',
+              items: { $ref: '#/components/schemas/ManagementLoyaltyTransaction' },
+            },
+            pagination: { $ref: '#/components/schemas/LoyaltyPagination' },
+          },
+        },
+        ManagementLoyaltyResponse: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['success', 'data'],
+          properties: {
+            success: { type: 'boolean', example: true },
+            data: { $ref: '#/components/schemas/ManagementLoyaltyData' },
+          },
+        },
         ValidationIssue: {
           type: 'object',
           required: ['field', 'message'],

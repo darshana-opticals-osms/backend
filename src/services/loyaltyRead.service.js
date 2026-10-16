@@ -2,9 +2,17 @@ const mongoose = require('mongoose');
 const Customer = require('../models/customer.model');
 const LoyaltyTransaction = require('../models/loyaltyTransaction.model');
 const { ROLE_VALUES } = require('../constants/roles');
-const { NotFoundError, ConflictError, ValidationError } = require('../errors/AppError');
+const {
+  NotFoundError,
+  ConflictError,
+  ValidationError,
+  ForbiddenError,
+} = require('../errors/AppError');
 const { toMinor, fromMinor } = require('../utils/loyaltyDecimal');
-const { parseOwnLoyaltyPagination } = require('../validations/loyalty.validation');
+const {
+  parseOwnLoyaltyPagination,
+  parseManagementLoyaltyQuery,
+} = require('../validations/loyalty.validation');
 
 function shapeTransaction(record) {
   return {
@@ -13,6 +21,19 @@ function shapeTransaction(record) {
     pointsDelta: fromMinor(toMinor(record.pointsDelta)),
     balanceAfter: fromMinor(toMinor(record.balanceAfter)),
     orderId: record.orderId.toString(),
+    createdAt: record.createdAt,
+  };
+}
+
+function shapeManagementTransaction(record) {
+  return {
+    id: record._id.toString(),
+    customerId: record.customerId.toString(),
+    orderId: record.orderId.toString(),
+    paymentId: record.paymentId.toString(),
+    type: record.eventType,
+    pointsDelta: fromMinor(toMinor(record.pointsDelta)),
+    balanceAfter: fromMinor(toMinor(record.balanceAfter)),
     createdAt: record.createdAt,
   };
 }
@@ -59,4 +80,35 @@ async function getOwnLoyalty({ customerId, query = {} }) {
   };
 }
 
-module.exports = { getOwnLoyalty, shapeTransaction };
+async function listManagementLoyalty({ role, query = {} }) {
+  if (role !== ROLE_VALUES.BRANCH_MANAGER) {
+    throw new ForbiddenError('Loyalty monitoring requires BRANCH_MANAGER.');
+  }
+  const options = parseManagementLoyaltyQuery(query);
+  const [records, total] = await Promise.all([
+    LoyaltyTransaction.find(options.filter)
+      .select('_id customerId orderId paymentId eventType pointsDelta balanceAfter createdAt')
+      .sort(options.sort)
+      .skip(options.skip)
+      .limit(options.limit)
+      .maxTimeMS(5000)
+      .lean(),
+    LoyaltyTransaction.countDocuments(options.filter).maxTimeMS(5000),
+  ]);
+  return {
+    transactions: records.map(shapeManagementTransaction),
+    pagination: {
+      page: options.page,
+      limit: options.limit,
+      total,
+      totalPages: Math.ceil(total / options.limit),
+    },
+  };
+}
+
+module.exports = {
+  getOwnLoyalty,
+  listManagementLoyalty,
+  shapeTransaction,
+  shapeManagementTransaction,
+};

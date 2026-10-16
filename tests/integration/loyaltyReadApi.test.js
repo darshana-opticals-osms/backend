@@ -50,12 +50,21 @@ describe('GET /api/loyalty/me', () => {
     return createAccessToken({ userId: userId.toString(), role });
   }
 
-  async function insertTransaction({ owner, type, delta, balance, orderId, createdAt, id }) {
-    await LoyaltyTransaction.collection.insertOne({
+  async function insertTransaction({
+    owner,
+    type,
+    delta,
+    balance,
+    orderId,
+    paymentId = new mongoose.Types.ObjectId(),
+    createdAt,
+    id,
+  }) {
+    const result = await LoyaltyTransaction.collection.insertOne({
       ...(id ? { _id: id } : {}),
       customerId: owner._id,
       orderId,
-      paymentId: new mongoose.Types.ObjectId(),
+      paymentId,
       eventType: type,
       sourceEventId: new mongoose.Types.ObjectId(),
       earningTransactionId: type === 'REFUND_REVERSAL' ? new mongoose.Types.ObjectId() : null,
@@ -66,6 +75,7 @@ describe('GET /api/loyalty/me', () => {
       balanceAfter: mongoose.Types.Decimal128.fromString(balance),
       createdAt,
     });
+    return { id: result.insertedId, customerId: owner._id, orderId, paymentId, type };
   }
 
   it('returns an initialized Customer zero balance and empty history', async () => {
@@ -288,4 +298,217 @@ describe('GET /api/loyalty/me', () => {
       expect(await LoyaltyTransaction.countDocuments({ customerId: owner._id })).toBe(0);
     }
   );
+
+  describe('BRANCH_MANAGER monitoring', () => {
+    async function managementFixture() {
+      const first = await customer('ManagerFirst');
+      const second = await customer('ManagerSecond');
+      const commonTime = new Date('2026-10-16T12:00:00.000Z');
+      const lowerId = new mongoose.Types.ObjectId('68f0b0000000000000000001');
+      const higherId = new mongoose.Types.ObjectId('68f0b0000000000000000002');
+      const earning = await insertTransaction({
+        owner: first,
+        id: lowerId,
+        type: 'EARN_PURCHASE',
+        delta: '10.00',
+        balance: '10.00',
+        orderId: new mongoose.Types.ObjectId(),
+        createdAt: commonTime,
+      });
+      const reversal = await insertTransaction({
+        owner: first,
+        id: higherId,
+        type: 'REFUND_REVERSAL',
+        delta: '-2.50',
+        balance: '7.50',
+        orderId: new mongoose.Types.ObjectId(),
+        createdAt: commonTime,
+      });
+      const other = await insertTransaction({
+        owner: second,
+        type: 'EARN_PURCHASE',
+        delta: '3.25',
+        balance: '3.25',
+        orderId: new mongoose.Types.ObjectId(),
+        createdAt: new Date('2026-10-15T12:00:00.000Z'),
+      });
+      return { first, second, earning, reversal, other, lowerId, higherId };
+    }
+
+    it('returns an empty default page to BRANCH_MANAGER and rejects all other roles', async () => {
+      const actor = new mongoose.Types.ObjectId();
+      const managerResponse = await request(app)
+        .get('/api/loyalty')
+        .set('Authorization', `Bearer ${token(actor, ROLE_VALUES.BRANCH_MANAGER)}`)
+        .expect(200);
+      expect(managerResponse.body).toEqual({
+        success: true,
+        data: {
+          transactions: [],
+          pagination: { page: 1, limit: 25, total: 0, totalPages: 0 },
+        },
+      });
+      await request(app).get('/api/loyalty').expect(401);
+      for (const role of [
+        ROLE_VALUES.CUSTOMER,
+        ROLE_VALUES.SYSTEM_ADMIN,
+        ROLE_VALUES.BRANCH_ASSISTANT,
+        ROLE_VALUES.OPTOMETRIST,
+      ]) {
+        await request(app)
+          .get('/api/loyalty')
+          .set('Authorization', `Bearer ${token(actor, role)}`)
+          .expect(403);
+      }
+    });
+
+    it('supports each exact filter, combined filters and empty filtered results', async () => {
+      const fixture = await managementFixture();
+      const manager = token(new mongoose.Types.ObjectId(), ROLE_VALUES.BRANCH_MANAGER);
+      for (const [field, value, expectedId] of [
+        ['customerId', fixture.second._id, fixture.other.id],
+        ['orderId', fixture.earning.orderId, fixture.earning.id],
+        ['paymentId', fixture.reversal.paymentId, fixture.reversal.id],
+        ['eventType', 'REFUND_REVERSAL', fixture.reversal.id],
+      ]) {
+        const response = await request(app)
+          .get('/api/loyalty')
+          .query({ [field]: value.toString() })
+          .set('Authorization', `Bearer ${manager}`)
+          .expect(200);
+        expect(response.body.data.transactions.map((item) => item.id)).toEqual([
+          expectedId.toString(),
+        ]);
+      }
+
+      const combined = await request(app)
+        .get('/api/loyalty')
+        .query({
+          customerId: fixture.first._id.toString(),
+          orderId: fixture.earning.orderId.toString(),
+          paymentId: fixture.earning.paymentId.toString(),
+          eventType: 'EARN_PURCHASE',
+        })
+        .set('Authorization', `Bearer ${manager}`)
+        .expect(200);
+      expect(combined.body.data.pagination.total).toBe(1);
+      expect(combined.body.data.transactions[0].id).toBe(fixture.earning.id.toString());
+
+      const empty = await request(app)
+        .get('/api/loyalty')
+        .query({ customerId: new mongoose.Types.ObjectId().toString() })
+        .set('Authorization', `Bearer ${manager}`)
+        .expect(200);
+      expect(empty.body.data.transactions).toEqual([]);
+      expect(empty.body.data.pagination.total).toBe(0);
+    });
+
+    it('returns safe fixed-decimal DTOs without Customer PII or provider evidence', async () => {
+      await managementFixture();
+      const before = await LoyaltyTransaction.countDocuments();
+      const response = await request(app)
+        .get('/api/loyalty?limit=100')
+        .set(
+          'Authorization',
+          `Bearer ${token(new mongoose.Types.ObjectId(), ROLE_VALUES.BRANCH_MANAGER)}`
+        )
+        .expect(200);
+      expect(response.body.data.transactions).toHaveLength(3);
+      expect(Object.keys(response.body.data.transactions[0])).toEqual([
+        'id',
+        'customerId',
+        'orderId',
+        'paymentId',
+        'type',
+        'pointsDelta',
+        'balanceAfter',
+        'createdAt',
+      ]);
+      for (const item of response.body.data.transactions) {
+        expect(item.pointsDelta).toMatch(/^-?\d+\.\d{2}$/);
+        expect(item.balanceAfter).toMatch(/^\d+\.\d{2}$/);
+      }
+      expect(JSON.stringify(response.body)).not.toMatch(
+        /email|phone|address|password|token|providerTransactionId|sourceEventId|private-/i
+      );
+      expect(await LoyaltyTransaction.countDocuments()).toBe(before);
+    });
+
+    it('sorts both directions with stable _id tie-breaking across pages', async () => {
+      const fixture = await managementFixture();
+      const manager = token(new mongoose.Types.ObjectId(), ROLE_VALUES.BRANCH_MANAGER);
+      const descendingFirst = await request(app)
+        .get('/api/loyalty?page=1&limit=1&sortOrder=desc')
+        .set('Authorization', `Bearer ${manager}`)
+        .expect(200);
+      const descendingSecond = await request(app)
+        .get('/api/loyalty?page=2&limit=1&sortOrder=desc')
+        .set('Authorization', `Bearer ${manager}`)
+        .expect(200);
+      expect(descendingFirst.body.data.transactions[0].id).toBe(fixture.higherId.toString());
+      expect(descendingSecond.body.data.transactions[0].id).toBe(fixture.lowerId.toString());
+
+      const ascending = await request(app)
+        .get('/api/loyalty?page=2&limit=2&sortOrder=asc')
+        .set('Authorization', `Bearer ${manager}`)
+        .expect(200);
+      expect(ascending.body.data.pagination).toEqual({
+        page: 2,
+        limit: 2,
+        total: 3,
+        totalPages: 2,
+      });
+      expect(ascending.body.data.transactions[0].id).toBe(fixture.higherId.toString());
+
+      const maximums = await request(app)
+        .get('/api/loyalty?page=10000&limit=100')
+        .set('Authorization', `Bearer ${manager}`)
+        .expect(200);
+      expect(maximums.body.data.pagination).toMatchObject({ page: 10000, limit: 100, total: 3 });
+    });
+
+    it.each([
+      '?page=0',
+      '?page=-1',
+      '?page=1.5',
+      '?page=10001',
+      '?limit=0',
+      '?limit=101',
+      '?limit[]=25',
+      '?customerId=bad',
+      '?orderId[$ne]=x',
+      '?paymentId[]=507f1f77bcf86cd799439011',
+      '?eventType=MANUAL_ADJUSTMENT',
+      '?sortOrder=sideways',
+      '?sortBy=createdAt',
+      '?$where=true',
+    ])('rejects unsafe monitoring query %s', async (suffix) => {
+      await request(app)
+        .get(`/api/loyalty${suffix}`)
+        .set(
+          'Authorization',
+          `Bearer ${token(new mongoose.Types.ObjectId(), ROLE_VALUES.BRANCH_MANAGER)}`
+        )
+        .expect(422);
+    });
+
+    it('rejects request body fields without changing the Phase 1 Customer endpoint', async () => {
+      const owner = await customer('Regression');
+      const manager = token(new mongoose.Types.ObjectId(), ROLE_VALUES.BRANCH_MANAGER);
+      await request(app)
+        .get('/api/loyalty')
+        .set('Authorization', `Bearer ${manager}`)
+        .send({ eventType: 'EARN_PURCHASE' })
+        .expect(422);
+      const own = await request(app)
+        .get('/api/loyalty/me')
+        .set('Authorization', `Bearer ${token(owner._id)}`)
+        .expect(200);
+      expect(own.body.data).toEqual({
+        balance: '0.00',
+        transactions: [],
+        pagination: { page: 1, limit: 25, total: 0, totalPages: 0 },
+      });
+    });
+  });
 });
