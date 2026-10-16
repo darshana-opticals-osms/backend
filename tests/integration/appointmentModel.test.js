@@ -1,6 +1,7 @@
 const { connectDatabase, disconnectDatabase } = require('../../src/config/database');
 const Customer = require('../../src/models/customer.model');
 const Staff = require('../../src/models/staff.model');
+const Doctor = require('../../src/models/doctor.model');
 const Appointment = require('../../src/models/appointment.model');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 const { APPOINTMENT_STATUS_VALUES } = require('../../src/constants/appointmentStatuses');
@@ -35,11 +36,21 @@ describe('Appointment model', () => {
 
     await connectDatabase();
 
-    await Promise.all([Appointment.deleteMany({}), Customer.deleteMany({}), Staff.deleteMany({})]);
+    await Promise.all([
+      Appointment.deleteMany({}),
+      Customer.deleteMany({}),
+      Staff.deleteMany({}),
+      Doctor.deleteMany({}),
+    ]);
   });
 
   afterEach(async () => {
-    await Promise.all([Appointment.deleteMany({}), Customer.deleteMany({}), Staff.deleteMany({})]);
+    await Promise.all([
+      Appointment.deleteMany({}),
+      Customer.deleteMany({}),
+      Staff.deleteMany({}),
+      Doctor.deleteMany({}),
+    ]);
   });
 
   afterAll(async () => {
@@ -77,9 +88,28 @@ describe('Appointment model', () => {
 
     // Assert
     expect(validationError.errors.customerId).toBeDefined();
-    expect(validationError.errors.staffId).toBeDefined();
+    expect(validationError.errors.doctorId).toBeDefined();
     expect(validationError.errors.dateTime).toBeDefined();
     expect(validationError.errors.status).toBeDefined();
+  });
+
+  it('should create a valid Appointment record with doctorId relationship (AC19)', async () => {
+    const customer = await createTestCustomer();
+    const doctor = await Doctor.create({
+      name: 'Dr. Nimal Perera',
+      specialization: 'Ophthalmologist',
+    });
+
+    const appointment = await Appointment.create({
+      customerId: customer._id,
+      doctorId: doctor._id,
+      dateTime: new Date('2026-09-20T09:30:00.000Z'),
+      status: APPOINTMENT_STATUS_VALUES.CONFIRMED,
+    });
+
+    expect(appointment.customerId.toString()).toBe(customer._id.toString());
+    expect(appointment.doctorId.toString()).toBe(doctor._id.toString());
+    expect(appointment.status).toBe(APPOINTMENT_STATUS_VALUES.CONFIRMED);
   });
 
   it('should reject an invalid appointment date and time', () => {

@@ -58,7 +58,7 @@ describe('GET /api/branches', () => {
     process.env = originalEnv;
   });
 
-  it.each([ROLE_VALUES.SYSTEM_ADMIN, ROLE_VALUES.BRANCH_MANAGER])(
+  it.each([ROLE_VALUES.SYSTEM_ADMIN, ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.BRANCH_ASSISTANT])(
     'should return safe Branch references for %s',
     async (role) => {
       const branches = await createBranches();
@@ -120,7 +120,7 @@ describe('GET /api/branches', () => {
     expect(response.body).not.toHaveProperty('data');
   });
 
-  it.each([ROLE_VALUES.CUSTOMER, ROLE_VALUES.OPTOMETRIST, ROLE_VALUES.BRANCH_ASSISTANT])(
+  it.each([ROLE_VALUES.CUSTOMER, ROLE_VALUES.OPTOMETRIST])(
     'should reject %s without returning Branch data',
     async (role) => {
       await createBranches();

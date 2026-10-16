@@ -14,6 +14,7 @@ const KnowledgeArea = require('../models/knowledgeArea.model');
 const Cart = require('../models/cart.model');
 const ReorderAlert = require('../models/reorderAlert.model');
 const InventoryConfig = require('../models/inventoryConfig.model');
+const Doctor = require('../models/doctor.model');
 const { createInventory } = require('../services/inventory.service');
 const { hashPassword } = require('../services/auth.service');
 const { SEED_BRANCHES } = require('./data/branches.data');
@@ -26,6 +27,7 @@ const {
 const { SEED_INVENTORY_ITEMS } = require('./data/inventory.data');
 const { SEED_PRESCRIPTIONS } = require('./data/prescriptions.data');
 const { SEED_KNOWLEDGE_AREAS } = require('./data/knowledgeAreas.data');
+const { SEED_DOCTORS } = require('./data/doctors.data');
 
 const PRODUCTION_SAFETY_ERROR =
   'Production safety check triggered: Seeding database is prohibited in production environment.';
@@ -63,6 +65,7 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
     await Cart.deleteMany({});
     await ReorderAlert.deleteMany({});
     await InventoryConfig.deleteMany({});
+    await Doctor.deleteMany({});
     await Inventory.deleteMany({});
     await Staff.deleteMany({});
     await Customer.deleteMany({});
@@ -78,6 +81,7 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
   let inventoryCreated = 0;
   let prescriptionsCreated = 0;
   let knowledgeAreasCreated = 0;
+  let doctorsCreated = 0;
 
   // Compute password hash using application central auth service hashing helper
   const devPasswordHash = await hashPassword(DEV_DEFAULT_PASSWORD);
@@ -208,6 +212,18 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
     }
   }
 
+  // 8. Seed Doctors (Issue #81)
+  for (const docData of SEED_DOCTORS) {
+    const existing = await Doctor.exists({
+      name: docData.name,
+      specialization: docData.specialization,
+    });
+    if (!existing) {
+      await Doctor.create(docData);
+      doctorsCreated += 1;
+    }
+  }
+
   return {
     reset,
     branchesCreated,
@@ -217,6 +233,7 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
     inventoryCreated,
     prescriptionsCreated,
     knowledgeAreasCreated,
+    doctorsCreated,
     totalBranches: await Branch.countDocuments({}),
     totalAdmins: await Admin.countDocuments({}),
     totalStaff: await Staff.countDocuments({}),
@@ -224,6 +241,7 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
     totalInventory: await Inventory.countDocuments({}),
     totalPrescriptions: await Prescription.countDocuments({}),
     totalKnowledgeAreas: await KnowledgeArea.countDocuments({}),
+    totalDoctors: await Doctor.countDocuments({}),
   };
 }
 

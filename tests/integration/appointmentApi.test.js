@@ -6,6 +6,7 @@ const { createApp } = require('../../src/app');
 const Branch = require('../../src/models/branch.model');
 const Customer = require('../../src/models/customer.model');
 const Staff = require('../../src/models/staff.model');
+const Doctor = require('../../src/models/doctor.model');
 const Appointment = require('../../src/models/appointment.model');
 const DoctorSession = require('../../src/models/doctorSession.model');
 const { ROLE_VALUES } = require('../../src/constants/roles');
@@ -19,6 +20,7 @@ describe('Appointment scheduling API', () => {
   let originalEnv;
   let gampahaBranch;
   let optometrist;
+  let doctor;
   let branchAssistant;
   let customer;
 
@@ -43,6 +45,7 @@ describe('Appointment scheduling API', () => {
       Branch.init(),
       Customer.init(),
       Staff.init(),
+      Doctor.init(),
       Appointment.init(),
       DoctorSession.init(),
     ]);
@@ -56,6 +59,7 @@ describe('Appointment scheduling API', () => {
       Branch.deleteMany({}),
       Customer.deleteMany({}),
       Staff.deleteMany({}),
+      Doctor.deleteMany({}),
       Appointment.deleteMany({}),
       DoctorSession.deleteMany({}),
     ]);
@@ -64,6 +68,11 @@ describe('Appointment scheduling API', () => {
       codeName: 'GAMPAHA_CENTRAL',
       address: '12 Main Street, Gampaha',
       contactNumber: '+94 33 222 0000',
+    });
+
+    doctor = await Doctor.create({
+      name: 'Dr. Gampaha',
+      specialization: 'Optometrist',
     });
 
     const passwordHash = await bcrypt.hash('Password123!', 12);
@@ -102,11 +111,16 @@ describe('Appointment scheduling API', () => {
       Branch.deleteMany({}),
       Customer.deleteMany({}),
       Staff.deleteMany({}),
+      Doctor.deleteMany({}),
       Appointment.deleteMany({}),
       DoctorSession.deleteMany({}),
     ]);
     if (mongoose.connection.readyState !== 0) await mongoose.disconnect();
-    if (mongoServer) await mongoServer.stop();
+    try {
+      if (mongoServer) await mongoServer.stop();
+    } catch {
+      void 0;
+    }
     process.env = originalEnv;
   }, 30000);
 
@@ -127,13 +141,15 @@ describe('Appointment scheduling API', () => {
   const createSession = async ({
     capacity = 3,
     daysAhead = 3,
-    staff = optometrist,
+    doctor: suppliedDoctor = doctor,
+    staff = null,
     startAt: suppliedStartAt,
     endAt: suppliedEndAt,
   } = {}) => {
     const startAt = suppliedStartAt || new Date(Date.now() + daysAhead * 24 * 60 * 60 * 1000);
     return DoctorSession.create({
-      staffId: staff._id,
+      doctorId: suppliedDoctor ? suppliedDoctor._id : undefined,
+      staffId: staff ? staff._id : undefined,
       branchId: gampahaBranch._id,
       startAt,
       endAt: suppliedEndAt || new Date(startAt.getTime() + 60 * 60 * 1000),
@@ -165,12 +181,12 @@ describe('Appointment scheduling API', () => {
       .set('Authorization', `Bearer ${branchAssistantToken}`);
     expect(branchAssistantProvidersResponse.status).toBe(200);
     const discoveredProvider = branchAssistantProvidersResponse.body.data.find(
-      (provider) => provider.id === optometrist._id.toString()
+      (provider) => provider.id === doctor._id.toString()
     );
     expect(discoveredProvider).toMatchObject({
-      id: optometrist._id.toString(),
-      branchId: gampahaBranch._id.toString(),
-      role: ROLE_VALUES.OPTOMETRIST,
+      id: doctor._id.toString(),
+      name: 'Dr. Gampaha',
+      specialization: 'Optometrist',
     });
     expect(discoveredProvider).not.toHaveProperty('email');
     expect(discoveredProvider).not.toHaveProperty('phone');
@@ -179,8 +195,8 @@ describe('Appointment scheduling API', () => {
       .post('/api/doctor-sessions')
       .set('Authorization', `Bearer ${branchAssistantToken}`)
       .send({
-        staffId: discoveredProvider.id,
-        branchId: discoveredProvider.branchId,
+        doctorId: discoveredProvider.id,
+        branchId: gampahaBranch._id.toString(),
         startAt: sessionStart.toISOString(),
         endAt: sessionEnd.toISOString(),
         capacity: 3,
@@ -203,14 +219,14 @@ describe('Appointment scheduling API', () => {
     expect(providersResponse.body.data).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: optometrist._id.toString(),
+          id: doctor._id.toString(),
           name: 'Dr. Gampaha',
-          role: ROLE_VALUES.OPTOMETRIST,
+          specialization: 'Optometrist',
         }),
       ])
     );
     const publicProvider = providersResponse.body.data.find(
-      (provider) => provider.id === optometrist._id.toString()
+      (provider) => provider.id === doctor._id.toString()
     );
     expect(publicProvider).not.toHaveProperty('email');
     expect(publicProvider).not.toHaveProperty('phone');
@@ -382,7 +398,7 @@ describe('Appointment scheduling API', () => {
     jest.spyOn(Date, 'now').mockReturnValue(fixedNow);
     const sessionStart = new Date(fixedNow + 3 * 24 * 60 * 60 * 1000);
     const session = await DoctorSession.create({
-      staffId: optometrist._id,
+      doctorId: doctor._id,
       branchId: gampahaBranch._id,
       startAt: sessionStart,
       endAt: new Date(sessionStart.getTime() + 60 * 60 * 1000),
@@ -406,7 +422,7 @@ describe('Appointment scheduling API', () => {
     jest.spyOn(Date, 'now').mockReturnValue(fixedNow);
     const sessionStart = new Date(fixedNow + 3 * 24 * 60 * 60 * 1000);
     const session = await DoctorSession.create({
-      staffId: optometrist._id,
+      doctorId: doctor._id,
       branchId: gampahaBranch._id,
       startAt: sessionStart,
       endAt: new Date(sessionStart.getTime() + 60 * 60 * 1000),
@@ -530,7 +546,7 @@ describe('Appointment scheduling API', () => {
     const token = tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT);
     const startAt = new Date(Date.now() + 4 * 24 * 60 * 60 * 1000);
     const payload = {
-      staffId: optometrist._id.toString(),
+      doctorId: doctor._id.toString(),
       branchId: gampahaBranch._id.toString(),
       startAt: startAt.toISOString(),
       endAt: new Date(startAt.getTime() + 60 * 60 * 1000).toISOString(),
@@ -543,9 +559,9 @@ describe('Appointment scheduling API', () => {
     expect((await createSessionRequest({ ...payload, unexpected: true })).status).toBe(422);
     expect((await createSessionRequest({ ...payload, $where: 'true' })).status).toBe(422);
     expect((await createSessionRequest({ ...payload, 'field.name': 'value' })).status).toBe(422);
-    expect((await createSessionRequest({ ...payload, staffId: 'bad-id' })).status).toBe(422);
-    for (const staffId of [123, {}, [], 'abcdefghijkl']) {
-      expect((await createSessionRequest({ ...payload, staffId })).status).toBe(422);
+    expect((await createSessionRequest({ ...payload, doctorId: 'bad-id' })).status).toBe(422);
+    for (const doctorId of [123, {}, [], 'abcdefghijkl']) {
+      expect((await createSessionRequest({ ...payload, doctorId })).status).toBe(422);
     }
     expect(await DoctorSession.countDocuments({})).toBe(0);
   });
@@ -714,7 +730,8 @@ describe('Appointment scheduling API', () => {
 
     const appointment = await Appointment.findById(booking.body.data.id).lean();
     expect(appointment.sessionId.toString()).toBe(target._id.toString());
-    expect(appointment.staffId.toString()).toBe(optometrist._id.toString());
+    expect(appointment.doctorId.toString()).toBe(doctor._id.toString());
+    expect(appointment.staffId).toBeNull();
     expect(appointment.dateTime).toEqual(target.startAt);
     expect(appointment.position).toBe(1);
     expect((await DoctorSession.findById(source._id)).confirmedCount).toBe(0);
@@ -829,50 +846,42 @@ describe('Appointment scheduling API', () => {
     expect(tooSoonResponse.status).toBe(409);
 
     const invalidProviderTarget = await createSession({ capacity: 2, daysAhead: 7 });
-    await Staff.updateOne(
-      { _id: optometrist._id },
-      { $set: { role: ROLE_VALUES.BRANCH_ASSISTANT } }
-    );
+    await Doctor.deleteOne({ _id: invalidProviderTarget.doctorId });
     const invalidProviderResponse = await reassign(
       sourceBooking.body.data.id,
       invalidProviderTarget._id
     );
     expect(invalidProviderResponse.status).toBe(422);
-    await Staff.updateOne({ _id: optometrist._id }, { $set: { role: ROLE_VALUES.OPTOMETRIST } });
 
     const otherBranch = await Branch.create({
       address: 'Other Branch',
       contactNumber: '+94 11 222 0000',
     });
-    const otherStaff = await Staff.create({
-      name: 'Other Branch Optometrist',
-      email: 'other.optometrist@example.com',
-      phone: '+94 77 100 0300',
-      address: 'Other Branch',
-      branchId: otherBranch._id,
-      role: ROLE_VALUES.OPTOMETRIST,
-      passwordHash: '$2b$12$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    const otherDoctor = await Doctor.create({
+      name: 'Other Doctor',
+      specialization: 'Ophthalmologist',
     });
     const otherStart = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const otherSession = await DoctorSession.create({
-      staffId: otherStaff._id,
+      doctorId: otherDoctor._id,
       branchId: otherBranch._id,
       startAt: otherStart,
       endAt: new Date(otherStart.getTime() + 60 * 60 * 1000),
       capacity: 2,
     });
-    const mismatchedProviderSession = await DoctorSession.create({
-      staffId: otherStaff._id,
+    const legacyTargetSession = await DoctorSession.create({
+      staffId: optometrist._id,
       branchId: gampahaBranch._id,
       startAt: otherStart,
       endAt: new Date(otherStart.getTime() + 60 * 60 * 1000),
       capacity: 2,
     });
-    const providerBranchResponse = await reassign(
+    const legacyTargetResponse = await reassign(
       sourceBooking.body.data.id,
-      mismatchedProviderSession._id
+      legacyTargetSession._id
     );
-    expect(providerBranchResponse.status).toBe(422);
+    expect(legacyTargetResponse.status).toBe(409);
+    expect(legacyTargetResponse.body.error.message).toContain('legacy optometrist sessions');
     const branchResponse = await reassign(sourceBooking.body.data.id, otherSession._id);
     expect(branchResponse.status).toBe(403);
     const unchanged = await Appointment.findById(sourceBooking.body.data.id).lean();
@@ -971,8 +980,8 @@ describe('Appointment scheduling API', () => {
           .post('/api/doctor-sessions')
           .set('Authorization', `Bearer ${managerToken}`)
           .send({
-            staffId: optometrist._id,
-            branchId: gampahaBranch._id,
+            doctorId: doctor._id.toString(),
+            branchId: gampahaBranch._id.toString(),
             startAt: session.startAt.toISOString(),
             endAt: session.endAt.toISOString(),
             capacity: 1,
@@ -1058,7 +1067,7 @@ describe('Appointment scheduling API', () => {
           .post('/api/doctor-sessions')
           .set('Authorization', `Bearer ${token}`)
           .send({
-            staffId: optometrist._id.toString(),
+            doctorId: doctor._id.toString(),
             branchId: gampahaBranch._id.toString(),
             startAt: sessionStart.toISOString(),
             endAt: new Date(sessionStart.getTime() + 60 * 60 * 1000).toISOString(),
@@ -1181,7 +1190,7 @@ describe('Appointment scheduling API', () => {
         .post('/api/doctor-sessions')
         .set('Authorization', `Bearer ${branchAssistantToken}`)
         .send({
-          staffId: optometrist._id.toString(),
+          doctorId: doctor._id.toString(),
           branchId: gampahaBranch._id.toString(),
           startAt,
           endAt,
@@ -1199,10 +1208,7 @@ describe('Appointment scheduling API', () => {
     expect(missingTimezone.status).toBe(422);
 
     const session = await createSession({ capacity: 1 });
-    await Staff.updateOne(
-      { _id: optometrist._id },
-      { $set: { role: ROLE_VALUES.BRANCH_ASSISTANT } }
-    );
+    await Doctor.deleteOne({ _id: doctor._id });
     const available = await request(app)
       .get('/api/doctor-sessions/available')
       .set('Authorization', `Bearer ${tokenFor(customer._id)}`);
@@ -1214,7 +1220,7 @@ describe('Appointment scheduling API', () => {
   it('rejects a booking inside the 24-hour lead-time boundary', async () => {
     const startAt = new Date(Date.now() + 24 * 60 * 60 * 1000 - 60_000);
     const session = await DoctorSession.create({
-      staffId: optometrist._id,
+      doctorId: doctor._id,
       branchId: gampahaBranch._id,
       startAt,
       endAt: new Date(startAt.getTime() + 60 * 60 * 1000),
@@ -1233,7 +1239,7 @@ describe('Appointment scheduling API', () => {
     jest.spyOn(Date, 'now').mockReturnValue(fixedNow);
     const startAt = new Date(fixedNow + 24 * 60 * 60 * 1000);
     const session = await DoctorSession.create({
-      staffId: optometrist._id,
+      doctorId: doctor._id,
       branchId: gampahaBranch._id,
       startAt,
       endAt: new Date(startAt.getTime() + 60 * 60 * 1000),
@@ -1256,7 +1262,7 @@ describe('Appointment scheduling API', () => {
           `Bearer ${tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT)}`
         )
         .send({
-          staffId: optometrist._id.toString(),
+          doctorId: doctor._id.toString(),
           branchId: gampahaBranch._id.toString(),
           startAt: startAt.toISOString(),
           endAt: new Date(startAt.getTime() + 60 * 60 * 1000).toISOString(),
@@ -1269,19 +1275,20 @@ describe('Appointment scheduling API', () => {
     ]);
 
     expect(responses.map((response) => response.status).sort()).toEqual([201, 409]);
-    expect(await DoctorSession.countDocuments({ staffId: optometrist._id })).toBe(1);
-    expect(
-      (await Staff.findById(optometrist._id).select('+schedulingVersion')).schedulingVersion
-    ).toBe(1);
+    expect(await DoctorSession.countDocuments({ doctorId: doctor._id })).toBe(1);
   });
 
   it('serializes simultaneous updates that would create overlapping optometrist sessions', async () => {
     const baseline = Date.now() + 5 * 24 * 60 * 60 * 1000;
     const first = await createSession({
+      doctor: null,
+      staff: optometrist,
       startAt: new Date(baseline),
       endAt: new Date(baseline + 60 * 60 * 1000),
     });
     const second = await createSession({
+      doctor: null,
+      staff: optometrist,
       startAt: new Date(baseline + 3 * 60 * 60 * 1000),
       endAt: new Date(baseline + 4 * 60 * 60 * 1000),
     });
@@ -1314,56 +1321,43 @@ describe('Appointment scheduling API', () => {
   it('moves an existing session to an eligible doctor after the former doctor transfers branches', async () => {
     const session = await createSession({ capacity: 2 });
     const booking = await book(session, customer);
-    const otherBranch = await Branch.create({
-      address: 'Former Optometrist Branch',
-      contactNumber: '+94 11 222 0010',
-    });
-    const replacementDoctor = await Staff.create({
+    const replacementDoctor = await Doctor.create({
       name: 'Dr. Replacement',
-      email: 'replacement.optometrist@example.com',
-      phone: '+94 77 100 0310',
-      address: 'Gampaha',
-      branchId: gampahaBranch._id,
-      role: ROLE_VALUES.OPTOMETRIST,
-      passwordHash: '$2b$12$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      specialization: 'Ophthalmologist',
     });
-    await Staff.updateOne({ _id: optometrist._id }, { $set: { branchId: otherBranch._id } });
 
     const response = await request(app)
       .patch(`/api/doctor-sessions/${session._id}`)
       .set('Authorization', `Bearer ${tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT)}`)
-      .send({ staffId: replacementDoctor._id.toString() });
+      .send({ doctorId: replacementDoctor._id.toString() });
 
     expect(response.status).toBe(200);
     const updatedSession = await DoctorSession.findById(session._id).lean();
     const updatedAppointment = await Appointment.findById(booking.body.data.id).lean();
-    expect(updatedSession.staffId.toString()).toBe(replacementDoctor._id.toString());
-    expect(updatedAppointment.staffId.toString()).toBe(replacementDoctor._id.toString());
+    expect(updatedSession.doctorId.toString()).toBe(replacementDoctor._id.toString());
+    expect(updatedAppointment.doctorId.toString()).toBe(replacementDoctor._id.toString());
     expect(updatedAppointment.dateTime).toEqual(updatedSession.startAt);
     expect(updatedAppointment.branchId.toString()).toBe(gampahaBranch._id.toString());
-    const replacementSessions = await DoctorSession.find({ staffId: replacementDoctor._id }).lean();
+    const replacementSessions = await DoctorSession.find({
+      doctorId: replacementDoctor._id,
+    }).lean();
     expect(replacementSessions).toHaveLength(1);
     expect((await DoctorSession.findById(session._id)).confirmedCount).toBe(1);
   });
 
   it('rejects booking when provider eligibility changes after the transaction read', async () => {
     const session = await createSession({ capacity: 1 });
-    const otherBranch = await Branch.create({
-      address: 'Eligibility Race Branch',
-      contactNumber: '+94 11 222 0011',
-    });
-    const updateStaff = Staff.updateOne.bind(Staff);
     let eligibilityChanged = false;
-    jest.spyOn(Staff, 'updateOne').mockImplementation(async (filter, update, options) => {
-      if (!eligibilityChanged && options?.session && filter.role === ROLE_VALUES.OPTOMETRIST) {
-        eligibilityChanged = true;
-        await updateStaff(
-          { _id: optometrist._id },
-          { $set: { role: ROLE_VALUES.BRANCH_ASSISTANT, branchId: otherBranch._id } }
-        );
-      }
-      return updateStaff(filter, update, options);
-    });
+    jest.spyOn(Doctor, 'findById').mockImplementation(() => ({
+      session() {
+        return {
+          async lean() {
+            eligibilityChanged = true;
+            return null;
+          },
+        };
+      },
+    }));
 
     const response = await book(session, customer);
 
@@ -1377,23 +1371,22 @@ describe('Appointment scheduling API', () => {
     const source = await createSession({ capacity: 1, daysAhead: 3 });
     const target = await createSession({ capacity: 1, daysAhead: 5 });
     const booking = await book(source, customer);
-    const otherBranch = await Branch.create({
-      address: 'Reassignment Eligibility Race Branch',
-      contactNumber: '+94 11 222 0012',
-    });
-    const updateStaff = Staff.updateOne.bind(Staff);
     let eligibilityChanged = false;
-    jest.spyOn(Staff, 'updateOne').mockImplementation(async (filter, update, options) => {
-      if (
-        !eligibilityChanged &&
-        options?.session &&
-        String(filter._id) === String(optometrist._id) &&
-        filter.role === ROLE_VALUES.OPTOMETRIST
-      ) {
-        eligibilityChanged = true;
-        await updateStaff({ _id: optometrist._id }, { $set: { branchId: otherBranch._id } });
+    const findDoctor = Doctor.findById.bind(Doctor);
+    jest.spyOn(Doctor, 'findById').mockImplementation((id, ...rest) => {
+      if (String(id) === String(target.doctorId)) {
+        return {
+          session() {
+            return {
+              async lean() {
+                eligibilityChanged = true;
+                return null;
+              },
+            };
+          },
+        };
       }
-      return updateStaff(filter, update, options);
+      return findDoctor(id, ...rest);
     });
 
     const response = await request(app)
@@ -1472,5 +1465,72 @@ describe('Appointment scheduling API', () => {
       .set('Authorization', `Bearer ${tokenFor(customer._id)}`);
     expect(customerAppointments.body.data).toHaveLength(3);
     expect(linkedAppointments).toHaveLength(3);
+  });
+
+  it('prevents customer bookings and reassignments against legacy optometrist sessions while preserving history', async () => {
+    const futureDate = new Date(Date.now() + 4 * 24 * 60 * 60 * 1000);
+    const legacySession = await DoctorSession.create({
+      staffId: optometrist._id,
+      branchId: gampahaBranch._id,
+      startAt: futureDate,
+      endAt: new Date(futureDate.getTime() + 60 * 60 * 1000),
+      capacity: 5,
+      confirmedCount: 0,
+    });
+
+    const activeDoctorSession = await createSession({ capacity: 5, daysAhead: 5 });
+
+    const customerToken = tokenFor(customer._id);
+    const availableResponse = await request(app)
+      .get('/api/doctor-sessions/available')
+      .set('Authorization', `Bearer ${customerToken}`);
+
+    expect(availableResponse.status).toBe(200);
+    const sessionIds = availableResponse.body.data.map((s) => s.id);
+    expect(sessionIds).not.toContain(legacySession._id.toString());
+    expect(sessionIds).toContain(activeDoctorSession._id.toString());
+
+    const legacyBookingResponse = await request(app)
+      .post('/api/appointments')
+      .set('Authorization', `Bearer ${customerToken}`)
+      .send({ sessionId: legacySession._id.toString() });
+
+    expect(legacyBookingResponse.status).toBe(409);
+    expect(legacyBookingResponse.body.error.message).toContain('doctor-associated sessions');
+
+    const validBookingResponse = await request(app)
+      .post('/api/appointments')
+      .set('Authorization', `Bearer ${customerToken}`)
+      .send({ sessionId: activeDoctorSession._id.toString() });
+
+    expect(validBookingResponse.status).toBe(201);
+    const appointmentId = validBookingResponse.body.data.id;
+
+    const branchAssistantToken = tokenFor(branchAssistant._id, ROLE_VALUES.BRANCH_ASSISTANT);
+    const reassignToLegacyResponse = await request(app)
+      .patch(`/api/appointments/${appointmentId}/reassign`)
+      .set('Authorization', `Bearer ${branchAssistantToken}`)
+      .send({ sessionId: legacySession._id.toString() });
+
+    expect(reassignToLegacyResponse.status).toBe(409);
+    expect(reassignToLegacyResponse.body.error.message).toContain('legacy optometrist sessions');
+
+    const legacyAppointment = await Appointment.create({
+      customerId: customer._id,
+      staffId: optometrist._id,
+      sessionId: legacySession._id,
+      branchId: gampahaBranch._id,
+      dateTime: futureDate,
+      status: 'CONFIRMED',
+      position: 1,
+    });
+
+    const getAppointmentResponse = await request(app)
+      .get(`/api/appointments/${legacyAppointment._id}`)
+      .set('Authorization', `Bearer ${customerToken}`);
+
+    expect(getAppointmentResponse.status).toBe(200);
+    expect(getAppointmentResponse.body.data.id).toBe(legacyAppointment._id.toString());
+    expect(getAppointmentResponse.body.data.providerName).toBe('Dr. Gampaha');
   });
 });

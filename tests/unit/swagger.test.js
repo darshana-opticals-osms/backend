@@ -83,6 +83,8 @@ describe('Swagger documentation integrity', () => {
     'GET /appointments/{id}',
     'PATCH /appointments/{id}/cancel',
     'PATCH /appointments/{id}/reassign',
+    'POST /doctors',
+    'GET /doctors',
   ];
 
   const normalize = (value) => value.toUpperCase();
@@ -164,6 +166,7 @@ describe('Swagger documentation integrity', () => {
       '/appointments/{id}',
       '/appointments/{id}/cancel',
       '/appointments/{id}/reassign',
+      '/doctors',
     ];
 
     for (const path of publicPaths) {
@@ -218,12 +221,31 @@ describe('Swagger documentation integrity', () => {
       'AppointmentListResponse',
       'DoctorSessionListResponse',
       'ReorderAlert',
+      'Doctor',
+      'DoctorCreateRequest',
+      'DoctorResponse',
+      'DoctorListResponse',
     ]) {
       expect(swaggerSpec.components.schemas[schemaName]).toBeDefined();
     }
     expect(swaggerSpec.components.responses.ValidationError).toBeDefined();
     expect(swaggerSpec.components.responses.Unauthorized).toBeDefined();
     expect(swaggerSpec.components.responses.NotFound).toBeDefined();
+  });
+
+  it('should document Doctor directory endpoints with strict SYSTEM_ADMIN write security and canonical read access (Issue #81)', () => {
+    const postDoctor = swaggerSpec.paths['/doctors'].post;
+    expect(postDoctor).toBeDefined();
+    expect(postDoctor.tags).toContain('Doctors');
+    expect(postDoctor.responses['201']).toBeDefined();
+    expect(postDoctor.responses['403']).toBeDefined();
+    expect(postDoctor.responses['422']).toBeDefined();
+
+    const getDoctors = swaggerSpec.paths['/doctors'].get;
+    expect(getDoctors).toBeDefined();
+    expect(getDoctors.tags).toContain('Doctors');
+    expect(getDoctors.responses['200']).toBeDefined();
+    expect(getDoctors.responses['403']).toBeDefined();
   });
 
   it('should describe the real health response without a success wrapper', () => {

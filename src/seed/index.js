@@ -36,6 +36,9 @@ async function runCliSeed() {
     console.log(
       `- Prescriptions Created: ${summary.prescriptionsCreated} (Total in DB: ${summary.totalPrescriptions})`
     );
+    console.log(
+      `- Doctors Created:       ${summary.doctorsCreated} (Total in DB: ${summary.totalDoctors})`
+    );
     console.log('-------------------------------------------');
     console.log(`🔑 Development Password for seeded accounts: ${DEV_DEFAULT_PASSWORD}\n`);
 
