@@ -177,6 +177,7 @@ async function recordConfirmedManualFullRefund({ auth, paymentId, evidence, idem
               throw new ConflictError('Payment state changed.', null, 'REFUND_SOURCE_CONFLICT');
 
             const refundActor = auditService.buildUserActor(auth);
+            const evidenceId = refundEvidence.evidenceId || refundEvidence._id;
             await auditService.record({
               action: AUDIT_ACTION.PAYMENT_REFUNDED,
               actor: refundActor,
@@ -185,12 +186,12 @@ async function recordConfirmedManualFullRefund({ auth, paymentId, evidence, idem
                 targetId: payment._id.toString(),
               },
               outcome: AUDIT_OUTCOME.SUCCESS,
-              eventId: `audit-payment-refund-${refundEvidence._id}`,
+              eventId: `audit-payment-refund-${evidenceId}`,
               metadata: {
                 orderId: order._id.toString(),
                 amount: payment.amount,
                 currency: payment.currency,
-                refundEvidenceId: refundEvidence._id.toString(),
+                refundEvidenceId: evidenceId ? evidenceId.toString() : null,
               },
               session,
             });
