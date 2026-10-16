@@ -4,9 +4,11 @@ const OrderItem = require('../models/orderItem.model');
 const Inventory = require('../models/inventory.model');
 const Payment = require('../models/payment.model');
 const PaymentEvent = require('../models/paymentEvent.model');
+const PaymentRetrievalEvidence = require('../models/paymentRetrievalEvidence.model');
 const Customer = require('../models/customer.model');
 const { PAYMENT_STATUS, PAYMENT_PROVIDER, PAYMENT_METHOD } = require('../constants/payment');
 const { cancelExpiredActiveAttempts } = require('./payment.service');
+const { formatAmount } = require('./adapters/PayHerePaymentAdapter');
 const { ORDER_STATUS_VALUES } = require('../constants/orderStatuses');
 const { ConflictError, ValidationError } = require('../errors/AppError');
 const { evaluateReorderAlert } = require('./reorderAlert.service');
@@ -15,6 +17,68 @@ const { restoreCartItems } = require('./cart.service');
 
 const DEFAULT_BATCH_SIZE = 100;
 const MAX_TRANSACTION_ATTEMPTS = 3;
+const RETRIEVAL_CAPTURE_HOLD = 'PAYMENT_RETRIEVAL_RECEIVED_AWAITING_IPN';
+
+function isMatchingReceivedEvidence(evidence, payment, order) {
+  if (
+    evidence.source !== 'PAYHERE_RETRIEVAL_API' ||
+    evidence.outcome !== 'records' ||
+    evidence.providerCode !== 1 ||
+    evidence.reconciliationReason !== 'RETRIEVAL_SUCCESS_REQUIRES_IPN' ||
+    !evidence.paymentId.equals(payment._id) ||
+    !evidence.orderId.equals(order._id) ||
+    evidence.providerOrderId !== payment.providerOrderId ||
+    payment.amount !== order.orderAmount ||
+    payment.currency !== 'LKR' ||
+    evidence.records.length !== 1
+  )
+    return false;
+
+  const record = evidence.records[0];
+  return (
+    record.status === 'RECEIVED' &&
+    record.providerOrderId === payment.providerOrderId &&
+    record.amount === formatAmount(payment.amount) &&
+    record.currency === payment.currency &&
+    (!payment.providerTransactionId ||
+      payment.providerTransactionId === record.providerTransactionId)
+  );
+}
+
+async function findRetrievalExpiryHold(order, payments, session) {
+  const activePayHere = payments.filter(
+    (payment) =>
+      [PAYMENT_STATUS.PENDING, PAYMENT_STATUS.PROCESSING].includes(payment.status) &&
+      payment.provider === PAYMENT_PROVIDER.PAYHERE &&
+      payment.method === PAYMENT_METHOD.ONLINE_GATEWAY
+  );
+  if (!activePayHere.length) return null;
+
+  const evidence = await PaymentRetrievalEvidence.find({
+    $or: [
+      { paymentId: { $in: activePayHere.map((payment) => payment._id) } },
+      { orderId: order._id },
+    ],
+    source: 'PAYHERE_RETRIEVAL_API',
+    outcome: 'records',
+  })
+    .session(session)
+    .lean();
+  if (!evidence.length) return null;
+
+  const paymentsById = new Map(activePayHere.map((payment) => [payment._id.toString(), payment]));
+  const providerTransactions = new Set();
+  for (const observation of evidence) {
+    const payment = paymentsById.get(observation.paymentId.toString());
+    if (!payment || !isMatchingReceivedEvidence(observation, payment, order)) {
+      return 'PAYMENT_RECONCILIATION_REQUIRED';
+    }
+    providerTransactions.add(observation.records[0].providerTransactionId);
+  }
+  return providerTransactions.size === 1
+    ? RETRIEVAL_CAPTURE_HOLD
+    : 'PAYMENT_RECONCILIATION_REQUIRED';
+}
 
 async function notifyCancellation(order) {
   try {
@@ -70,6 +134,13 @@ async function cancelUnpaidReservation({
       if (payments.some((payment) => payment.status === PAYMENT_STATUS.COMPLETED)) {
         result = { action: 'held', reason: 'ORDER_ALREADY_PAID' };
         return;
+      }
+      if (expiry) {
+        const retrievalHold = await findRetrievalExpiryHold(order, payments, session);
+        if (retrievalHold) {
+          result = { action: 'held', reason: retrievalHold };
+          return;
+        }
       }
       // ADR-011 sections 12/13 close stale local gateway sessions at the
       // original Order deadline. Preserve other financial states and all

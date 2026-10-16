@@ -105,7 +105,7 @@ describe('Controlled PayHere retrieval and recovery (mock provider only)', () =>
     const now = new Date();
     const customer = await Customer.create({
       name: 'Retrieval Customer',
-      email: `retrieval-${sequence}@example.test`,
+      email: `retrieval-${sequence}-${new mongoose.Types.ObjectId()}@example.test`,
       address: 'Test Address',
       phone: '+94711234567',
       passwordHash: `$2b$12$${'a'.repeat(53)}`,
@@ -192,6 +192,11 @@ describe('Controlled PayHere retrieval and recovery (mock provider only)', () =>
   }
   const callback = (payment) =>
     request(app).post('/api/payments/notify').type('form').send(signed(payment));
+  const passReservationDeadline = (order) =>
+    Order.collection.updateOne(
+      { _id: order._id },
+      { $set: { reservationExpiresAt: new Date(Date.now() - 1000) } }
+    );
   it('defaults to a truly read-only investigation and strips provider PII/credentials', async () => {
     const data = await fixture();
     const before = await snapshot(data);
@@ -268,6 +273,60 @@ describe('Controlled PayHere retrieval and recovery (mock provider only)', () =>
       expect(afterRetry.cart).toEqual(before.cart);
     }
   );
+  it.each(['pending', 'processing'])(
+    'holds expired %s with persisted matching RECEIVED evidence and reconciles a late IPN',
+    async (status) => {
+      const data = await fixture();
+      await Payment.updateOne({ _id: data.payment._id }, { $set: { status } });
+      expect((await post(data.payment, { dryRun: false })).status).toBe(200);
+      expect((await Payment.findById(data.payment._id)).reconciliationRequired).toBe(false);
+      await passReservationDeadline(data.order);
+      const before = await snapshot(data);
+
+      for (let run = 0; run < 2; run += 1) {
+        expect(
+          await cancelUnpaidReservation({ orderId: data.order._id, expiry: true })
+        ).toMatchObject({
+          action: 'held',
+          reason: 'PAYMENT_RETRIEVAL_RECEIVED_AWAITING_IPN',
+        });
+      }
+
+      const held = await snapshot(data);
+      expect(held.payment).toEqual(before.payment);
+      expect(held.order).toMatchObject({
+        status: 'ORDER_CREATED',
+        inventoryRestoredAt: null,
+        statusHistory: before.order.statusHistory,
+      });
+      expect(held.order.reservationExpiresAt).toEqual(before.order.reservationExpiresAt);
+      expect(held.inventory).toEqual(before.inventory);
+      expect(held.cart).toEqual(before.cart);
+      expect(held.events).toEqual([]);
+      expect(await Evidence.countDocuments()).toBe(1);
+
+      expect((await callback(data.payment)).status).toBe(200);
+      const after = await snapshot(data);
+      expect(after.payment).toMatchObject({
+        status,
+        reconciliationRequired: true,
+        reconciliationReason: 'LATE_SUCCESS_RESERVATION_EXPIRED',
+      });
+      expect(after.order.status).toBe('ORDER_CREATED');
+      expect(after.order.statusHistory).toEqual(before.order.statusHistory);
+      expect(after.order.inventoryRestoredAt).toBeNull();
+      expect(after.inventory).toEqual(before.inventory);
+      expect(after.cart).toEqual(before.cart);
+      expect(after.events).toHaveLength(1);
+      expect(after.events[0]).toMatchObject({
+        action: 'reconciliation_required',
+        reason: 'LATE_SUCCESS_RESERVATION_EXPIRED',
+      });
+      expect(
+        await cancelUnpaidReservation({ orderId: data.order._id, expiry: true })
+      ).toMatchObject({ action: 'held', reason: 'PAYMENT_RECONCILIATION_REQUIRED' });
+    }
+  );
   it('records late provider success after genuine expiry without reviving or altering restored stock/Cart', async () => {
     const data = await fixture({ reservationExpiresAt: new Date(Date.now() - 1000) });
     expect((await cancelUnpaidReservation({ orderId: data.order._id, expiry: true })).action).toBe(
@@ -311,6 +370,63 @@ describe('Controlled PayHere retrieval and recovery (mock provider only)', () =>
     });
     expect((await Order.findById(data.order._id)).status).toBe('ORDER_CREATED');
   });
+  it('ignores valid Retrieval evidence belonging to a different Order and Payment', async () => {
+    const target = await fixture({ reservationExpiresAt: new Date(Date.now() - 1000) });
+    const unrelated = await fixture();
+    expect((await post(unrelated.payment, { dryRun: false })).status).toBe(200);
+
+    expect(
+      await cancelUnpaidReservation({ orderId: target.order._id, expiry: true })
+    ).toMatchObject({ action: 'cancelled' });
+    expect((await Order.findById(target.order._id)).status).toBe('CANCELLED');
+    expect((await Payment.findById(target.payment._id)).status).toBe('cancelled');
+    expect((await Inventory.findById(target.inventory._id)).quantity).toBe(7);
+    expect((await Cart.findOne({ customerId: target.customer._id })).items).toEqual([
+      expect.objectContaining({ inventoryId: target.inventory._id, quantity: 2 }),
+    ]);
+    expect(await Evidence.countDocuments({ paymentId: unrelated.payment._id })).toBe(1);
+    expect(await Evidence.countDocuments({ paymentId: target.payment._id })).toBe(0);
+  });
+  it.each(['paymentId', 'orderId'])(
+    'holds evidence whose %s does not match the active Order context',
+    async (mismatch) => {
+      const target = await fixture({ reservationExpiresAt: new Date(Date.now() - 1000) });
+      const other = await fixture();
+      await Evidence.create({
+        observationKey: (mismatch === 'paymentId' ? 'a' : 'b').repeat(64),
+        paymentId: mismatch === 'paymentId' ? other.payment._id : target.payment._id,
+        orderId: mismatch === 'orderId' ? other.order._id : target.order._id,
+        providerOrderId: target.payment.providerOrderId,
+        environment: 'sandbox',
+        outcome: 'records',
+        providerCode: 1,
+        records: [
+          {
+            providerTransactionId: 'PH-CAPTURE',
+            providerOrderId: target.payment.providerOrderId,
+            status: 'RECEIVED',
+            amount: '200.00',
+            currency: 'LKR',
+          },
+        ],
+        reconciliationReason: 'RETRIEVAL_SUCCESS_REQUIRES_IPN',
+        observedAt: new Date(),
+        recordedBy: managerId,
+      });
+      const before = await snapshot(target);
+
+      expect(
+        await cancelUnpaidReservation({ orderId: target.order._id, expiry: true })
+      ).toMatchObject({ action: 'held', reason: 'PAYMENT_RECONCILIATION_REQUIRED' });
+      const after = await snapshot(target);
+      expect(after.payment).toEqual(before.payment);
+      expect(after.order.status).toBe('ORDER_CREATED');
+      expect(after.order.statusHistory).toEqual(before.order.statusHistory);
+      expect(after.order.inventoryRestoredAt).toBeNull();
+      expect(after.inventory).toEqual(before.inventory);
+      expect(after.cart).toEqual(before.cart);
+    }
+  );
   it.each([{ amount: 199 }, { currency: 'USD' }, { order_id: 'PAY-other' }])(
     'holds context mismatch %# without applying financial state',
     async (extra) => {
@@ -323,7 +439,16 @@ describe('Controlled PayHere retrieval and recovery (mock provider only)', () =>
       expect((await Order.findById(data.order._id)).status).toBe('ORDER_CREATED');
       expect((await Payment.findById(data.payment._id)).reconciliationRequired).toBe(true);
       expect(await PaymentEvent.countDocuments()).toBe(0);
+      // Exercise expiry's independent evidence validation even if a legacy flag is absent.
+      await Payment.updateOne(
+        { _id: data.payment._id },
+        { $set: { reconciliationRequired: false, reconciliationReason: null } }
+      );
+      await passReservationDeadline(data.order);
       const held = await snapshot(data);
+      expect(
+        await cancelUnpaidReservation({ orderId: data.order._id, expiry: true })
+      ).toMatchObject({ action: 'held', reason: 'PAYMENT_RECONCILIATION_REQUIRED' });
       expect((await callback(data.payment)).status).toBe(200);
       const after = await snapshot(data);
       expect(after.payment.status).toBe('pending');
@@ -342,6 +467,15 @@ describe('Controlled PayHere retrieval and recovery (mock provider only)', () =>
     expect(response.body.data.evidence.records).toHaveLength(2);
     expect((await Payment.findById(data.payment._id)).providerTransactionId).toBeNull();
     expect((await Payment.findById(data.payment._id)).reconciliationRequired).toBe(true);
+    await Payment.updateOne(
+      { _id: data.payment._id },
+      { $set: { reconciliationRequired: false, reconciliationReason: null } }
+    );
+    await passReservationDeadline(data.order);
+    expect(await cancelUnpaidReservation({ orderId: data.order._id, expiry: true })).toMatchObject({
+      action: 'held',
+      reason: 'PAYMENT_RECONCILIATION_REQUIRED',
+    });
     expect((await callback(data.payment)).status).toBe(200);
     expect((await Payment.findById(data.payment._id)).status).toBe('pending');
     expect((await Order.findById(data.order._id)).status).toBe('ORDER_CREATED');
@@ -444,6 +578,14 @@ describe('Controlled PayHere retrieval and recovery (mock provider only)', () =>
       expect(after.inventory).toEqual(before.inventory);
       expect(after.customer).toEqual(before.customer);
       expect(after.cart).toEqual(before.cart);
+      await Payment.updateOne(
+        { _id: data.payment._id },
+        { $set: { reconciliationRequired: false, reconciliationReason: null } }
+      );
+      await passReservationDeadline(data.order);
+      expect(
+        await cancelUnpaidReservation({ orderId: data.order._id, expiry: true })
+      ).toMatchObject({ action: 'held', reason: 'PAYMENT_RECONCILIATION_REQUIRED' });
     }
   );
   it('preserves an existing reconciliation reason and never clears it after an absent result', async () => {
@@ -553,25 +695,22 @@ describe('Controlled PayHere retrieval and recovery (mock provider only)', () =>
     expect(after.inventory).toEqual(before.inventory);
     expect(after.cart).toEqual(before.cart);
   });
-  it('reassesses an identical nonblocking observation after expiry without rewriting evidence', async () => {
+  it('holds identical nonblocking evidence at expiry and reassesses its later replay', async () => {
     const data = await fixture();
     expect((await post(data.payment, { dryRun: false })).status).toBe(200);
     expect((await Payment.findById(data.payment._id)).reconciliationRequired).toBe(false);
     const evidence = await Evidence.findOne().lean();
-    // Only this isolated fixture changes: simulate crossing the original deadline.
-    await Order.collection.updateOne(
-      { _id: data.order._id },
-      { $set: { reservationExpiresAt: new Date(Date.now() - 1000) } }
-    );
-    expect((await cancelUnpaidReservation({ orderId: data.order._id, expiry: true })).action).toBe(
-      'cancelled'
-    );
+    await passReservationDeadline(data.order);
+    expect(await cancelUnpaidReservation({ orderId: data.order._id, expiry: true })).toMatchObject({
+      action: 'held',
+      reason: 'PAYMENT_RETRIEVAL_RECEIVED_AWAITING_IPN',
+    });
     const before = await snapshot(data);
     const response = await post(data.payment, { dryRun: false });
     expect(response.status).toBe(200);
     expect(response.body.data.replay).toBe(true);
     expect(await Payment.findById(data.payment._id)).toMatchObject({
-      status: 'cancelled',
+      status: 'pending',
       reconciliationRequired: true,
       reconciliationReason: 'RETRIEVAL_LATE_SUCCESS',
     });
@@ -579,11 +718,42 @@ describe('Controlled PayHere retrieval and recovery (mock provider only)', () =>
     expect(await Evidence.countDocuments()).toBe(1);
     expect((await callback(data.payment)).status).toBe(200);
     const after = await snapshot(data);
-    expect(after.order.status).toBe('CANCELLED');
+    expect(after.order.status).toBe('ORDER_CREATED');
     expect(after.order.statusHistory).toEqual(before.order.statusHistory);
     expect(after.order.inventoryRestoredAt).toEqual(before.order.inventoryRestoredAt);
     expect(after.inventory).toEqual(before.inventory);
     expect(after.cart).toEqual(before.cart);
+  });
+  it('serializes matching Retrieval evidence, late IPN, and expiry without releasing stock', async () => {
+    const data = await fixture();
+    expect((await post(data.payment, { dryRun: false })).status).toBe(200);
+    await passReservationDeadline(data.order);
+    const before = await snapshot(data);
+
+    const [expiry, notification] = await Promise.all([
+      cancelUnpaidReservation({ orderId: data.order._id, expiry: true }),
+      callback(data.payment),
+    ]);
+    expect(notification.status).toBe(200);
+    expect(expiry.action).toBe('held');
+    expect([
+      'PAYMENT_RETRIEVAL_RECEIVED_AWAITING_IPN',
+      'PAYMENT_RECONCILIATION_REQUIRED',
+    ]).toContain(expiry.reason);
+
+    const after = await snapshot(data);
+    expect(after.payment).toMatchObject({
+      status: 'pending',
+      reconciliationRequired: true,
+      reconciliationReason: 'LATE_SUCCESS_RESERVATION_EXPIRED',
+    });
+    expect(after.order.status).toBe('ORDER_CREATED');
+    expect(after.order.statusHistory).toEqual(before.order.statusHistory);
+    expect(after.order.inventoryRestoredAt).toBeNull();
+    expect(after.inventory).toEqual(before.inventory);
+    expect(after.cart).toEqual(before.cart);
+    expect(after.events).toHaveLength(1);
+    expect(await Evidence.countDocuments()).toBe(1);
   });
   it('serializes concurrent expiry and retrieval without revival or duplicate Inventory/Cart restoration', async () => {
     const data = await fixture({ reservationExpiresAt: new Date(Date.now() - 1000) });
