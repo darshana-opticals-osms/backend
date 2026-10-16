@@ -170,9 +170,141 @@ async function sendOrderCancellationNotification(
   }
 }
 
+/**
+ * Builds the notification message contents (text and HTML) for a password reset request.
+ * Complies with Issue #83 AC21 & AC24:
+ * - includes Darshana Opticals password-reset subject
+ * - includes the reset link
+ * - includes 15-minute expiry notice
+ * - includes instruction to ignore if not requested
+ * - does not include passwords, hashes, JWTs, or unnecessary internal IDs.
+ *
+ * @param {object} params
+ * @param {string} params.resetUrl - Full reset URL with single-use raw token
+ * @param {number} [params.minutesValid=15] - Expiry duration in minutes
+ * @returns {{ subject: string, text: string, html: string }}
+ */
+function buildPasswordResetEmailContent({ resetUrl, minutesValid = 15 }) {
+  const safeResetUrl = escapeHtml(resetUrl);
+  const subject = 'Password Reset Request - Darshana Opticals';
+
+  const text = `Dear User,
+
+We received a request to reset your password for your Darshana Opticals OSMS account.
+
+You can reset your password by opening the following link in your web browser:
+${resetUrl}
+
+This link is valid for ${minutesValid} minutes from the time of issue.
+
+If you did not request a password reset, you can safely ignore this email. Your account password will remain unchanged.
+
+Thank you,
+Darshana Opticals Team`;
+
+  const html = `
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #2d3748; line-height: 1.6; border: 1px solid #e2e8f0; border-radius: 8px; padding: 24px;">
+  <h2 style="color: #2b6cb0; margin-top: 0;">Password Reset Request</h2>
+  <p>Dear User,</p>
+  <p>We received a request to reset your password for your <strong>Darshana Opticals OSMS</strong> account.</p>
+  <div style="text-align: center; margin: 28px 0;">
+    <a href="${safeResetUrl}" target="_blank" rel="noopener noreferrer" style="background-color: #3182ce; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-weight: bold; display: inline-block;">
+      Reset Your Password
+    </a>
+  </div>
+  <p style="font-size: 14px; color: #4a5568;">
+    Or copy and paste the following URL into your browser:<br/>
+    <a href="${safeResetUrl}" style="color: #3182ce; word-break: break-all;">${safeResetUrl}</a>
+  </p>
+  <div style="background-color: #ebf8ff; border-left: 4px solid #3182ce; padding: 12px 16px; margin: 20px 0; border-radius: 4px;">
+    <p style="margin: 0; font-size: 14px; color: #2c5282;">
+      <strong>Note:</strong> This link will expire in <strong>${minutesValid} minutes</strong>.
+    </p>
+  </div>
+  <p style="font-size: 14px; color: #718096;">
+    If you did not request a password reset, you can safely ignore this email. Your account remains secure and no changes have been made.
+  </p>
+  <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+  <p style="font-size: 13px; color: #a0aec0; margin-bottom: 0;">
+    Thank you,<br/>
+    <strong>Darshana Opticals Team</strong>
+  </p>
+</div>`;
+
+  return { subject, text, html };
+}
+
+/**
+ * Sends a password reset notification email.
+ * Complies with Issue #83 AC20, AC21, AC23, AC24:
+ * - reuses existing Nodemailer/SMTP transporter
+ * - non-blocking safe operational logging (never logs raw token, reset URL, or passwords)
+ * - safe fallback simulation when SMTP is not configured.
+ *
+ * @param {object} params
+ * @param {string} params.to - Recipient email address
+ * @param {string} params.resetUrl - Password reset URL
+ * @param {number} [params.minutesValid=15] - Expiry minutes
+ * @param {object} [options]
+ * @param {import('nodemailer').Transporter} [options.transporter] - Optional injected transporter
+ * @returns {Promise<{ delivered: boolean, simulated: boolean, messageId?: string, reason?: string, error?: string }>}
+ */
+async function sendPasswordResetNotification({ to, resetUrl, minutesValid = 15 }, options = {}) {
+  if (!to || !resetUrl) {
+    console.warn('[NotificationService] Missing recipient or resetUrl; notification skipped.');
+    return { delivered: false, simulated: false, reason: 'MISSING_RECIPIENT_OR_URL' };
+  }
+
+  const { subject, text, html } = buildPasswordResetEmailContent({
+    resetUrl,
+    minutesValid,
+  });
+
+  const from = process.env.EMAIL_FROM || 'Darshana Opticals <noreply@darshanaopticals.com>';
+  const activeTransporter = options.transporter || createTransporter();
+
+  if (!activeTransporter) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error(
+        '[NotificationService] Production error: Password reset email failed to dispatch because SMTP is unconfigured.'
+      );
+      return { delivered: false, simulated: false, reason: 'SMTP_UNCONFIGURED' };
+    }
+
+    console.info(
+      '[NotificationService] [SIMULATED] Password reset email simulated (email delivery not performed due to unconfigured SMTP).'
+    );
+    return { delivered: false, simulated: true, reason: 'SMTP_UNCONFIGURED' };
+  }
+
+  try {
+    const info = await activeTransporter.sendMail({
+      from,
+      to,
+      subject,
+      text,
+      html,
+    });
+
+    return { delivered: true, simulated: false, messageId: info.messageId };
+  } catch (err) {
+    // AC24 / Review finding: Avoid logging untrusted err.message which may contain tokens, URLs, or PII.
+    const safeErrorCategory =
+      err && typeof err.code === 'string' && /^[A-Z0-9_]+$/i.test(err.code)
+        ? err.code
+        : 'TRANSPORT_ERROR';
+    console.warn(
+      `[NotificationService] Failed to send password reset email (${safeErrorCategory}).`
+    );
+    return { delivered: false, simulated: false, error: safeErrorCategory };
+  }
+}
+
 module.exports = {
   escapeHtml,
   createTransporter,
   buildCancellationEmailContent,
   sendOrderCancellationNotification,
+  buildPasswordResetEmailContent,
+  sendPasswordResetNotification,
 };
