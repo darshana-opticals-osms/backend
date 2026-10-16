@@ -12,6 +12,7 @@ const {
   INVALID_CUSTOMER_REFERENCE,
   INVALID_STAFF_REFERENCE,
 } = require('../../src/services/prescription.service');
+const auditService = require('../../src/services/audit.service');
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -620,6 +621,57 @@ describe('Prescription service', () => {
       expect(shaped.rightEye.distance.va).toBeNull();
       expect(shaped.rightEye.reading.add).toBeNull();
       expect(shaped.rightEye.reading.nearVa).toBeNull();
+    });
+  });
+
+  describe('Audit integration (ADR-012)', () => {
+    it('should record PRESCRIPTION_RECORDED with safe non-clinical reference metadata (AC30, AC32, AC39)', async () => {
+      Customer.exists.mockResolvedValue(true);
+      Staff.exists.mockResolvedValue(true);
+
+      const mockPrescription = buildMockPrescriptionDoc();
+      mockPrescription.populate = jest.fn().mockResolvedValue(mockPrescription);
+      Prescription.create.mockResolvedValue(mockPrescription);
+
+      const spyRecord = jest.spyOn(auditService, 'record').mockResolvedValue({});
+
+      const actor = {
+        actorType: 'USER',
+        actorId: validStaffId,
+        actorRole: 'OPTOMETRIST',
+      };
+
+      await createPrescription(validStaffId, validClinicalInput, {
+        actor,
+        correlationId: 'corr-presc-1',
+      });
+
+      expect(spyRecord).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'PRESCRIPTION_RECORDED',
+          actor,
+          target: {
+            targetType: 'PRESCRIPTION',
+            targetId: mockPrescription._id.toString(),
+          },
+          outcome: 'SUCCESS',
+          correlationId: 'corr-presc-1',
+          eventId: `audit-prescription-${mockPrescription._id}`,
+          metadata: {
+            customerId: mockPrescription.customerId.toString(),
+            recordedByStaffId: validStaffId,
+          },
+        })
+      );
+
+      // Verify clinical measurement fields are NOT leaked into audit metadata (AC32, AC39)
+      const recordedMetadata = spyRecord.mock.calls[0][0].metadata;
+      expect(recordedMetadata.rightEye).toBeUndefined();
+      expect(recordedMetadata.leftEye).toBeUndefined();
+      expect(recordedMetadata.sph).toBeUndefined();
+      expect(recordedMetadata.cyl).toBeUndefined();
+
+      spyRecord.mockRestore();
     });
   });
 });

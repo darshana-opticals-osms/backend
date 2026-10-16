@@ -3,6 +3,8 @@ const Customer = require('../models/customer.model');
 const Staff = require('../models/staff.model');
 const Prescription = require('../models/prescription.model');
 const { NotFoundError, ValidationError } = require('../errors/AppError');
+const auditService = require('./audit.service');
+const { AUDIT_ACTION, AUDIT_TARGET_TYPE, AUDIT_OUTCOME } = require('../constants/audit');
 
 // ─── Error Code Constants ────────────────────────────────────────────────────
 
@@ -148,7 +150,11 @@ async function validateStaffExists(staffId) {
  * @param {object} prescriptionInput - Validated clinical input from the request body
  * @returns {object} Safe shaped prescription response
  */
-async function createPrescription(authenticatedStaffId, prescriptionInput = {}) {
+async function createPrescription(
+  authenticatedStaffId,
+  prescriptionInput = {},
+  auditContext = null
+) {
   // AC2: Always validate and use the server-side staff identity.
   // Never trust a recordedBy value from the client.
   await validateStaffExists(authenticatedStaffId);
@@ -167,6 +173,32 @@ async function createPrescription(authenticatedStaffId, prescriptionInput = {}) 
     rightEye,
     leftEye,
     remarks,
+  });
+
+  // AC30, AC31, AC32, AC39: Audit clinical prescription recording (safe references only)
+  const actor =
+    auditContext?.actor ||
+    (auditContext?.user
+      ? auditService.buildUserActor(auditContext.user)
+      : auditService.buildUserActor({
+          userId: authenticatedStaffId,
+          role: 'OPTOMETRIST',
+        }));
+
+  await auditService.record({
+    action: AUDIT_ACTION.PRESCRIPTION_RECORDED,
+    actor,
+    target: {
+      targetType: AUDIT_TARGET_TYPE.PRESCRIPTION,
+      targetId: prescription._id.toString(),
+    },
+    outcome: AUDIT_OUTCOME.SUCCESS,
+    correlationId: auditContext?.correlationId || null,
+    eventId: `audit-prescription-${prescription._id}`,
+    metadata: {
+      customerId: prescription.customerId ? prescription.customerId.toString() : null,
+      recordedByStaffId: authenticatedStaffId ? String(authenticatedStaffId) : null,
+    },
   });
 
   // Populate the recordedBy staff name for the safe response shape.

@@ -1,4 +1,5 @@
 const catchAsync = require('../utils/catchAsync');
+const auditService = require('../services/audit.service');
 const {
   createPrescription,
   getMyPrescriptionHistory,
@@ -16,9 +17,22 @@ const {
  * AC8  – Insert-only: service always creates a new document
  */
 const recordPrescription = catchAsync(async (req, res) => {
+  const authUser = req.auth || req.user || {};
+  const actor =
+    authUser.userId || authUser.id || authUser._id
+      ? auditService.buildUserActor({
+          userId: authUser.userId || authUser.id || authUser._id,
+          role: authUser.role || 'OPTOMETRIST',
+        })
+      : null;
+  const correlationId = req.headers ? req.headers['x-correlation-id'] : null;
+
   // AC2: Pass the server-derived staff identity from the verified JWT.
   // The service ignores any recordedBy field in req.body.
-  const prescription = await createPrescription(req.auth.userId, req.body);
+  const prescription = await createPrescription(req.auth.userId, req.body, {
+    actor,
+    correlationId,
+  });
 
   return res.status(201).json({
     success: true,
