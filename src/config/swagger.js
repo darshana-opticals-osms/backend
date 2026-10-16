@@ -24,6 +24,69 @@ const options = {
         },
       },
       schemas: {
+        LoyaltyTransaction: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['id', 'type', 'pointsDelta', 'balanceAfter', 'orderId', 'createdAt'],
+          properties: {
+            id: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' },
+            type: {
+              type: 'string',
+              enum: ['EARN_PURCHASE', 'REFUND_REVERSAL', 'REDEMPTION_DEDUCTION'],
+            },
+            pointsDelta: {
+              type: 'string',
+              pattern: '^-?\\d+\\.\\d{2}$',
+              example: '10.00',
+            },
+            balanceAfter: {
+              type: 'string',
+              pattern: '^-?\\d+\\.\\d{2}$',
+              example: '12.50',
+            },
+            orderId: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        LoyaltyPagination: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['page', 'limit', 'total', 'totalPages'],
+          properties: {
+            page: { type: 'integer', minimum: 1, maximum: 10000, example: 1 },
+            limit: { type: 'integer', minimum: 1, maximum: 100, example: 25 },
+            total: { type: 'integer', minimum: 0, example: 1 },
+            totalPages: { type: 'integer', minimum: 0, example: 1 },
+          },
+        },
+        OwnLoyaltyData: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['balance', 'transactions', 'pagination'],
+          properties: {
+            balance: {
+              type: 'string',
+              pattern: '^\\d+\\.\\d{2}$',
+              description:
+                'Authoritative persisted Customer balance as a fixed two-decimal string.',
+              example: '12.50',
+            },
+            transactions: {
+              type: 'array',
+              items: { $ref: '#/components/schemas/LoyaltyTransaction' },
+            },
+            pagination: { $ref: '#/components/schemas/LoyaltyPagination' },
+          },
+        },
+        OwnLoyaltyResponse: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['success', 'data'],
+          properties: {
+            success: { type: 'boolean', example: true },
+            data: { $ref: '#/components/schemas/OwnLoyaltyData' },
+          },
+        },
         ValidationIssue: {
           type: 'object',
           required: ['field', 'message'],

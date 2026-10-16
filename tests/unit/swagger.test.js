@@ -87,6 +87,7 @@ describe('Swagger documentation integrity', () => {
     'PATCH /appointments/{id}/reassign',
     'POST /doctors',
     'GET /doctors',
+    'GET /loyalty/me',
   ];
 
   const normalize = (value) => value.toUpperCase();
@@ -171,6 +172,7 @@ describe('Swagger documentation integrity', () => {
       '/appointments/{id}/cancel',
       '/appointments/{id}/reassign',
       '/doctors',
+      '/loyalty/me',
     ];
 
     for (const path of publicPaths) {
@@ -232,6 +234,10 @@ describe('Swagger documentation integrity', () => {
       'ForgotPasswordRequest',
       'ResetPasswordRequest',
       'GenericMessageResponse',
+      'LoyaltyTransaction',
+      'LoyaltyPagination',
+      'OwnLoyaltyData',
+      'OwnLoyaltyResponse',
     ]) {
       expect(swaggerSpec.components.schemas[schemaName]).toBeDefined();
     }
@@ -239,6 +245,55 @@ describe('Swagger documentation integrity', () => {
     expect(swaggerSpec.components.responses.Unauthorized).toBeDefined();
     expect(swaggerSpec.components.responses.NotFound).toBeDefined();
     expect(swaggerSpec.components.responses.TooManyRequests).toBeDefined();
+  });
+
+  it('documents the CUSTOMER-only own-loyalty read contract and safe DTO', () => {
+    const operation = swaggerSpec.paths['/loyalty/me'].get;
+    expect(operation.tags).toEqual(['Loyalty']);
+    expect(operation.security).toEqual([{ bearerAuth: [] }]);
+    expect(operation.description).toMatch(/CUSTOMER only/);
+    expect(operation.description).toMatch(/derived exclusively from the verified JWT/);
+    expect(operation.description).toMatch(/read-only/);
+    expect(operation.responses).toEqual(
+      expect.objectContaining({
+        200: expect.any(Object),
+        401: expect.any(Object),
+        403: expect.any(Object),
+        404: expect.any(Object),
+        409: expect.any(Object),
+        422: expect.any(Object),
+        500: expect.any(Object),
+      })
+    );
+    expect(operation.parameters[0].schema).toMatchObject({
+      minimum: 1,
+      maximum: 10000,
+      default: 1,
+    });
+    expect(operation.parameters[1].schema).toMatchObject({ minimum: 1, maximum: 100, default: 25 });
+
+    const transaction = swaggerSpec.components.schemas.LoyaltyTransaction;
+    expect(transaction.additionalProperties).toBe(false);
+    expect(Object.keys(transaction.properties)).toEqual([
+      'id',
+      'type',
+      'pointsDelta',
+      'balanceAfter',
+      'orderId',
+      'createdAt',
+    ]);
+    expect(transaction.properties.pointsDelta.type).toBe('string');
+    expect(transaction.properties.balanceAfter.type).toBe('string');
+    for (const forbidden of [
+      'customerId',
+      'paymentId',
+      'providerTransactionId',
+      'sourceEventId',
+      'earningTransactionId',
+      '__v',
+    ]) {
+      expect(transaction.properties).not.toHaveProperty(forbidden);
+    }
   });
 
   it('should document Doctor directory endpoints with strict SYSTEM_ADMIN write security and canonical read access (Issue #81)', () => {
