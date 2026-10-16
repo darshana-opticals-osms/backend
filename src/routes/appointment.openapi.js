@@ -4,13 +4,12 @@
  *   schemas:
  *     AppointmentProvider:
  *       type: object
- *       required: [id, name, role, branchId]
+ *       required: [id, name, specialization]
  *       properties:
  *         id: { type: string, example: 66c5d2a9d7e2b8f2d7c4ff12 }
- *         name: { type: string, example: Dr. Gampaha }
- *         role: { type: string, enum: [OPTOMETRIST] }
- *         branchId: { type: string, example: 66c5d2a9d7e2b8f2d7c4ff13 }
- *       description: Returned to CUSTOMERS and authorized Gampaha BRANCH_ASSISTANT staff so staff can create doctor sessions. Email, phone, address, and credentials are not exposed.
+ *         name: { type: string, example: Dr. Nimal Perera }
+ *         specialization: { type: string, example: Ophthalmologist }
+ *       description: Authoritative external Doctor directory profile returned to Customers and authorized Staff. Email, phone, address, and credentials are not exposed.
  *     AppointmentCustomerContact:
  *       type: object
  *       required: [id, name, phone]
@@ -21,10 +20,12 @@
  *       description: Included only for authorized Gampaha Branch Assistants on appointment list/detail responses. Not returned to customers or Branch Managers.
  *     DoctorSession:
  *       type: object
- *       required: [id, staffId, branchId, startAt, endAt, capacity, confirmedCount, remainingCapacity]
+ *       required: [id, branchId, startAt, endAt, capacity, confirmedCount, remainingCapacity]
  *       properties:
  *         id: { type: string }
- *         staffId: { type: string }
+ *         doctorId: { type: string, nullable: true }
+ *         staffId: { type: string, nullable: true }
+ *         doctor: { $ref: '#/components/schemas/Doctor', nullable: true }
  *         branchId: { type: string }
  *         startAt: { type: string, format: date-time, example: '2026-11-01T09:00:00.000Z' }
  *         endAt: { type: string, format: date-time, example: '2026-11-01T10:00:00.000Z' }
@@ -35,10 +36,12 @@
  *     Appointment:
  *       type: object
  *       description: Privacy-safe appointment fields. The optional customer contact projection is present only for authorized Gampaha Branch Assistants; it is omitted for customers and Branch Managers.
- *       required: [id, staffId, dateTime, status]
+ *       required: [id, dateTime, status]
  *       properties:
  *         id: { type: string }
- *         staffId: { type: string }
+ *         doctorId: { type: string, nullable: true }
+ *         staffId: { type: string, nullable: true }
+ *         doctor: { $ref: '#/components/schemas/Doctor', nullable: true }
  *         providerName: { type: string, description: Display name only. }
  *         sessionId: { type: string, nullable: true }
  *         branchId: { type: string, nullable: true, description: Historical branch snapshot; null for legacy data without authoritative branch provenance. }
@@ -51,10 +54,10 @@
  *     DoctorSessionCreateRequest:
  *       type: object
  *       additionalProperties: false
- *       required: [staffId, branchId, startAt, endAt, capacity]
+ *       required: [doctorId, startAt, endAt, capacity]
  *       properties:
- *         staffId: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
- *         branchId: { type: string, pattern: '^[a-fA-F0-9]{24}$', description: Must identify GAMPAHA_CENTRAL. }
+ *         doctorId: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
+ *         branchId: { type: string, pattern: '^[a-fA-F0-9]{24}$', description: Optional; defaults to approved GAMPAHA_CENTRAL branch. }
  *         startAt: { type: string, format: date-time, description: Valid ISO-8601 timestamp with explicit Z or ±HH:MM timezone. }
  *         endAt: { type: string, format: date-time, description: Valid ISO-8601 timestamp with explicit Z or ±HH:MM timezone. }
  *         capacity: { type: integer, minimum: 1 }
@@ -63,7 +66,8 @@
  *       additionalProperties: false
  *       minProperties: 1
  *       properties:
- *         staffId: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
+ *         doctorId: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
+ *         staffId: { type: string, pattern: '^[a-fA-F0-9]{24}$', description: Optional legacy staff optometrist ID. }
  *         branchId: { type: string, pattern: '^[a-fA-F0-9]{24}$', description: Must identify GAMPAHA_CENTRAL. }
  *         startAt: { type: string, format: date-time, description: Valid ISO-8601 timestamp with explicit timezone. }
  *         endAt: { type: string, format: date-time, description: Valid ISO-8601 timestamp with explicit timezone. }
@@ -123,8 +127,8 @@
  * paths:
  *   /appointments/providers:
  *     get:
- *       summary: List eligible Gampaha Optometrists
- *       description: CUSTOMER and BRANCH_ASSISTANT assigned to the approved Gampaha branch. Returns eligible Gampaha Optometrists with provider ID and approved branch ID. Branch Assistants use these IDs to create doctor sessions. No staff directory access is granted.
+ *       summary: List active Doctors for appointment booking
+ *       description: CUSTOMER and BRANCH_ASSISTANT assigned to the approved Gampaha branch. Returns active Doctors with provider ID, name, and specialization. Branch Assistants use these IDs to create doctor sessions. No staff directory access is granted.
  *       tags: [Appointments]
  *       security: [{ bearerAuth: [] }]
  *       responses:
@@ -146,7 +150,7 @@
  *   /doctor-sessions/available:
  *     get:
  *       summary: List customer-bookable doctor sessions
- *       description: CUSTOMER-only. Includes future GAMPAHA_CENTRAL sessions with eligible Optometrists, available capacity, and at least 24 hours lead time. Booking revalidates availability.
+ *       description: CUSTOMER-only. Includes future GAMPAHA_CENTRAL sessions with active Doctors, available capacity, and at least 24 hours lead time. Booking revalidates availability.
  *       tags: [Appointments]
  *       security: [{ bearerAuth: [] }]
  *       responses:
@@ -177,7 +181,7 @@
  *         '500': { $ref: '#/components/responses/InternalServerError' }
  *     post:
  *       summary: Create a doctor session
- *       description: BRANCH_ASSISTANT only. Requires an eligible Gampaha Optometrist, non-overlapping ISO-8601 interval, positive capacity, explicit timezone, and GAMPAHA_CENTRAL branch. Scheduling writes are transactional.
+ *       description: BRANCH_ASSISTANT only. Requires an active Doctor, non-overlapping ISO-8601 interval, positive capacity, explicit timezone, and defaults to the approved GAMPAHA_CENTRAL branch. Scheduling writes are transactional.
  *       tags: [Appointments]
  *       security: [{ bearerAuth: [] }]
  *       requestBody:
@@ -247,7 +251,7 @@
  *         '500': { $ref: '#/components/responses/InternalServerError' }
  *     post:
  *       summary: Book a doctor session
- *       description: CUSTOMER-only. Server derives customer, provider, branch, timing, CONFIRMED status, and queue position. Booking requires GAMPAHA_CENTRAL, an eligible Optometrist, capacity, and session start at least 24 hours from server time. Position and capacity reservation are atomic. Submit only sessionId.
+ *       description: CUSTOMER-only. Server derives customer, provider, branch, timing, CONFIRMED status, and queue position. Booking requires GAMPAHA_CENTRAL, an active Doctor session, capacity, and session start at least 24 hours from server time. Position and capacity reservation are atomic. Submit only sessionId.
  *       tags: [Appointments]
  *       security: [{ bearerAuth: [] }]
  *       requestBody:
@@ -322,7 +326,7 @@
  *   /appointments/{id}/reassign:
  *     patch:
  *       summary: Reassign an appointment to another session
- *       description: BRANCH_ASSISTANT only. Source and target must be approved Gampaha sessions; target requires an eligible Gampaha Optometrist, at least 24 hours lead time, available capacity, and no duplicate customer booking. Source and target positions and counters are updated atomically. No query parameters are accepted.
+ *       description: BRANCH_ASSISTANT only. Source and target must be approved Gampaha sessions; target requires an active Doctor session, at least 24 hours lead time, available capacity, and no duplicate customer booking. Source and target positions and counters are updated atomically. No query parameters are accepted.
  *       tags: [Appointments]
  *       security: [{ bearerAuth: [] }]
  *       parameters:

@@ -42,7 +42,11 @@ const router = express.Router();
 router.get(
   '/branches',
   authenticate,
-  authorizeRoles(ROLE_VALUES.SYSTEM_ADMIN, ROLE_VALUES.BRANCH_MANAGER),
+  authorizeRoles(
+    ROLE_VALUES.SYSTEM_ADMIN,
+    ROLE_VALUES.BRANCH_MANAGER,
+    ROLE_VALUES.BRANCH_ASSISTANT
+  ),
   getBranches
 );
 
