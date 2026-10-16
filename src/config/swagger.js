@@ -277,6 +277,54 @@ const options = {
             },
           },
         },
+        ForgotPasswordRequest: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['email'],
+          properties: {
+            email: {
+              type: 'string',
+              format: 'email',
+              description: 'Registered Customer or Staff email address.',
+              example: 'user@example.com',
+            },
+          },
+        },
+        ResetPasswordRequest: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['token', 'newPassword'],
+          properties: {
+            token: {
+              type: 'string',
+              description: 'Cryptographically secure raw reset token received via recovery email.',
+              example: 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90',
+            },
+            newPassword: {
+              type: 'string',
+              format: 'password',
+              minLength: 8,
+              description:
+                'New account password meeting policy requirements (min 8 chars, 1 uppercase, 1 lowercase, 1 number).',
+              example: 'NewSecurePassword123',
+            },
+          },
+        },
+        GenericMessageResponse: {
+          type: 'object',
+          required: ['success', 'message'],
+          properties: {
+            success: {
+              type: 'boolean',
+              example: true,
+            },
+            message: {
+              type: 'string',
+              example:
+                'If an eligible account exists for this email, a password reset link has been sent.',
+            },
+          },
+        },
         ProfileUpdateRequest: {
           type: 'object',
           minProperties: 1,
@@ -1079,6 +1127,16 @@ const options = {
             'application/json': {
               schema: {
                 $ref: '#/components/schemas/ValidationErrorResponse',
+              },
+            },
+          },
+        },
+        TooManyRequests: {
+          description: 'Rate limit exceeded.',
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/ErrorResponse',
               },
             },
           },

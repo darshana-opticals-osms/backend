@@ -254,7 +254,71 @@ router.post('/auth/register', validate(registerValidation), register);
  *         $ref: '#/components/responses/ValidationError'
  */
 router.post('/auth/login', validate(loginValidation), login);
+
+/**
+ * @openapi
+ * /auth/forgot-password:
+ *   post:
+ *     summary: Request a password reset link
+ *     description: Public endpoint to initiate password recovery for registered Customer and Staff accounts. Employs a generic anti-enumeration response; a successful 200 response does NOT confirm or reveal whether an account exists.
+ *     tags:
+ *       - Authentication
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/ForgotPasswordRequest'
+ *     responses:
+ *       200:
+ *         description: Generic anti-enumeration success response.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/GenericMessageResponse'
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
+ *       429:
+ *         $ref: '#/components/responses/TooManyRequests'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
+ */
 router.post('/auth/forgot-password', validate(forgotPasswordValidation), forgotPassword);
+
+/**
+ * @openapi
+ * /auth/reset-password:
+ *   post:
+ *     summary: Reset account password using token
+ *     description: Public endpoint to reset an account password using a valid, short-lived single-use reset token. The request body requires only token and newPassword; confirmPassword is not accepted as an API field.
+ *     tags:
+ *       - Authentication
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/ResetPasswordRequest'
+ *     responses:
+ *       200:
+ *         description: Password successfully reset.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/GenericMessageResponse'
+ *       400:
+ *         description: Reset token is malformed, invalid, expired, or already used.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
+ *       429:
+ *         $ref: '#/components/responses/TooManyRequests'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
+ */
 router.post('/auth/reset-password', validate(resetPasswordValidation), resetPassword);
 
 module.exports = router;
