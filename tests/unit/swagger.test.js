@@ -35,6 +35,8 @@ describe('Swagger documentation integrity', () => {
     'GET /health',
     'POST /auth/register',
     'POST /auth/login',
+    'POST /auth/forgot-password',
+    'POST /auth/reset-password',
     'POST /admin/staff',
     'GET /profile/me',
     'PATCH /profile/me',
@@ -124,6 +126,8 @@ describe('Swagger documentation integrity', () => {
       '/health',
       '/auth/register',
       '/auth/login',
+      '/auth/forgot-password',
+      '/auth/reset-password',
       '/products',
       '/products/{id}',
       '/payments/notify',
@@ -225,12 +229,16 @@ describe('Swagger documentation integrity', () => {
       'DoctorCreateRequest',
       'DoctorResponse',
       'DoctorListResponse',
+      'ForgotPasswordRequest',
+      'ResetPasswordRequest',
+      'GenericMessageResponse',
     ]) {
       expect(swaggerSpec.components.schemas[schemaName]).toBeDefined();
     }
     expect(swaggerSpec.components.responses.ValidationError).toBeDefined();
     expect(swaggerSpec.components.responses.Unauthorized).toBeDefined();
     expect(swaggerSpec.components.responses.NotFound).toBeDefined();
+    expect(swaggerSpec.components.responses.TooManyRequests).toBeDefined();
   });
 
   it('should document Doctor directory endpoints with strict SYSTEM_ADMIN write security and canonical read access (Issue #81)', () => {
@@ -387,5 +395,29 @@ describe('Swagger documentation integrity', () => {
       'duplicate',
       'reconciliation_required',
     ]);
+  });
+
+  it('should document password recovery endpoints conforming to Issue #83 specifications', () => {
+    const forgotDoc = swaggerSpec.paths['/auth/forgot-password'].post;
+    expect(forgotDoc).toBeDefined();
+    expect(forgotDoc.tags).toContain('Authentication');
+    expect(forgotDoc.description).toMatch(/anti-enumeration/i);
+    expect(forgotDoc.responses['200']).toBeDefined();
+    expect(forgotDoc.responses['422']).toBeDefined();
+    expect(forgotDoc.responses['429']).toBeDefined();
+
+    const resetDoc = swaggerSpec.paths['/auth/reset-password'].post;
+    expect(resetDoc).toBeDefined();
+    expect(resetDoc.tags).toContain('Authentication');
+    expect(resetDoc.description).toMatch(/single-use reset token/i);
+    expect(resetDoc.responses['200']).toBeDefined();
+    expect(resetDoc.responses['400']).toBeDefined();
+    expect(resetDoc.responses['422']).toBeDefined();
+    expect(resetDoc.responses['429']).toBeDefined();
+
+    const resetRequestSchema = swaggerSpec.components.schemas.ResetPasswordRequest;
+    expect(resetRequestSchema.properties).toHaveProperty('token');
+    expect(resetRequestSchema.properties).toHaveProperty('newPassword');
+    expect(resetRequestSchema.properties).not.toHaveProperty('confirmPassword');
   });
 });

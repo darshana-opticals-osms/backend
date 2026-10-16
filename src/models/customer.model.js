@@ -55,6 +55,16 @@ const customerSchema = new mongoose.Schema(
         message: 'Password hash must be a bcrypt-style hash.',
       },
     },
+    passwordResetTokenHash: {
+      type: String,
+      default: null,
+      select: false,
+    },
+    passwordResetExpiresAt: {
+      type: Date,
+      default: null,
+      select: false,
+    },
   },
   {
     timestamps: true,
@@ -62,12 +72,16 @@ const customerSchema = new mongoose.Schema(
       transform(_doc, ret) {
         delete ret.passwordHash;
         delete ret.loyaltyBalance;
+        delete ret.passwordResetTokenHash;
+        delete ret.passwordResetExpiresAt;
       },
     },
     toObject: {
       transform(_doc, ret) {
         delete ret.passwordHash;
         delete ret.loyaltyBalance;
+        delete ret.passwordResetTokenHash;
+        delete ret.passwordResetExpiresAt;
       },
     },
   }

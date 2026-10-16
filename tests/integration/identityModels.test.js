@@ -228,4 +228,60 @@ describe('Identity models', () => {
     const customerWithHash = await Customer.findById(customer._id).select('+passwordHash');
     expect(customerWithHash.passwordHash).toBe(syntheticHash);
   });
+
+  it('should hide passwordResetTokenHash and passwordResetExpiresAt from serialization and default queries', async () => {
+    // Arrange
+    const futureExpiry = new Date(Date.now() + 15 * 60 * 1000);
+    const testHash = 'synthetic_sha256_reset_hash';
+
+    const customer = await Customer.create({
+      name: 'Reset Customer',
+      email: 'reset.customer@example.com',
+      phone: '+94710000011',
+      passwordHash: syntheticHash,
+      passwordResetTokenHash: testHash,
+      passwordResetExpiresAt: futureExpiry,
+    });
+    const staff = await Staff.create({
+      name: 'Reset Staff',
+      email: 'reset.staff@example.com',
+      phone: '+94710000012',
+      address: 'Reset Lane',
+      role: ROLE_VALUES.OPTOMETRIST,
+      passwordHash: syntheticHash,
+      passwordResetTokenHash: testHash,
+      passwordResetExpiresAt: futureExpiry,
+    });
+
+    // Act
+    const customerJson = customer.toJSON();
+    const staffJson = staff.toJSON();
+    const customerFromDb = await Customer.findById(customer._id).lean();
+    const staffFromDb = await Staff.findById(staff._id).lean();
+
+    // Assert: hidden from toJSON / serialization
+    expect(customerJson).not.toHaveProperty('passwordResetTokenHash');
+    expect(customerJson).not.toHaveProperty('passwordResetExpiresAt');
+    expect(staffJson).not.toHaveProperty('passwordResetTokenHash');
+    expect(staffJson).not.toHaveProperty('passwordResetExpiresAt');
+
+    // Assert: hidden from default select
+    expect(customerFromDb).not.toHaveProperty('passwordResetTokenHash');
+    expect(customerFromDb).not.toHaveProperty('passwordResetExpiresAt');
+    expect(staffFromDb).not.toHaveProperty('passwordResetTokenHash');
+    expect(staffFromDb).not.toHaveProperty('passwordResetExpiresAt');
+
+    // Assert: can be retrieved with explicit select
+    const customerWithReset = await Customer.findById(customer._id).select(
+      '+passwordResetTokenHash +passwordResetExpiresAt'
+    );
+    expect(customerWithReset.passwordResetTokenHash).toBe(testHash);
+    expect(customerWithReset.passwordResetExpiresAt.getTime()).toBe(futureExpiry.getTime());
+
+    const staffWithReset = await Staff.findById(staff._id).select(
+      '+passwordResetTokenHash +passwordResetExpiresAt'
+    );
+    expect(staffWithReset.passwordResetTokenHash).toBe(testHash);
+    expect(staffWithReset.passwordResetExpiresAt.getTime()).toBe(futureExpiry.getTime());
+  });
 });
