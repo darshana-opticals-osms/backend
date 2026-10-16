@@ -2,6 +2,8 @@ const {
   createTransporter,
   buildCancellationEmailContent,
   sendOrderCancellationNotification,
+  buildPasswordResetEmailContent,
+  sendPasswordResetNotification,
 } = require('../../src/services/notification.service');
 
 describe('NotificationService (ADR-004 §17)', () => {
@@ -175,6 +177,133 @@ describe('NotificationService (ADR-004 §17)', () => {
       expect(result.delivered).toBe(false);
       expect(result.simulated).toBe(false);
       expect(result.error).toBe('SMTP Connection Timeout');
+    });
+  });
+
+  describe('buildPasswordResetEmailContent (Issue #83 AC21)', () => {
+    it('generates content conforming to Issue #83 AC21 requirements', () => {
+      const resetUrl = 'https://app.darshanaopticals.com/reset-password?token=abcdef123456';
+      const content = buildPasswordResetEmailContent({
+        resetUrl,
+        minutesValid: 15,
+      });
+
+      // 1. Darshana Opticals password-reset subject
+      expect(content.subject).toContain('Password Reset Request - Darshana Opticals');
+
+      // 2. Contains reset link
+      expect(content.text).toContain(resetUrl);
+      expect(content.html).toContain(resetUrl);
+
+      // 3. 15-minute expiry notice
+      expect(content.text).toMatch(/15 minutes/i);
+      expect(content.html).toMatch(/15 minutes/i);
+
+      // 4. Instruction to ignore if not requested
+      expect(content.text).toMatch(/ignore this email/i);
+      expect(content.html).toMatch(/ignore this email/i);
+
+      // 5. Does not include password, hashes, JWTs, or internal database IDs
+      expect(content.text).not.toMatch(/passwordHash/i);
+      expect(content.text).not.toMatch(/jwt/i);
+      expect(content.html).not.toMatch(/passwordHash/i);
+      expect(content.html).not.toMatch(/jwt/i);
+    });
+
+    it('escapes reset URL to prevent HTML injection', () => {
+      const dangerousUrl =
+        'https://app.darshanaopticals.com/reset?token="><script>alert(1)</script>';
+      const content = buildPasswordResetEmailContent({ resetUrl: dangerousUrl });
+
+      expect(content.html).not.toContain('<script>');
+      expect(content.html).toContain('&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;');
+    });
+  });
+
+  describe('sendPasswordResetNotification (Issue #83 AC20, AC23, AC24)', () => {
+    it('returns missing recipient/url result when required fields are missing', async () => {
+      const resultNoTo = await sendPasswordResetNotification({
+        to: null,
+        resetUrl: 'https://app.example.com/reset',
+      });
+      expect(resultNoTo.delivered).toBe(false);
+      expect(resultNoTo.reason).toBe('MISSING_RECIPIENT_OR_URL');
+
+      const resultNoUrl = await sendPasswordResetNotification({
+        to: 'user@example.com',
+        resetUrl: '',
+      });
+      expect(resultNoUrl.delivered).toBe(false);
+      expect(resultNoUrl.reason).toBe('MISSING_RECIPIENT_OR_URL');
+    });
+
+    it('simulates notification when SMTP is unconfigured in development/test', async () => {
+      delete process.env.SMTP_HOST;
+      delete process.env.SMTP_USER;
+      delete process.env.SMTP_PASS;
+
+      const result = await sendPasswordResetNotification({
+        to: 'user@example.com',
+        resetUrl: 'https://app.example.com/reset?token=123',
+      });
+
+      expect(result.delivered).toBe(false);
+      expect(result.simulated).toBe(true);
+      expect(result.reason).toBe('SMTP_UNCONFIGURED');
+    });
+
+    it('returns error result when SMTP is unconfigured in production', async () => {
+      process.env.NODE_ENV = 'production';
+      delete process.env.SMTP_HOST;
+      delete process.env.SMTP_USER;
+      delete process.env.SMTP_PASS;
+
+      const result = await sendPasswordResetNotification({
+        to: 'user@example.com',
+        resetUrl: 'https://app.example.com/reset?token=123',
+      });
+
+      expect(result.delivered).toBe(false);
+      expect(result.simulated).toBe(false);
+      expect(result.reason).toBe('SMTP_UNCONFIGURED');
+    });
+
+    it('dispatches email through active transporter when configured', async () => {
+      const mockSendMail = jest.fn().mockResolvedValue({ messageId: 'reset-msg-1' });
+      const mockTransporter = { sendMail: mockSendMail };
+
+      const result = await sendPasswordResetNotification(
+        {
+          to: 'customer@example.com',
+          resetUrl: 'https://app.example.com/reset-password?token=secrettoken',
+        },
+        { transporter: mockTransporter }
+      );
+
+      expect(result.delivered).toBe(true);
+      expect(result.simulated).toBe(false);
+      expect(result.messageId).toBe('reset-msg-1');
+      expect(mockSendMail).toHaveBeenCalledTimes(1);
+      const mailCallArgs = mockSendMail.mock.calls[0][0];
+      expect(mailCallArgs.to).toBe('customer@example.com');
+      expect(mailCallArgs.subject).toContain('Password Reset Request');
+    });
+
+    it('handles transporter rejection gracefully without leaking token or throwing', async () => {
+      const mockSendMail = jest.fn().mockRejectedValue(new Error('SMTP Connection Refused'));
+      const mockTransporter = { sendMail: mockSendMail };
+
+      const result = await sendPasswordResetNotification(
+        {
+          to: 'customer@example.com',
+          resetUrl: 'https://app.example.com/reset-password?token=secrettoken',
+        },
+        { transporter: mockTransporter }
+      );
+
+      expect(result.delivered).toBe(false);
+      expect(result.simulated).toBe(false);
+      expect(result.error).toBe('SMTP Connection Refused');
     });
   });
 });
