@@ -7,6 +7,7 @@ const OrderItem = require('../models/orderItem.model');
 const { ORDER_STATUS_VALUES } = require('../constants/orderStatuses');
 const { ConflictError, NotFoundError, ValidationError } = require('../errors/AppError');
 const { deductInventoryStock } = require('./inventory.service');
+const { ITEM_CLASSIFICATIONS, LOYALTY_ELIGIBILITY } = require('../constants/itemClassification');
 
 const CUSTOMER_NOT_FOUND = 'CUSTOMER_NOT_FOUND';
 const CART_NOT_FOUND = 'CART_NOT_FOUND';
@@ -16,6 +17,7 @@ const INSUFFICIENT_STOCK = 'INSUFFICIENT_STOCK';
 const INVALID_INVENTORY_PRICE = 'INVALID_INVENTORY_PRICE';
 const INVALID_INVENTORY_STOCK = 'INVALID_INVENTORY_STOCK';
 const CHECKOUT_CONFLICT = 'CHECKOUT_CONFLICT';
+const RESERVATION_WINDOW_MS = 30 * 60 * 1000;
 
 function validateCartItems(items) {
   if (!Array.isArray(items) || items.length === 0) {
@@ -93,7 +95,18 @@ function buildOrderItems(cartItems, inventoryById) {
       throw new ValidationError('Order amount exceeds the supported monetary range.');
     }
 
+    const itemClassification = ITEM_CLASSIFICATIONS.includes(inventory.itemClassification)
+      ? inventory.itemClassification
+      : 'UNKNOWN';
     return {
+      inventoryId: inventory._id,
+      classificationSnapshot: {
+        source: 'Inventory',
+        sourceInventoryId: inventory._id,
+        category: typeof inventory.category === 'string' ? inventory.category : null,
+        itemClassification,
+        loyaltyEligibility: LOYALTY_ELIGIBILITY[itemClassification],
+      },
       itemName: inventory.itemName,
       price: unitPriceCents / 100,
       quantity: cartItem.quantity,
@@ -161,6 +174,7 @@ async function checkoutCustomer(customerId) {
       const inventoryById = new Map(inventories.map((item) => [item._id.toString(), item]));
       const { orderItems, orderAmount } = buildOrderItems(cart.items, inventoryById);
       const now = new Date();
+      const reservationExpiresAt = new Date(now.getTime() + RESERVATION_WINDOW_MS);
       const status = ORDER_STATUS_VALUES.ORDER_CREATED;
 
       const [order] = await Order.create(
@@ -172,6 +186,7 @@ async function checkoutCustomer(customerId) {
             status,
             statusUpdatedAt: now,
             statusHistory: [{ status, changedAt: now, changedBy: customer._id }],
+            reservationExpiresAt,
           },
         ],
         { session }
@@ -208,4 +223,5 @@ module.exports = {
   toCents,
   buildOrderItems,
   decrementInventoryStock,
+  RESERVATION_WINDOW_MS,
 };

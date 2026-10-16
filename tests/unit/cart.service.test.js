@@ -7,6 +7,7 @@ const {
   getCustomerCart,
   updateCartItemQuantity,
   removeCartItem,
+  restoreCartItems,
 } = require('../../src/services/cart.service');
 
 jest.mock('../../src/models/cart.model', () => ({
@@ -159,5 +160,39 @@ describe('Cart service', () => {
 
     await expect(removeCartItem(customerId, inventoryId)).resolves.toEqual({ items: [] });
     expect(Cart.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('requires a caller-owned transaction and valid restoration items before writing', async () => {
+    await expect(restoreCartItems(customerId, [], null)).rejects.toMatchObject({ statusCode: 422 });
+    const session = { inTransaction: () => true };
+    for (const items of [[], [null], [{ inventoryId, quantity: Number.MAX_SAFE_INTEGER + 1 }]]) {
+      await expect(restoreCartItems(customerId, items, session)).rejects.toMatchObject({
+        statusCode: 422,
+      });
+    }
+    expect(Cart.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('propagates duplicate creation to the transaction owner with every read/write on its session', async () => {
+    const session = { inTransaction: () => true };
+    const customerSession = jest.fn().mockResolvedValue({ _id: customerId });
+    const inventorySession = jest.fn().mockResolvedValue({ _id: inventoryId });
+    const cartQuery = {
+      session: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(null),
+    };
+    Customer.exists.mockReturnValue({ session: customerSession });
+    Inventory.exists.mockReturnValue({ session: inventorySession });
+    Cart.findOneAndUpdate.mockResolvedValue(null);
+    Cart.findOne.mockReturnValue({ select: jest.fn().mockReturnValue(cartQuery) });
+    const duplicate = Object.assign(new Error('concurrent first Cart'), { code: 11000 });
+    Cart.create.mockRejectedValue(duplicate);
+    await expect(addCartItem(customerId, inventoryId, 1, session)).rejects.toBe(duplicate);
+    expect(customerSession).toHaveBeenCalledWith(session);
+    expect(inventorySession).toHaveBeenCalledWith(session);
+    expect(cartQuery.session).toHaveBeenCalledWith(session);
+    expect(Cart.findOneAndUpdate.mock.calls[0][2].session).toBe(session);
+    expect(Cart.create).toHaveBeenCalledTimes(1);
+    expect(Cart.create.mock.calls[0][1]).toEqual({ session });
   });
 });

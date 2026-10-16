@@ -399,6 +399,12 @@ const options = {
           type: 'object',
           required: ['_id', 'branchId', 'itemName', 'category', 'brand', 'price', 'quantity'],
           properties: {
+            itemClassification: {
+              type: 'string',
+              enum: ['UNKNOWN', 'MERCHANDISE', 'CLINICAL'],
+              description:
+                'Explicit catalog classification. Missing legacy data is UNKNOWN; never inferred from category.',
+            },
             _id: {
               type: 'string',
               example: '64d4a3ff3baf9d2b8a33d1a1',
@@ -470,6 +476,13 @@ const options = {
           type: 'object',
           required: ['branchId', 'itemName', 'category', 'brand', 'price', 'quantity'],
           properties: {
+            itemClassification: {
+              type: 'string',
+              enum: ['UNKNOWN', 'MERCHANDISE', 'CLINICAL'],
+              default: 'UNKNOWN',
+              description:
+                'BRANCH_MANAGER-maintained classification; clinical eye-test/examination fees are CLINICAL. No inferred eligibility.',
+            },
             branchId: {
               type: 'string',
               example: '64d4a3ff3baf9d2b8a33d1a2',
@@ -512,6 +525,12 @@ const options = {
           type: 'object',
           minProperties: 1,
           properties: {
+            itemClassification: {
+              type: 'string',
+              enum: ['UNKNOWN', 'MERCHANDISE', 'CLINICAL'],
+              description:
+                'BRANCH_MANAGER only, for future checkouts. Never changes historical OrderItem snapshots.',
+            },
             branchId: {
               type: 'string',
               example: '64d4a3ff3baf9d2b8a33d1a2',
@@ -1081,6 +1100,33 @@ const options = {
         },
       },
       responses: {
+        PaymentUnavailable: {
+          description:
+            'PayHere configuration is unavailable. No new attempt or financial change is persisted. This does not indicate the availability of the provider-hosted checkout website after initiation.',
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ErrorResponse' },
+              example: {
+                success: false,
+                error: {
+                  code: 'PAYMENT_UNAVAILABLE',
+                  message: 'Payment gateway is temporarily unavailable.',
+                },
+              },
+            },
+          },
+        },
+        BadRequest: {
+          description:
+            'The request is malformed or does not match the expected provider transaction.',
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/ErrorResponse',
+              },
+            },
+          },
+        },
         Unauthorized: {
           description: 'Authentication required or invalid token.',
           content: {

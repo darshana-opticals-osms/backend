@@ -14,7 +14,17 @@ const orderStatusHistorySchema = new mongoose.Schema(
     },
     changedBy: {
       type: mongoose.Schema.Types.ObjectId,
-      required: true,
+      required() {
+        return !['PAYMENT_SYSTEM', 'RESERVATION_EXPIRY'].includes(this.source);
+      },
+    },
+    source: {
+      type: String,
+      enum: ['USER', 'PAYMENT_SYSTEM', 'RESERVATION_EXPIRY'],
+    },
+    paymentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Payment',
     },
   },
   { _id: false }
@@ -51,10 +61,22 @@ const orderSchema = new mongoose.Schema(
       type: [orderStatusHistorySchema],
       default: [],
     },
+    reservationExpiresAt: {
+      type: Date,
+      default: null,
+      immutable: true,
+      index: true,
+    },
+    inventoryRestoredAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
   }
 );
+
+orderSchema.index({ status: 1, reservationExpiresAt: 1, _id: 1 });
 
 module.exports = mongoose.model('Order', orderSchema);

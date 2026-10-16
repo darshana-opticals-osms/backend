@@ -1,5 +1,10 @@
 const rateLimit = require('express-rate-limit');
-const { GENERAL_RATE_LIMIT, AUTH_RATE_LIMIT, CHATBOT_RATE_LIMIT } = require('../config/security');
+const {
+  GENERAL_RATE_LIMIT,
+  AUTH_RATE_LIMIT,
+  CHATBOT_RATE_LIMIT,
+  PAYHERE_NOTIFICATION_RATE_LIMIT,
+} = require('../config/security');
 
 /**
  * Standard rate-limit exceeded handler.
@@ -69,4 +74,15 @@ const chatbotLimiter = rateLimit({
   skipSuccessfulRequests: false,
 });
 
-module.exports = { generalLimiter, authLimiter, chatbotLimiter };
+// Mounted before form parsing: rejected traffic cannot reach signature/database
+// processing, and no signed values are rewritten by the volume protection.
+const payhereNotificationLimiter = rateLimit({
+  windowMs: PAYHERE_NOTIFICATION_RATE_LIMIT.windowMs,
+  max: PAYHERE_NOTIFICATION_RATE_LIMIT.max,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitHandler,
+  skipSuccessfulRequests: false,
+});
+
+module.exports = { generalLimiter, authLimiter, chatbotLimiter, payhereNotificationLimiter };

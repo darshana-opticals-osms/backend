@@ -3,6 +3,8 @@ const {
   PAYMENT_STATUS_VALUES,
   PAYMENT_METHOD_VALUES,
   PAYMENT_STATUS,
+  PAYMENT_PROVIDER,
+  PAYMENT_CURRENCY,
 } = require('../constants/payment');
 
 const paymentSchema = new mongoose.Schema(
@@ -50,6 +52,62 @@ const paymentSchema = new mongoose.Schema(
       default: null,
     },
 
+    currency: {
+      type: String,
+      enum: Object.values(PAYMENT_CURRENCY),
+      default: PAYMENT_CURRENCY.LKR,
+      required: true,
+    },
+
+    provider: {
+      type: String,
+      enum: Object.values(PAYMENT_PROVIDER),
+      default: PAYMENT_PROVIDER.PAYHERE,
+      required: true,
+    },
+
+    // Unique merchant reference sent to PayHere as order_id. Optional only for
+    // backwards compatibility with Payment documents created before DDP-055.
+    providerOrderId: {
+      type: String,
+      trim: true,
+      default: null,
+      immutable: true,
+    },
+
+    providerPaymentMethod: {
+      type: String,
+      trim: true,
+      default: null,
+      maxlength: 40,
+    },
+
+    failureReason: {
+      type: String,
+      trim: true,
+      default: null,
+      maxlength: 200,
+    },
+
+    expiresAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+
+    reconciliationRequired: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    reconciliationReason: {
+      type: String,
+      trim: true,
+      default: null,
+      maxlength: 100,
+    },
+
     // AC9: Sensitive Data Protection
     // Raw card numbers, CVV, or plain-text card credentials must NEVER be stored.
     // Only gateway-safe reference IDs are persisted via providerTransactionId.
@@ -57,6 +115,42 @@ const paymentSchema = new mongoose.Schema(
   {
     // AC8: Payment Timestamps — createdAt and updatedAt maintained automatically
     timestamps: true,
+  }
+);
+
+paymentSchema.index(
+  { providerOrderId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { providerOrderId: { $type: 'string' } },
+  }
+);
+
+paymentSchema.index(
+  { providerTransactionId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { providerTransactionId: { $type: 'string' } },
+  }
+);
+
+paymentSchema.index(
+  { orderId: 1 },
+  {
+    name: 'one_active_payment_per_order',
+    unique: true,
+    partialFilterExpression: {
+      status: { $in: [PAYMENT_STATUS.PENDING, PAYMENT_STATUS.PROCESSING] },
+    },
+  }
+);
+
+paymentSchema.index(
+  { orderId: 1 },
+  {
+    name: 'one_completed_payment_per_order',
+    unique: true,
+    partialFilterExpression: { status: PAYMENT_STATUS.COMPLETED },
   }
 );
 

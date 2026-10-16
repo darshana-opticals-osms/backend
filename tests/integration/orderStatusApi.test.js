@@ -1,11 +1,13 @@
 const jwt = require('jsonwebtoken');
 const request = require('supertest');
 const mongoose = require('mongoose');
+const { MongoMemoryServer } = require('mongodb-memory-server');
 const { createApp } = require('../../src/app');
-const { connectDatabase, disconnectDatabase } = require('../../src/config/database');
 const Order = require('../../src/models/order.model');
 const OrderItem = require('../../src/models/orderItem.model');
 const Customer = require('../../src/models/customer.model');
+const Payment = require('../../src/models/payment.model');
+const { PAYMENT_STATUS, PAYMENT_METHOD } = require('../../src/constants/payment');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 const { ORDER_STATUS_VALUES } = require('../../src/constants/orderStatuses');
 
@@ -27,6 +29,7 @@ const createCustomer = (email = 'ordercustomer@example.com') =>
 describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
   let app;
   let originalEnv;
+  let mongoServer;
 
   beforeAll(async () => {
     originalEnv = { ...process.env };
@@ -34,16 +37,30 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
     process.env.JWT_SECRET = JWT_SECRET;
     process.env.JWT_EXPIRES_IN = '1h';
     delete process.env.MONGODB_URI;
-    await connectDatabase();
+    mongoServer = await MongoMemoryServer.create({ instance: { replSet: 'rs0' } });
+    const uri = mongoServer.getUri();
+    await mongoose.connect(uri, { directConnection: true });
+    await mongoose.connection.db.admin().command({
+      replSetInitiate: { _id: 'rs0', members: [{ _id: 0, host: new URL(uri).host }] },
+    });
+    await mongoose.disconnect();
+    await mongoose.connect(`${uri}?replicaSet=rs0`, { serverSelectionTimeoutMS: 15000 });
+    await Payment.init();
     app = createApp();
-  });
+  }, 60000);
 
   beforeEach(async () => {
-    await Promise.all([Order.deleteMany({}), OrderItem.deleteMany({}), Customer.deleteMany({})]);
+    await Promise.all([
+      Payment.deleteMany({}),
+      Order.deleteMany({}),
+      OrderItem.collection.deleteMany({}),
+      Customer.deleteMany({}),
+    ]);
   });
 
   afterAll(async () => {
-    await disconnectDatabase();
+    await mongoose.disconnect();
+    if (mongoServer) await mongoServer.stop();
     process.env = originalEnv;
   });
 
@@ -98,6 +115,12 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
             changedBy: customer._id,
           },
         ],
+      });
+      await Payment.create({
+        orderId: order._id,
+        amount: order.orderAmount,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
       });
       const staffId = new mongoose.Types.ObjectId();
       const token = createToken({ userId: staffId.toString(), role: ROLE_VALUES.BRANCH_MANAGER });
@@ -231,6 +254,39 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       expect(dbOrder.statusHistory).toHaveLength(1);
     });
 
+    it('denies an unpaid ORDER_CREATED -> PROCESSING staff transition', async () => {
+      const customer = await createCustomer('unpaid-transition@example.com');
+      const order = await Order.create({
+        customerId: customer._id,
+        orderDate: new Date(),
+        orderAmount: 15000,
+        status: ORDER_STATUS_VALUES.ORDER_CREATED,
+        statusUpdatedAt: new Date(),
+        statusHistory: [
+          {
+            status: ORDER_STATUS_VALUES.ORDER_CREATED,
+            changedAt: new Date(),
+            changedBy: customer._id,
+          },
+        ],
+      });
+      const token = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
+      });
+
+      const response = await request(app)
+        .patch(`/api/orders/${order._id}/status`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: ORDER_STATUS_VALUES.PROCESSING });
+
+      expect(response.status).toBe(422);
+      expect(response.body.error.code).toBe('PAYMENT_REQUIRED');
+      const stored = await Order.findById(order._id);
+      expect(stored.status).toBe(ORDER_STATUS_VALUES.ORDER_CREATED);
+      expect(stored.statusHistory).toHaveLength(1);
+    });
+
     it('successfully transitions ORDER_CREATED -> PROCESSING by BRANCH_ASSISTANT', async () => {
       const customer = await createCustomer();
       const order = await Order.create({
@@ -253,6 +309,12 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
         itemName: 'Prescription Glasses',
         price: 15000,
         quantity: 1,
+      });
+      await Payment.create({
+        orderId: order._id,
+        amount: order.orderAmount,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
       });
 
       const staffId = new mongoose.Types.ObjectId();
@@ -510,6 +572,12 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
             changedBy: customer._id,
           },
         ],
+      });
+      await Payment.create({
+        orderId: order._id,
+        amount: order.orderAmount,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
       });
 
       const staffToken1 = createToken({

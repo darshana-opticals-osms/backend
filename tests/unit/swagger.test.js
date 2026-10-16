@@ -1,6 +1,36 @@
 const swaggerSpec = require('../../src/config/swagger');
 
 describe('Swagger documentation integrity', () => {
+  it('documents callback metadata, abuse control and operational payment unavailability', () => {
+    const notify = swaggerSpec.paths['/payments/notify'].post;
+    const schema = notify.requestBody.content['application/x-www-form-urlencoded'].schema;
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.properties.captured_amount.type).toBe('string');
+    expect(schema.required).not.toContain('captured_amount');
+    expect(schema.properties.recurring.type).toBe('string');
+    expect(schema.required).not.toContain('recurring');
+    expect(notify.responses['429'].headers['Retry-After']).toBeDefined();
+    for (const path of ['/payments/initiate', '/payments/notify']) {
+      expect(swaggerSpec.paths[path].post.responses['503'].$ref).toBe(
+        '#/components/responses/PaymentUnavailable'
+      );
+    }
+    expect(
+      swaggerSpec.components.responses.PaymentUnavailable.content['application/json'].example.error
+        .code
+    ).toBe('PAYMENT_UNAVAILABLE');
+  });
+  it('documents retrieval evidence as nonblocking while preserving signed-IPN authority', () => {
+    const recovery = swaggerSpec.paths['/payments/{paymentId}/recovery'].post;
+    expect(recovery.description).toMatch(/without setting a blocking flag/);
+    expect(recovery.description).toMatch(/Existing holds are never cleared/);
+    expect(recovery.description).toMatch(/replays recheck current state/);
+    expect(recovery.description).toMatch(/ADR-011 requires IPN for completion/);
+    expect(
+      swaggerSpec.components.schemas.PaymentRetrievalEvidence.properties.reconciliationReason
+        .description
+    ).toMatch(/not the current Payment blocking flag/);
+  });
   const expectedOperations = [
     'GET /health',
     'POST /auth/register',
@@ -36,6 +66,15 @@ describe('Swagger documentation integrity', () => {
     'GET /orders',
     'GET /orders/{id}',
     'PATCH /orders/{id}/status',
+    'POST /payments/initiate',
+    'POST /payments/notify',
+    'POST /payments/{paymentId}/recovery',
+    'GET /payments/{paymentId}/retrieval-evidence',
+    'GET /orders/{orderId}/payment-status',
+    'GET /payments',
+    'GET /payments/{paymentId}',
+    'GET /payments/{paymentId}/events',
+    'POST /payments/{paymentId}/refunds',
     'GET /appointments/providers',
     'GET /doctor-sessions/available',
     'POST /doctor-sessions',
@@ -91,8 +130,12 @@ describe('Swagger documentation integrity', () => {
       '/auth/reset-password',
       '/products',
       '/products/{id}',
+      '/payments/notify',
     ];
     const protectedPaths = [
+      '/payments/{paymentId}/recovery',
+      '/payments/{paymentId}/retrieval-evidence',
+      '/payments/{paymentId}/refunds',
       '/profile/me',
       '/admin/staff',
       '/inventory',
@@ -117,6 +160,8 @@ describe('Swagger documentation integrity', () => {
       '/orders',
       '/orders/{id}',
       '/orders/{id}/status',
+      '/payments/initiate',
+      '/orders/{orderId}/payment-status',
       '/appointments/providers',
       '/doctor-sessions/available',
       '/doctor-sessions',
@@ -307,6 +352,48 @@ describe('Swagger documentation integrity', () => {
       'id',
       'name',
       'phone',
+    ]);
+  });
+
+  it('documents BRANCH_MANAGER-only monitoring, bounded pagination and explicit financial DTOs', () => {
+    for (const path of ['/payments', '/payments/{paymentId}', '/payments/{paymentId}/events']) {
+      const operation = swaggerSpec.paths[path].get;
+      expect(operation.description).toMatch(/BRANCH_MANAGER only/);
+      expect(operation.security).toEqual([{ bearerAuth: [] }]);
+      expect(operation.responses).toEqual(
+        expect.objectContaining({
+          200: expect.any(Object),
+          401: expect.any(Object),
+          403: expect.any(Object),
+          422: expect.any(Object),
+          500: expect.any(Object),
+        })
+      );
+    }
+    expect(swaggerSpec.components.parameters.PaymentMonitoringPage.schema).toMatchObject({
+      minimum: 1,
+      maximum: 10000,
+      default: 1,
+    });
+    expect(swaggerSpec.components.parameters.PaymentMonitoringLimit.schema).toMatchObject({
+      minimum: 1,
+      maximum: 100,
+      default: 25,
+    });
+    for (const name of ['ManagementPayment', 'ManagementPaymentEvent']) {
+      const schema = swaggerSpec.components.schemas[name];
+      expect(schema.additionalProperties).toBe(false);
+      expect(schema.properties.providerTransactionId).toBeDefined();
+      for (const field of ['merchantSecret', 'md5sig', 'eventKey', 'rawPayload', 'card_no', '__v'])
+        expect(schema.properties).not.toHaveProperty(field);
+    }
+    expect(
+      swaggerSpec.components.schemas.ManagementPayment.properties.reconciliationRequired
+    ).toEqual({ type: 'boolean' });
+    expect(swaggerSpec.components.schemas.ManagementPaymentEvent.properties.action.enum).toEqual([
+      'applied',
+      'duplicate',
+      'reconciliation_required',
     ]);
   });
 

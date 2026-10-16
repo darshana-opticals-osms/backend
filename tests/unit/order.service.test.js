@@ -45,6 +45,16 @@ jest.mock('../../src/models/orderItem.model', () => ({
 jest.mock('../../src/models/customer.model', () => ({
   findById: jest.fn(),
 }));
+jest.mock('../../src/models/payment.model', () => ({
+  exists: jest.fn(),
+  findOne: jest.fn(),
+}));
+jest.mock('../../src/models/loyaltyTransaction.model', () => ({
+  init: jest.fn().mockResolvedValue(undefined),
+}));
+jest.mock('../../src/services/loyalty.service', () => ({
+  earnPurchasePoints: jest.fn().mockResolvedValue({}),
+}));
 jest.mock('../../src/services/notification.service', () => ({
   sendOrderCancellationNotification: jest.fn().mockResolvedValue({ delivered: true }),
 }));
@@ -52,6 +62,7 @@ jest.mock('../../src/services/notification.service', () => ({
 const Order = require('../../src/models/order.model');
 const OrderItem = require('../../src/models/orderItem.model');
 const Customer = require('../../src/models/customer.model');
+const Payment = require('../../src/models/payment.model');
 const { sendOrderCancellationNotification } = require('../../src/services/notification.service');
 
 // ─── Test Fixtures ─────────────────────────────────────────────────────────────
@@ -216,6 +227,7 @@ describe('shapeOrderSummary()', () => {
 describe('getCustomerOrders()', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    Payment.exists.mockResolvedValue({ _id: new mongoose.Types.ObjectId() });
   });
 
   it('returns shaped orders for the authenticated customer (AC1)', async () => {
@@ -544,6 +556,7 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
         {
           _id: ORDER_ID_STR,
           status: ORDER_STATUS_VALUES.ORDER_CREATED,
+          statusUpdatedAt: now,
         },
         expect.objectContaining({
           $set: {
@@ -597,6 +610,11 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
     });
 
     it('successfully transitions PICKED_UP -> COMPLETED', async () => {
+      const session = { withTransaction: async (work) => work(), endSession: jest.fn() };
+      const startSession = jest.spyOn(mongoose, 'startSession').mockResolvedValue(session);
+      require('../../src/models/payment.model').findOne.mockReturnValue({
+        session: () => ({ lean: async () => ({ _id: new mongoose.Types.ObjectId() }) }),
+      });
       const order = makeMockOrderDoc(ORDER_STATUS_VALUES.PICKED_UP);
       Order.findById.mockResolvedValue(order);
       OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) });
@@ -609,6 +627,11 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
 
       expect(Order.findOneAndUpdate).toHaveBeenCalledTimes(1);
       expect(result.status).toBe(ORDER_STATUS_VALUES.COMPLETED);
+      expect(require('../../src/services/loyalty.service').earnPurchasePoints).toHaveBeenCalledWith(
+        expect.objectContaining({ session })
+      );
+      expect(session.endSession).toHaveBeenCalledTimes(1);
+      startSession.mockRestore();
     });
   });
 
@@ -631,6 +654,7 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
         {
           _id: ORDER_ID_STR,
           status: ORDER_STATUS_VALUES.ORDER_CREATED,
+          statusUpdatedAt: now,
         },
         expect.any(Object),
         { new: true, runValidators: true }
@@ -640,7 +664,7 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
 
   describe('Cancellation Notification Integration (ADR-004 §17)', () => {
     it('dispatches cancellation email when transition is CANCELLED', async () => {
-      const order = makeMockOrderDoc(ORDER_STATUS_VALUES.ORDER_CREATED);
+      const order = makeMockOrderDoc(ORDER_STATUS_VALUES.PROCESSING);
       Order.findById.mockResolvedValue(order);
       Customer.findById.mockReturnValue({
         lean: jest.fn().mockResolvedValue({

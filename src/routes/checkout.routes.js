@@ -46,7 +46,7 @@ const router = express.Router();
  * /checkout:
  *   post:
  *     summary: Securely check out the authenticated customer's persisted Cart
- *     description: CUSTOMER-only. Creates an Order from the backend Cart, validates current Inventory and prices, deducts stock, and deletes the Cart atomically. The request must not contain order, price, stock, total, or ownership data.
+ *     description: CUSTOMER-only. Creates an Order from the backend Cart, validates current Inventory and prices, deducts stock, and deletes the Cart atomically. The request must not contain order, price, stock, total, or ownership data. After automatic unpaid reservation expiry restores selections to the Cart, checkout creates a distinct new Order with its own 30-minute reservation using current prices and available stock. It never reactivates the expired Order or reuses its payment attempt.
  *     tags: [Checkout]
  *     security:
  *       - bearerAuth: []

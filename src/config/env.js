@@ -20,6 +20,16 @@ function loadConfig(overrides = {}) {
     CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME || '',
     CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY || '',
     CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET || '',
+    PAYMENT_CURRENCY: process.env.PAYMENT_CURRENCY || 'LKR',
+    PAYHERE_MODE: process.env.PAYHERE_MODE || 'sandbox',
+    PAYHERE_MERCHANT_ID: process.env.PAYHERE_MERCHANT_ID || '',
+    PAYHERE_MERCHANT_SECRET: process.env.PAYHERE_MERCHANT_SECRET || '',
+    PAYHERE_RETURN_URL: process.env.PAYHERE_RETURN_URL || '',
+    PAYHERE_CANCEL_URL: process.env.PAYHERE_CANCEL_URL || '',
+    PAYHERE_NOTIFY_URL: process.env.PAYHERE_NOTIFY_URL || '',
+    PAYHERE_API_APP_ID: process.env.PAYHERE_API_APP_ID || '',
+    PAYHERE_API_APP_SECRET: process.env.PAYHERE_API_APP_SECRET || '',
+    PAYHERE_RETRIEVAL_TIMEOUT_MS: process.env.PAYHERE_RETRIEVAL_TIMEOUT_MS || '8000',
   };
 
   Object.assign(env, overrides);
@@ -46,6 +56,38 @@ function loadConfig(overrides = {}) {
     );
   }
 
+  if (env.PAYMENT_CURRENCY !== 'LKR') {
+    errors.push('PAYMENT_CURRENCY must be LKR.');
+  }
+
+  if (
+    !/^\d+$/.test(String(env.PAYHERE_RETRIEVAL_TIMEOUT_MS)) ||
+    Number(env.PAYHERE_RETRIEVAL_TIMEOUT_MS) < 1000 ||
+    Number(env.PAYHERE_RETRIEVAL_TIMEOUT_MS) > 30000
+  ) {
+    errors.push('PAYHERE_RETRIEVAL_TIMEOUT_MS must be an integer from 1000 to 30000.');
+  }
+
+  if (!['sandbox', 'live'].includes(env.PAYHERE_MODE)) {
+    errors.push('PAYHERE_MODE must be one of: sandbox, live.');
+  }
+
+  if (env.PAYHERE_MODE === 'live' && env.NODE_ENV !== 'production') {
+    errors.push('PAYHERE_MODE=live is permitted only when NODE_ENV=production.');
+  }
+
+  if (env.PAYHERE_MODE === 'live') {
+    for (const key of [
+      'PAYHERE_MERCHANT_ID',
+      'PAYHERE_MERCHANT_SECRET',
+      'PAYHERE_RETURN_URL',
+      'PAYHERE_CANCEL_URL',
+      'PAYHERE_NOTIFY_URL',
+    ]) {
+      if (!env[key]) errors.push(`${key} is required in PayHere live mode.`);
+    }
+  }
+
   if (errors.length > 0) {
     const message = `Configuration validation failed: ${errors.join(' ')}`;
     throw new Error(message);
@@ -63,6 +105,20 @@ function loadConfig(overrides = {}) {
     cloudinaryCloudName: env.CLOUDINARY_CLOUD_NAME || undefined,
     cloudinaryApiKey: env.CLOUDINARY_API_KEY || undefined,
     cloudinaryApiSecret: env.CLOUDINARY_API_SECRET || undefined,
+    paymentCurrency: env.PAYMENT_CURRENCY,
+    payhereMode: env.PAYHERE_MODE,
+    payhereMerchantId: env.PAYHERE_MERCHANT_ID || undefined,
+    payhereMerchantSecret: env.PAYHERE_MERCHANT_SECRET || undefined,
+    payhereReturnUrl: env.PAYHERE_RETURN_URL || undefined,
+    payhereCancelUrl: env.PAYHERE_CANCEL_URL || undefined,
+    payhereNotifyUrl: env.PAYHERE_NOTIFY_URL || undefined,
+    payhereApiAppId: env.PAYHERE_API_APP_ID || undefined,
+    payhereApiAppSecret: env.PAYHERE_API_APP_SECRET || undefined,
+    payhereRetrievalTimeoutMs: Number(env.PAYHERE_RETRIEVAL_TIMEOUT_MS),
+    payhereCheckoutUrl:
+      env.PAYHERE_MODE === 'live'
+        ? 'https://www.payhere.lk/pay/checkout'
+        : 'https://sandbox.payhere.lk/pay/checkout',
   };
 }
 
