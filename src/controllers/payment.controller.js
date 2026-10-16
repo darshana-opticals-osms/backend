@@ -1,4 +1,5 @@
 const catchAsync = require('../utils/catchAsync');
+const auditService = require('../services/audit.service');
 const { ValidationError } = require('../errors/AppError');
 const {
   initiatePayment: initiatePaymentService,
@@ -38,10 +39,21 @@ const recordManualFullRefund = catchAsync(async (req, res) => {
 });
 
 const initiatePayment = catchAsync(async (req, res) => {
+  const authUser = req.auth || req.user || {};
+  const actor =
+    authUser.userId || authUser.id || authUser._id
+      ? auditService.buildUserActor({
+          userId: authUser.userId || authUser.id || authUser._id,
+          role: authUser.role || 'CUSTOMER',
+        })
+      : null;
+  const correlationId = req.headers ? req.headers['x-correlation-id'] : null;
+
   const result = await initiatePaymentService({
     customerId: req.auth.userId,
     orderId: req.body.orderId,
     billingInput: req.body,
+    auditContext: { actor, correlationId },
   });
   return res.status(201).json({ success: true, data: result });
 });
