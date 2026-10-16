@@ -146,12 +146,13 @@ are retained; expiry creates no fabricated provider event.
 An initiation request after the original deadline closes stale local attempts but
 returns `409 ORDER_PAYMENT_EXPIRED` without a new checkout. Once the sweep has
 cancelled that Order, initiation returns `409 ORDER_NOT_PAYABLE` instead; neither
-response permits retry on that expired Order. ADR-011 section 8
-requires an unexpired Order; section 12 also describes a fresh attempt after the
-same 30-minute timeout. Retrying that expired Order needs clarification of this
-contradiction; no extension or stock re-reservation is inferred. A signed failure
-or cancellation before the deadline permits a distinct attempt within the remaining
-original reservation window. Browser navigation alone never cancels a Payment.
+response permits retry on that expired Order. The team-approved ADR-011 amendment
+in [Documents PR #38](https://github.com/darshana-opticals-osms/documents/pull/38)
+requires a fresh checkout and new Order after genuine expiry; checkout revalidates
+current prices, quantities and Inventory without extending or re-reserving the old
+Order. A signed failure or cancellation before the deadline permits a distinct
+Payment attempt within the remaining original reservation window. Browser navigation
+alone never cancels a Payment.
 
 Missing OrderItem inventory references, deleted Inventory, invalid stock quantities,
 or empty item lists block the entire restoration and are reported by the scheduler
@@ -190,11 +191,10 @@ Payment must target the new Order. The old Order/Payment history remains intact;
 a late verified success remains reconciliation evidence and does not revive the
 old Order, deduct stock again or remove recovered Cart selections.
 
-This requested automatic Cart recovery policy is proposed for team/reviewer
-acceptance: ADR-003 defines Cart ownership, minimal selections and checkout
-revalidation, and ADR-011 defines unpaid expiry, but neither explicitly specifies
-this post-expiry recovery. Accepted ADRs are unchanged. The separate ADR-011
-sections 8/12 ambiguity about retrying the expired Order is not resolved here.
+Automatic Cart recovery is a team-approved business rule documented in ADR-003,
+"Automatic Cart Recovery After Eligible Unpaid Order Expiry." The amendment was
+approved and merged in [Documents PR #38](https://github.com/darshana-opticals-osms/documents/pull/38),
+and the implementation above follows that approved rule.
 
 ### PayHere callback and availability contracts
 
@@ -347,10 +347,10 @@ replacement charge or manual financial mutation was used for this review.
 
 Real hosted failed/cancelled flows, Order COMPLETED loyalty earning and an
 externally confirmed manual full-refund/reversal remain unverified end to end.
-Automated tests do not replace those checks. The ADR-011 sections 8/12 expiry/retry
-contradiction and section 13 earning-trigger discrepancy with ADR-005 section 14
-remain documented; earning follows successful Payment **and Order COMPLETED**.
-Accepted ADRs have not been edited.
+Automated tests do not replace those checks. Documents PR #38 resolved the ADR-011
+sections 8/12 expiry/retry boundary. The section 13 earning-trigger discrepancy with
+ADR-005 section 14 remains documented; earning follows successful Payment **and Order
+COMPLETED**. No ADR is edited in this backend repository.
 
 PR #80 closes payment issue #53 and only partially implements loyalty issue #54.
 The shared loyalty core/refund-reversal prerequisites remain included; #54 stays
