@@ -508,6 +508,11 @@ async function query({
     filter.occurredAt = {};
     if (parsedFrom) filter.occurredAt.$gte = parsedFrom;
     if (parsedTo) filter.occurredAt.$lte = parsedTo;
+  } else {
+    // If both fromDate and toDate are omitted, default fromDate to 90 days ago (ADR-012 §14.3)
+    const MAX_RANGE_MS = AUDIT_QUERY_MAX_RANGE_DAYS * 24 * 60 * 60 * 1000;
+    const defaultFrom = new Date(Date.now() - MAX_RANGE_MS);
+    filter.occurredAt = { $gte: defaultFrom };
   }
 
   // Bounded pagination (AC57).

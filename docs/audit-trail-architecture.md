@@ -51,9 +51,17 @@ $$\text{eventHash} = \text{SHA256}(\text{prevEventHash} + \text{payloadString})$
 
 ## 3. Database-Level Role Segregation (`auditAppendOnly`)
 
-In production and staging deployments, the OSMS application service authenticates with a MongoDB role restricted to append-only privileges for the `auditevents` collection.
+### 3.1 Operational Enforcement: Production vs. Local/Test Environments
 
-### Provisioning the Role
+Immutability enforcement is partitioned across operational contexts to ensure uncompromising defense in depth while maintaining developer velocity and test isolation:
+
+- **Production and Staging Environments (Engine-Level Enforcement)**:
+  The OSMS application service connects to MongoDB using a dedicated database user (`osms_app_user`) provisioned with the custom `auditAppendOnly` role. This grants solely `insert` and `find` privileges on the `auditevents` collection. At the MongoDB database engine level, any `update`, `delete`, `dropCollection`, or `dropDatabase` commands are rejected outright with an authorization error—guaranteeing immutability even in the catastrophic event of application code vulnerability or root administrative session misuse.
+
+- **Local Development and Automated CI/Test Environments (Middleware Enforcement)**:
+  In ephemeral or local test instances (e.g. `MongoMemoryServer` running in single-node/replica-set mode without pre-configured administrative role infrastructure), immutability is deterministically enforced by Mongoose schema pre-hooks (`src/models/auditEvent.model.js`). These hooks intercept mutation and removal operations (`updateOne`, `updateMany`, `findOneAndUpdate`, `deleteOne`, `deleteMany`, `findOneAndDelete`, and document `.save()`) and abort them by throwing an immutable validation error.
+
+### 3.2 Provisioning the Role
 
 Execute the provisioning script:
 
@@ -102,11 +110,20 @@ Under SDS Section 6.3 and healthcare compliance guidelines, clinical prescriptio
 +-------------------+--------------------+------------------------------------+
 ```
 
-### Key Archival Requirements
+### 4.1 Phase 1 vs. Phase 2 Implementation Scope
 
-1. **No TTL Indexes**: The `auditevents` collection strictly prohibits MongoDB `expireAfterSeconds` TTL indexes. Records are never deleted automatically.
-2. **Scheduled Cold Export**: A scheduled worker compresses events older than 3 years into NDJSON/Parquet format, computes cryptographic manifest checksums, and uploads archives to immutable cloud object storage.
-3. **Retention Lock**: Cloud storage policies enforce WORM compliance preventing premature deletion or overwriting even by root/admin accounts until the 7-year retention period lapses.
+To maintain high software delivery rigor, the 7-year retention lifecycle is phased as approved in ADR-012:
+
+- **Phase 1 (In Scope — Implemented in PR #85)**:
+  - Append-only MongoDB storage model with database-level `auditAppendOnly` role and Mongoose schema mutation guards.
+  - Linear SHA-256 cryptographic hash chaining (`prevEventHash` linking to previous event digest) with zero branching under concurrency.
+  - Automated cryptographic integrity verification utility (`auditService.verifyIntegrityChain()`).
+  - Strict prohibition of TTL indexes (`expireAfterSeconds` is prohibited to prevent automated deletion).
+  - Bounded 90-day query API restricted to `SYSTEM_ADMIN` with meta-auditing (`AUDIT_TRAIL_ACCESSED`) and automatic 90-day fallback bounding when dates are omitted.
+- **Phase 2 (Deferred Roadmap — Post-Launch Operational Milestones)**:
+  - Scheduled batch archival worker activating when historical records exceed the 3-year threshold.
+  - Automated conversion and cryptographic compression to NDJSON/Parquet archives with SHA-256 manifest signing.
+  - Automated transmission to cloud object storage with WORM lock (e.g. AWS S3 Glacier with Object Lock in Compliance Mode or Google Cloud Storage Bucket Lock) enforcing the remaining 4+ years of the 7-year regulatory hold.
 
 ---
 
@@ -137,3 +154,4 @@ Under SDS Section 6.3 and healthcare compliance guidelines, clinical prescriptio
 - Access to the audit query endpoint (`GET /api/audit-events`) is restricted strictly to the **`SYSTEM_ADMIN`** role.
 - Every audit retrieval request is subject to meta-auditing: an `AUDIT_TRAIL_ACCESSED` event is automatically persisted recording the querying administrator, filter criteria, and record counts.
 - Date range filtering is bounded to a maximum of **90 days** per query to prevent uncontrolled database load.
+- When `fromDate` and `toDate` are omitted, `fromDate` defaults to 90 days ago, guaranteeing that unbounded table scans cannot occur by default.

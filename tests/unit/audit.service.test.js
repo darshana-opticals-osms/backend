@@ -9,6 +9,7 @@ const {
   AUDIT_SOURCE,
   AUDIT_SCHEMA_VERSION,
   AUDIT_PAGE_SIZE_MAX,
+  AUDIT_QUERY_MAX_RANGE_DAYS,
 } = require('../../src/constants/audit');
 
 describe('auditService (Unit Tests)', () => {
@@ -461,6 +462,33 @@ describe('auditService (Unit Tests)', () => {
       await expect(auditService.query({ fromDate: past100Days })).rejects.toThrow(
         /date range exceeds maximum allowed limit of 90 days/
       );
+    });
+
+    it('should default fromDate to 90 days ago when both fromDate and toDate are omitted (ADR-012 §14.3)', async () => {
+      const leanMock = jest.fn().mockResolvedValue([]);
+      const limitMock = jest.fn().mockReturnValue({ lean: leanMock });
+      const skipMock = jest.fn().mockReturnValue({ limit: limitMock });
+      const sortMock = jest.fn().mockReturnValue({ skip: skipMock });
+      const findSpy = jest.spyOn(AuditEvent, 'find').mockReturnValue({ sort: sortMock });
+      jest.spyOn(AuditEvent, 'countDocuments').mockResolvedValue(0);
+
+      const before = Date.now();
+      await auditService.query({});
+      const after = Date.now();
+
+      expect(findSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          occurredAt: {
+            $gte: expect.any(Date),
+          },
+        })
+      );
+      const callArg = findSpy.mock.calls[0][0];
+      const gteTime = callArg.occurredAt.$gte.getTime();
+      const expectedMin = before - AUDIT_QUERY_MAX_RANGE_DAYS * 24 * 60 * 60 * 1000;
+      const expectedMax = after - AUDIT_QUERY_MAX_RANGE_DAYS * 24 * 60 * 60 * 1000;
+      expect(gteTime).toBeGreaterThanOrEqual(expectedMin - 1000);
+      expect(gteTime).toBeLessThanOrEqual(expectedMax + 1000);
     });
   });
 
