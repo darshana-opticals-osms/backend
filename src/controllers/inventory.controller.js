@@ -60,7 +60,17 @@ const getInventoryByBranch = catchAsync(async (req, res) => {
 });
 
 const updateInventoryItem = catchAsync(async (req, res) => {
-  const inventory = await updateInventory(req.params.id, req.body);
+  const authUser = req.user || req.auth;
+  const actor =
+    authUser && (authUser.userId || authUser.id || authUser._id)
+      ? auditService.buildUserActor({
+          userId: authUser.userId || authUser.id || authUser._id,
+          role: authUser.role,
+        })
+      : null;
+  const correlationId = req.headers ? req.headers['x-correlation-id'] : null;
+
+  const inventory = await updateInventory(req.params.id, req.body, { actor, correlationId });
 
   return res.status(200).json({
     success: true,

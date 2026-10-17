@@ -313,7 +313,7 @@ async function getBranchInventory(branchId) {
   return Inventory.find({ branchId });
 }
 
-async function updateInventory(inventoryId, inventoryInput = {}) {
+async function updateInventory(inventoryId, inventoryInput = {}, auditContext = null) {
   validateInventoryId(inventoryId);
 
   if (
@@ -341,8 +341,9 @@ async function updateInventory(inventoryId, inventoryInput = {}) {
   const isImageMutation =
     Object.prototype.hasOwnProperty.call(inventoryInput, 'imageUrl') ||
     Object.prototype.hasOwnProperty.call(inventoryInput, 'imagePublicId');
+  const isPriceMutation = Object.prototype.hasOwnProperty.call(inventoryInput, 'price');
 
-  if (isImageMutation) {
+  if (isImageMutation || isPriceMutation) {
     existingInventory = await Inventory.findById(inventoryId);
     if (!existingInventory) {
       throw new NotFoundError('Inventory item not found.');
@@ -399,6 +400,33 @@ async function updateInventory(inventoryId, inventoryInput = {}) {
           );
         }
 
+        if (
+          isPriceMutation &&
+          existingInventory &&
+          Number(existingInventory.price) !== Number(inventoryInput.price) &&
+          auditContext &&
+          (auditContext.actor || auditContext.user)
+        ) {
+          const actor = auditContext.actor || auditService.buildUserActor(auditContext.user);
+          await auditService.record({
+            action: AUDIT_ACTION.INVENTORY_PRICE_UPDATED,
+            actor,
+            target: {
+              targetType: AUDIT_TARGET_TYPE.INVENTORY,
+              targetId: updated._id.toString(),
+            },
+            branchId: updated.branchId ? updated.branchId.toString() : null,
+            outcome: AUDIT_OUTCOME.SUCCESS,
+            correlationId: auditContext.correlationId || null,
+            metadata: {
+              previousPrice: Number(existingInventory.price),
+              newPrice: Number(inventoryInput.price),
+              priceDelta: Number(inventoryInput.price) - Number(existingInventory.price),
+            },
+            session,
+          });
+        }
+
         return updated;
       },
       async () => {
@@ -433,6 +461,33 @@ async function updateInventory(inventoryId, inventoryInput = {}) {
               { $set: { status: IMAGE_UPLOAD_STATUS.ATTACHED, inventoryId: updated._id } }
             );
           }
+
+          if (
+            isPriceMutation &&
+            existingInventory &&
+            Number(existingInventory.price) !== Number(inventoryInput.price) &&
+            auditContext &&
+            (auditContext.actor || auditContext.user)
+          ) {
+            const actor = auditContext.actor || auditService.buildUserActor(auditContext.user);
+            await auditService.record({
+              action: AUDIT_ACTION.INVENTORY_PRICE_UPDATED,
+              actor,
+              target: {
+                targetType: AUDIT_TARGET_TYPE.INVENTORY,
+                targetId: updated._id.toString(),
+              },
+              branchId: updated.branchId ? updated.branchId.toString() : null,
+              outcome: AUDIT_OUTCOME.SUCCESS,
+              correlationId: auditContext.correlationId || null,
+              metadata: {
+                previousPrice: Number(existingInventory.price),
+                newPrice: Number(inventoryInput.price),
+                priceDelta: Number(inventoryInput.price) - Number(existingInventory.price),
+              },
+            });
+          }
+
           return updated;
         } catch (trackingError) {
           if (isImageMutation && existingInventory) {

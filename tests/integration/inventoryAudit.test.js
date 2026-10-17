@@ -273,4 +273,46 @@ describe('Inventory Operations - Audit Trail Integration (ADR-012 / DDP-065)', (
       expect(auditEvent.metadata.newThreshold).toBe(12);
     });
   });
+
+  describe('4. Unit Price Changes (INVENTORY_PRICE_UPDATED)', () => {
+    it('persists an AuditEvent with price delta metadata when price is updated via API (ADR-012 §5.1)', async () => {
+      const managerId = new mongoose.Types.ObjectId().toString();
+      const token = createToken({
+        userId: managerId,
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branch._id.toString(),
+      });
+
+      const item = await createInventoryItem(branch._id, { price: 15000 });
+
+      const response = await request(app)
+        .patch(`/api/inventory/${item._id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ price: 17500 });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.price).toBe(17500);
+
+      const auditEvent = await AuditEvent.findOne({
+        action: AUDIT_ACTION.INVENTORY_PRICE_UPDATED,
+        targetId: item._id.toString(),
+      });
+
+      expect(auditEvent).not.toBeNull();
+      expect(auditEvent.action).toBe(AUDIT_ACTION.INVENTORY_PRICE_UPDATED);
+      expect(auditEvent.actorType).toBe(AUDIT_ACTOR_TYPE.USER);
+      expect(auditEvent.actorId).toBe(managerId);
+      expect(auditEvent.actorRole).toBe(ROLE_VALUES.BRANCH_MANAGER);
+      expect(auditEvent.targetType).toBe(AUDIT_TARGET_TYPE.INVENTORY);
+      expect(auditEvent.targetId).toBe(item._id.toString());
+      expect(auditEvent.branchId).toBe(branch._id.toString());
+      expect(auditEvent.outcome).toBe(AUDIT_OUTCOME.SUCCESS);
+      expect(auditEvent.metadata).toEqual({
+        previousPrice: 15000,
+        newPrice: 17500,
+        priceDelta: 2500,
+      });
+    });
+  });
 });

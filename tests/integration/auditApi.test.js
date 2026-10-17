@@ -133,6 +133,29 @@ describe('Audit Events Retrieval API (GET /api/audit-events) - ADR-012 AC53-AC58
       });
     });
 
+    it('records an AUDIT_TRAIL_ACCESSED meta-audit event when audit events are retrieved (ADR-012 §14.2)', async () => {
+      await seedSampleEvents();
+      const adminToken = createToken({
+        userId: '507f1f77bcf86cd799439011',
+        role: ROLE_VALUES.SYSTEM_ADMIN,
+      });
+
+      const response = await request(app)
+        .get('/api/audit-events')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(response.status).toBe(200);
+
+      const metaEvent = await AuditEvent.findOne({
+        action: AUDIT_ACTION.AUDIT_TRAIL_ACCESSED,
+      });
+      expect(metaEvent).not.toBeNull();
+      expect(metaEvent.actorId).toBe('507f1f77bcf86cd799439011');
+      expect(metaEvent.actorRole).toBe(ROLE_VALUES.SYSTEM_ADMIN);
+      expect(metaEvent.targetType).toBe(AUDIT_TARGET_TYPE.AUDIT_LOG);
+      expect(metaEvent.targetId).toBe('AUDIT_TRAIL');
+    });
+
     it('forbids BRANCH_MANAGER from retrieving audit events (Admin-only restriction)', async () => {
       const managerToken = createToken({ role: ROLE_VALUES.BRANCH_MANAGER });
 

@@ -23,38 +23,65 @@ const AUDIT_ACTION = Object.freeze({
   // ── Inventory ──────────────────────────────────────────────────────────────
   /** An authorised staff member manually changed an inventory item's quantity. */
   INVENTORY_QUANTITY_ADJUSTED: 'INVENTORY_QUANTITY_ADJUSTED',
+  INVENTORY_STOCK_MANUAL_INCREASE: 'INVENTORY_STOCK_MANUAL_INCREASE',
+  INVENTORY_STOCK_MANUAL_DECREASE: 'INVENTORY_STOCK_MANUAL_DECREASE',
 
   /** The checkout workflow deducted stock for a confirmed order. */
   INVENTORY_CHECKOUT_STOCK_DEDUCTED: 'INVENTORY_CHECKOUT_STOCK_DEDUCTED',
+  INVENTORY_STOCK_CHECKOUT_DEDUCT: 'INVENTORY_STOCK_CHECKOUT_DEDUCT',
+  INVENTORY_STOCK_RESERVATION_RELEASE: 'INVENTORY_STOCK_RESERVATION_RELEASE',
+
+  /** An authorised staff member updated an inventory item's retail unit price (ADR-012 §5.1). */
+  INVENTORY_PRICE_UPDATED: 'INVENTORY_PRICE_UPDATED',
 
   /** An authorised manager changed an item's reorder threshold / configuration. */
   INVENTORY_REORDER_CONFIG_CHANGED: 'INVENTORY_REORDER_CONFIG_CHANGED',
+  INVENTORY_REORDER_THRESHOLD_UPDATED: 'INVENTORY_REORDER_THRESHOLD_UPDATED',
 
   // ── Payment / Financial ────────────────────────────────────────────────────
   /** A payment initiation (checkout session) was successfully created. */
   PAYMENT_INITIATED: 'PAYMENT_INITIATED',
+  PAYMENT_SESSION_INITIATED: 'PAYMENT_SESSION_INITIATED',
 
   /** A payment moved from one canonical status to another. */
   PAYMENT_STATUS_CHANGED: 'PAYMENT_STATUS_CHANGED',
 
   /** A verified provider (PayHere) callback was received and processed. */
   PAYMENT_PROVIDER_CALLBACK_VERIFIED: 'PAYMENT_PROVIDER_CALLBACK_VERIFIED',
+  PAYMENT_IPN_VERIFIED: 'PAYMENT_IPN_VERIFIED',
 
   /** A payment reached the COMPLETED terminal status. */
   PAYMENT_COMPLETED: 'PAYMENT_COMPLETED',
+  PAYMENT_TRANSACTION_COMPLETED: 'PAYMENT_TRANSACTION_COMPLETED',
 
   /** A payment reached the FAILED terminal status. */
   PAYMENT_FAILED: 'PAYMENT_FAILED',
+  PAYMENT_TRANSACTION_FAILED: 'PAYMENT_TRANSACTION_FAILED',
 
   /** A payment was cancelled. */
   PAYMENT_CANCELLED: 'PAYMENT_CANCELLED',
+  PAYMENT_TRANSACTION_CANCELLED: 'PAYMENT_TRANSACTION_CANCELLED',
 
-  /** A refund / reversal was processed (only if ADR-009 supports it). */
+  /** A refund / reversal was processed. */
   PAYMENT_REFUNDED: 'PAYMENT_REFUNDED',
+  PAYMENT_TRANSACTION_REFUNDED: 'PAYMENT_TRANSACTION_REFUNDED',
 
   // ── Clinical / Prescription ────────────────────────────────────────────────
   /** An authorised optometrist recorded a new clinical prescription. */
   PRESCRIPTION_RECORDED: 'PRESCRIPTION_RECORDED',
+  PRESCRIPTION_RECORD_CREATED: 'PRESCRIPTION_RECORD_CREATED',
+  PRESCRIPTION_RECORD_ARCHIVED: 'PRESCRIPTION_RECORD_ARCHIVED',
+
+  // ── Security / Admin ───────────────────────────────────────────────────────
+  STAFF_USER_PROVISIONED: 'STAFF_USER_PROVISIONED',
+  USER_ROLE_PERMISSIONS_MODIFIED: 'USER_ROLE_PERMISSIONS_MODIFIED',
+  USER_ACCOUNT_STATUS_TOGGLED: 'USER_ACCOUNT_STATUS_TOGGLED',
+
+  // ── Loyalty ────────────────────────────────────────────────────────────────
+  LOYALTY_POINTS_MANUALLY_ADJUSTED: 'LOYALTY_POINTS_MANUALLY_ADJUSTED',
+
+  // ── Audit Access (Meta-Auditing per ADR-012 §14.2) ─────────────────────────
+  AUDIT_TRAIL_ACCESSED: 'AUDIT_TRAIL_ACCESSED',
 });
 
 /** Flat array of all permitted action type strings — used for Mongoose enum validation. */
@@ -88,6 +115,9 @@ const AUDIT_TARGET_TYPE = Object.freeze({
   ORDER: 'ORDER',
   PRESCRIPTION: 'PRESCRIPTION',
   LOYALTY_TRANSACTION: 'LOYALTY_TRANSACTION',
+  USER: 'USER',
+  LOYALTY: 'LOYALTY',
+  AUDIT_LOG: 'AUDIT_LOG',
 });
 
 const AUDIT_TARGET_TYPE_VALUES = Object.freeze(Object.values(AUDIT_TARGET_TYPE));
