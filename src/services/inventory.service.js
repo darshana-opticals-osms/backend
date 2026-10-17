@@ -493,7 +493,7 @@ async function updateInventory(inventoryId, inventoryInput = {}, auditContext = 
 
           return updated;
         } catch (trackingError) {
-          if (isImageMutation && existingInventory) {
+          if ((isImageMutation || isPriceMutation) && existingInventory) {
             await Inventory.findByIdAndUpdate(
               inventoryId,
               { $set: originalValues },

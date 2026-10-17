@@ -8,6 +8,7 @@ const Inventory = require('../../src/models/inventory.model');
 const ReorderAlert = require('../../src/models/reorderAlert.model');
 const InventoryConfig = require('../../src/models/inventoryConfig.model');
 const AuditEvent = require('../../src/models/auditEvent.model');
+const auditService = require('../../src/services/audit.service');
 const inventoryService = require('../../src/services/inventory.service');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 const {
@@ -313,6 +314,48 @@ describe('Inventory Operations - Audit Trail Integration (ADR-012 / DDP-065)', (
         newPrice: 17500,
         priceDelta: 2500,
       });
+    });
+
+    it('restores original price when audit persistence fails in standalone recovery mode (fail-closed)', async () => {
+      const managerId = new mongoose.Types.ObjectId().toString();
+      const token = createToken({
+        userId: managerId,
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branch._id.toString(),
+      });
+
+      const item = await createInventoryItem(branch._id, { price: 15000 });
+
+      // Force standalone fallback by throwing unsupported transaction error on startSession
+      const startSessionSpy = jest
+        .spyOn(mongoose, 'startSession')
+        .mockImplementationOnce(async () => {
+          const error = new Error(
+            'Transaction numbers are only allowed on a replica set member or mongos'
+          );
+          error.name = 'MongoServerError';
+          error.code = 20;
+          throw error;
+        });
+
+      // Inject failure on auditService.record
+      const recordSpy = jest
+        .spyOn(auditService, 'record')
+        .mockRejectedValueOnce(new Error('Simulated standalone inventory price audit failure'));
+
+      const response = await request(app)
+        .patch(`/api/inventory/${item._id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ price: 20000 });
+
+      expect(response.status).toBe(500);
+
+      // Verify fail-closed rollback: Item price must be restored to original 15000
+      const restoredItem = await Inventory.findById(item._id);
+      expect(restoredItem.price).toBe(15000);
+
+      startSessionSpy.mockRestore();
+      recordSpy.mockRestore();
     });
   });
 });
