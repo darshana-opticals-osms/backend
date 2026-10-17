@@ -1,7 +1,6 @@
 const mongoose = require('mongoose');
 const Order = require('../models/order.model');
 const OrderItem = require('../models/orderItem.model');
-const Customer = require('../models/customer.model');
 const Payment = require('../models/payment.model');
 const LoyaltyTransaction = require('../models/loyaltyTransaction.model');
 const { earnPurchasePoints } = require('./loyalty.service');
@@ -15,7 +14,7 @@ const {
   isValidStatusTransition,
   isTerminalStatus,
 } = require('../constants/orderStatuses');
-const { sendOrderCancellationNotification } = require('./notification.service');
+const { domainEvents, ORDER_EVENTS } = require('../utils/domainEvents');
 const { cancelUnpaidReservation } = require('./orderReservation.service');
 const { NotFoundError, ValidationError, ConflictError } = require('../errors/AppError');
 
@@ -362,6 +361,13 @@ async function updateOrderStatus(orderId, requestedStatus, staffUserId) {
     } finally {
       await session.endSession();
     }
+    domainEvents.emit(ORDER_EVENTS.STATUS_CHANGED, {
+      orderId: completed._id,
+      previousStatus,
+      targetStatus: trimmedStatus,
+      orderAmount: completed.orderAmount,
+      customerId: completed.customerId,
+    });
     const items = await OrderItem.find({ orderId }).lean();
     return shapeOrderDetail(completed, items, { isStaff: true });
   }
@@ -421,26 +427,13 @@ async function updateOrderStatus(orderId, requestedStatus, staffUserId) {
     );
   }
 
-  // ADR-004 §17: Automated cancellation notification to customer
-  if (trimmedStatus === ORDER_STATUS_VALUES.CANCELLED) {
-    try {
-      const customer = await Customer.findById(updatedOrder.customerId).lean();
-      if (customer && customer.email) {
-        await sendOrderCancellationNotification({
-          customerEmail: customer.email,
-          customerName: customer.name,
-          orderId: updatedOrder._id.toString(),
-          orderAmount: updatedOrder.orderAmount,
-        });
-      }
-    } catch (notifyErr) {
-      // Non-blocking: status update transaction is not broken if notification fails
-      console.warn(
-        `[OrderService] Non-blocking notification dispatch failure for order ${updatedOrder._id}:`,
-        notifyErr.message
-      );
-    }
-  }
+  domainEvents.emit(ORDER_EVENTS.STATUS_CHANGED, {
+    orderId: updatedOrder._id,
+    previousStatus,
+    targetStatus: trimmedStatus,
+    orderAmount: updatedOrder.orderAmount,
+    customerId: updatedOrder.customerId,
+  });
 
   const items = await OrderItem.find({ orderId: updatedOrder._id }).lean();
   return shapeOrderDetail(updatedOrder, items, { isStaff: true });

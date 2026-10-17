@@ -4,6 +4,7 @@ const { connectDatabase } = require('./config/database');
 const { startReminderScheduler } = require('./jobs/reorderReminder.job');
 const { startImageCleanupScheduler } = require('./jobs/imageCleanup.job');
 const { startReservationExpiryScheduler } = require('./jobs/paymentReservation.job');
+require('./services/orderNotification.service');
 
 async function startServer() {
   const { port } = loadConfig();
