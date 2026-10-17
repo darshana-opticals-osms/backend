@@ -20,13 +20,9 @@ const {
 const {
   createNotificationSignature,
 } = require('../../src/services/adapters/PayHerePaymentAdapter');
-const { sendOrderCancellationNotification } = require('../../src/services/notification.service');
+const { domainEvents, ORDER_EVENTS } = require('../../src/utils/domainEvents');
 const { updateOrderStatus } = require('../../src/services/order.service');
 const swagger = require('../../src/config/swagger');
-
-jest.mock('../../src/services/notification.service', () => ({
-  sendOrderCancellationNotification: jest.fn().mockResolvedValue({ delivered: true }),
-}));
 
 const SECRET = 'cart-expiry-http-test-secret';
 const MERCHANT_SECRET = 'cart-expiry-provider-test-secret';
@@ -66,6 +62,7 @@ describe('Automatic unpaid expiry Cart recovery (isolated HTTP and transactions)
   }, 60000);
   beforeEach(async () => {
     jest.clearAllMocks();
+    jest.spyOn(domainEvents, 'emit');
     await mongoose.connection.db.dropDatabase();
     await Promise.all([
       Cart.createIndexes(),
@@ -303,7 +300,13 @@ describe('Automatic unpaid expiry Cart recovery (isolated HTTP and transactions)
     const before = await snapshot(source);
     expect((await expire(source)).cancelled).toBe(0);
     expect(await snapshot(source)).toEqual(before);
-    expect(sendOrderCancellationNotification).toHaveBeenCalledTimes(1);
+    expect(domainEvents.emit).toHaveBeenCalledWith(
+      ORDER_EVENTS.STATUS_CHANGED,
+      expect.objectContaining({
+        orderId: source.order._id,
+        targetStatus: 'CANCELLED',
+      })
+    );
   });
 
   it.each(['pending', 'processing', 'failed', 'cancelled'])(
@@ -382,7 +385,7 @@ describe('Automatic unpaid expiry Cart recovery (isolated HTTP and transactions)
       });
     expect((await expire(source)).failed).toHaveLength(1);
     expect(await snapshot(source)).toEqual(before);
-    expect(sendOrderCancellationNotification).not.toHaveBeenCalled();
+    expect(domainEvents.emit).not.toHaveBeenCalled();
     spy.mockRestore();
     expect((await expire(source)).cancelled).toBe(1);
     expect((await Cart.findOne({ customerId: source.customer._id })).items).toHaveLength(2);
@@ -399,7 +402,7 @@ describe('Automatic unpaid expiry Cart recovery (isolated HTTP and transactions)
     const result = await expire(source);
     expect(result.failed[0].code).toBe('CART_QUANTITY_OVERFLOW');
     expect(await snapshot(source)).toEqual(before);
-    expect(sendOrderCancellationNotification).not.toHaveBeenCalled();
+    expect(domainEvents.emit).not.toHaveBeenCalled();
   });
 
   it.each(['missing-reference', 'deleted-inventory', 'invalid-quantity'])(
@@ -578,7 +581,13 @@ describe('Automatic unpaid expiry Cart recovery (isolated HTTP and transactions)
     });
     expect((await Inventory.findById(source.inventories[0]._id)).quantity).toBe(8);
     expect((await Order.findById(source.order._id)).statusHistory).toHaveLength(2);
-    expect(sendOrderCancellationNotification).toHaveBeenCalledTimes(1);
+    expect(domainEvents.emit).toHaveBeenCalledWith(
+      ORDER_EVENTS.STATUS_CHANGED,
+      expect.objectContaining({
+        orderId: source.order._id,
+        targetStatus: 'CANCELLED',
+      })
+    );
   });
 
   it('bounds persistent duplicate-key retries and rolls back every attempted recovery', async () => {
@@ -593,7 +602,7 @@ describe('Automatic unpaid expiry Cart recovery (isolated HTTP and transactions)
     expect((await expire(source)).failed).toHaveLength(1);
     expect(spy).toHaveBeenCalledTimes(3);
     expect(await snapshot(source)).toEqual(before);
-    expect(sendOrderCancellationNotification).not.toHaveBeenCalled();
+    expect(domainEvents.emit).not.toHaveBeenCalled();
   });
 
   it('merges two distinct expiring Orders into the same newer Customer Cart', async () => {
@@ -628,7 +637,7 @@ describe('Automatic unpaid expiry Cart recovery (isolated HTTP and transactions)
     });
     for (const item of [source.inventories[0], secondItem, extra])
       expect((await Inventory.findById(item._id)).quantity).toBe(8);
-    expect(sendOrderCancellationNotification).toHaveBeenCalledTimes(2);
+    expect(domainEvents.emit).toHaveBeenCalledTimes(2);
   });
 
   it('serializes expiry against a new Customer checkout without losing or duplicating selections', async () => {

@@ -23,11 +23,7 @@ const {
 const {
   createNotificationSignature,
 } = require('../../src/services/adapters/PayHerePaymentAdapter');
-const { sendOrderCancellationNotification } = require('../../src/services/notification.service');
-
-jest.mock('../../src/services/notification.service', () => ({
-  sendOrderCancellationNotification: jest.fn().mockResolvedValue({ delivered: true }),
-}));
+const { domainEvents, ORDER_EVENTS } = require('../../src/utils/domainEvents');
 
 describe('Order reservation expiry and restoration', () => {
   let server;
@@ -57,6 +53,7 @@ describe('Order reservation expiry and restoration', () => {
   }, 60000);
   beforeEach(async () => {
     jest.clearAllMocks();
+    jest.spyOn(domainEvents, 'emit');
     await mongoose.connection.db.dropDatabase();
     await Promise.all([
       Order.createIndexes(),
@@ -136,15 +133,15 @@ describe('Order reservation expiry and restoration', () => {
     expect(stored.inventoryRestoredAt).toBeNull();
     expect(stored.statusHistory).toHaveLength(1);
     expect((await Inventory.findById(inventory._id)).quantity).toBe(5);
-    expect(sendOrderCancellationNotification).not.toHaveBeenCalled();
+    expect(domainEvents.emit).not.toHaveBeenCalled();
     expect(await Cart.countDocuments({ customerId: order.customerId })).toBe(0);
   }
 
   it('expires unpaid stock exactly once with system history and post-commit notification', async () => {
     const { order, inventory } = await reservation();
-    sendOrderCancellationNotification.mockImplementationOnce(async () => {
-      expect((await Order.findById(order._id)).status).toBe('CANCELLED');
-      expect((await Inventory.findById(inventory._id)).quantity).toBe(7);
+    jest.spyOn(domainEvents, 'emit').mockImplementationOnce((_event, _payload) => {
+      expect(Order.findById(order._id)).resolves.toMatchObject({ status: 'CANCELLED' });
+      expect(Inventory.findById(inventory._id)).resolves.toMatchObject({ quantity: 7 });
     });
     expect((await sweepExpiredReservations({ now })).cancelled).toBe(1);
     expect((await sweepExpiredReservations({ now })).cancelled).toBe(0);
@@ -157,7 +154,13 @@ describe('Order reservation expiry and restoration', () => {
     expect(stored.statusHistory).toHaveLength(2);
     expect(stored.statusHistory[1].source).toBe('RESERVATION_EXPIRY');
     expect(stored.statusHistory[1].changedBy).toBeNull();
-    expect(sendOrderCancellationNotification).toHaveBeenCalledTimes(1);
+    expect(domainEvents.emit).toHaveBeenCalledWith(
+      ORDER_EVENTS.STATUS_CHANGED,
+      expect.objectContaining({
+        orderId: order._id,
+        targetStatus: 'CANCELLED',
+      })
+    );
     expect(await Payment.countDocuments()).toBe(0);
   });
   it.each(['completed', 'refunded'])('holds confirmed financial state %s', async (status) => {
@@ -272,7 +275,13 @@ describe('Order reservation expiry and restoration', () => {
     expect(results.reduce((sum, result) => sum + result.cancelled, 0)).toBe(1);
     expect((await Inventory.findById(inventory._id)).quantity).toBe(7);
     expect((await Order.findById(order._id)).statusHistory).toHaveLength(2);
-    expect(sendOrderCancellationNotification).toHaveBeenCalledTimes(1);
+    expect(domainEvents.emit).toHaveBeenCalledWith(
+      ORDER_EVENTS.STATUS_CHANGED,
+      expect.objectContaining({
+        orderId: order._id,
+        targetStatus: 'CANCELLED',
+      })
+    );
     expect((await Payment.findById(payment._id)).status).toBe('cancelled');
     expect((await Payment.findById(payment._id)).failureReason).toBe('session_expired');
   });
@@ -288,7 +297,13 @@ describe('Order reservation expiry and restoration', () => {
     expect(stored.status).toBe('CANCELLED');
     expect(stored.statusHistory).toHaveLength(2);
     expect((await Inventory.findById(inventory._id)).quantity).toBe(7);
-    expect(sendOrderCancellationNotification).toHaveBeenCalledTimes(1);
+    expect(domainEvents.emit).toHaveBeenCalledWith(
+      ORDER_EVENTS.STATUS_CHANGED,
+      expect.objectContaining({
+        orderId: order._id,
+        targetStatus: 'CANCELLED',
+      })
+    );
     if (stored.statusHistory[1].source === 'USER')
       expect(stored.statusHistory[1].changedBy).toEqual(staffId);
   });
@@ -398,7 +413,9 @@ describe('Order reservation expiry and restoration', () => {
   it('SMTP failure does not undo the committed cancellation', async () => {
     const { order, inventory } = await reservation();
     const log = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    sendOrderCancellationNotification.mockRejectedValueOnce(new Error('SMTP unavailable'));
+    jest.spyOn(domainEvents, 'emit').mockImplementationOnce(() => {
+      throw new Error('SMTP unavailable');
+    });
     try {
       expect((await sweepExpiredReservations({ now })).cancelled).toBe(1);
       expect(log).toHaveBeenCalledWith(

@@ -30,6 +30,7 @@ const {
 const { NotFoundError, ValidationError } = require('../../src/errors/AppError');
 const { ORDER_STATUS_VALUES } = require('../../src/constants/orderStatuses');
 const { ROLE_VALUES } = require('../../src/constants/roles');
+const { domainEvents, ORDER_EVENTS } = require('../../src/utils/domainEvents');
 
 // ─── Mock Mongoose Models ─────────────────────────────────────────────────────
 
@@ -55,15 +56,9 @@ jest.mock('../../src/models/loyaltyTransaction.model', () => ({
 jest.mock('../../src/services/loyalty.service', () => ({
   earnPurchasePoints: jest.fn().mockResolvedValue({}),
 }));
-jest.mock('../../src/services/notification.service', () => ({
-  sendOrderCancellationNotification: jest.fn().mockResolvedValue({ delivered: true }),
-}));
-
 const Order = require('../../src/models/order.model');
 const OrderItem = require('../../src/models/orderItem.model');
-const Customer = require('../../src/models/customer.model');
 const Payment = require('../../src/models/payment.model');
-const { sendOrderCancellationNotification } = require('../../src/services/notification.service');
 
 // ─── Test Fixtures ─────────────────────────────────────────────────────────────
 
@@ -572,7 +567,6 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
         }),
         { new: true, runValidators: true }
       );
-      expect(sendOrderCancellationNotification).not.toHaveBeenCalled();
       expect(result.status).toBe(ORDER_STATUS_VALUES.PROCESSING);
       expect(result.statusHistory).toHaveLength(2);
       expect(result.statusHistory[1].status).toBe(ORDER_STATUS_VALUES.PROCESSING);
@@ -662,18 +656,13 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
     });
   });
 
-  describe('Cancellation Notification Integration (ADR-004 §17)', () => {
-    it('dispatches cancellation email when transition is CANCELLED', async () => {
+  describe('Cancellation Notification Integration (ADR-004 §17, ADR-013)', () => {
+    it('dispatches status_changed domain event when transition is CANCELLED', async () => {
       const order = makeMockOrderDoc(ORDER_STATUS_VALUES.PROCESSING);
       Order.findById.mockResolvedValue(order);
-      Customer.findById.mockReturnValue({
-        lean: jest.fn().mockResolvedValue({
-          _id: CUSTOMER_ID,
-          name: 'Kamal Silva',
-          email: 'kamal@example.com',
-        }),
-      });
       OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) });
+
+      const emitSpy = jest.spyOn(domainEvents, 'emit');
 
       const result = await updateOrderStatus(
         ORDER_ID_STR,
@@ -682,36 +671,14 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
       );
 
       expect(Order.findOneAndUpdate).toHaveBeenCalledTimes(1);
-      expect(sendOrderCancellationNotification).toHaveBeenCalledTimes(1);
-      expect(sendOrderCancellationNotification).toHaveBeenCalledWith({
-        customerEmail: 'kamal@example.com',
-        customerName: 'Kamal Silva',
-        orderId: ORDER_ID_STR,
-        orderAmount: order.orderAmount,
-      });
-      expect(result.status).toBe(ORDER_STATUS_VALUES.CANCELLED);
-    });
-
-    it('does not fail status update if notification service throws', async () => {
-      const order = makeMockOrderDoc(ORDER_STATUS_VALUES.PROCESSING);
-      Order.findById.mockResolvedValue(order);
-      Customer.findById.mockReturnValue({
-        lean: jest.fn().mockResolvedValue({
-          _id: CUSTOMER_ID,
-          name: 'Kamal Silva',
-          email: 'kamal@example.com',
-        }),
-      });
-      sendOrderCancellationNotification.mockRejectedValueOnce(new Error('SMTP Network Offline'));
-      OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) });
-
-      const result = await updateOrderStatus(
-        ORDER_ID_STR,
-        ORDER_STATUS_VALUES.CANCELLED,
-        STAFF_ID_STR
+      expect(emitSpy).toHaveBeenCalledWith(
+        ORDER_EVENTS.STATUS_CHANGED,
+        expect.objectContaining({
+          previousStatus: ORDER_STATUS_VALUES.PROCESSING,
+          targetStatus: ORDER_STATUS_VALUES.CANCELLED,
+          orderAmount: order.orderAmount,
+        })
       );
-
-      expect(Order.findOneAndUpdate).toHaveBeenCalledTimes(1);
       expect(result.status).toBe(ORDER_STATUS_VALUES.CANCELLED);
     });
   });
