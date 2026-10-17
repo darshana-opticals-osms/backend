@@ -96,25 +96,27 @@ async function processOrderNotification(params, options = {}) {
     console.warn(
       `[OrderNotification] Customer missing email for order #${orderId}; marked as FAILED.`
     );
-    await OrderNotification.findOneAndUpdate(
-      { idempotencyKey },
-      {
-        $set: {
-          orderId: order._id,
-          customerId: order.customerId,
-          recipientEmail: 'missing-email@darshanaopticals.lk',
-          triggerStatus: targetStatus,
-          idempotencyKey,
-          channel: NOTIFICATION_CHANNELS.EMAIL,
-          deliveryStatus: DELIVERY_STATUS.FAILED,
-          provider: NOTIFICATION_PROVIDERS.AWS_SES,
-          attempts: 1,
-          lastAttemptAt: new Date(),
-          errorCode: NOTIFICATION_ERROR_CODES.MISSING_RECIPIENT_EMAIL,
-        },
-      },
-      { upsert: true, new: true }
-    );
+    try {
+      await OrderNotification.create({
+        orderId: order._id,
+        customerId: order.customerId,
+        recipientEmail: 'missing-email@darshanaopticals.lk',
+        triggerStatus: targetStatus,
+        idempotencyKey,
+        channel: NOTIFICATION_CHANNELS.EMAIL,
+        deliveryStatus: DELIVERY_STATUS.FAILED,
+        provider: NOTIFICATION_PROVIDERS.AWS_SES,
+        attempts: 1,
+        lastAttemptAt: new Date(),
+        errorCode: NOTIFICATION_ERROR_CODES.MISSING_RECIPIENT_EMAIL,
+      });
+    } catch (err) {
+      if (err.code === 11000) {
+        console.info(`[OrderNotification] Duplicate notification suppressed for ${idempotencyKey}`);
+      } else {
+        throw err;
+      }
+    }
     return {
       handled: true,
       delivered: false,
@@ -122,25 +124,40 @@ async function processOrderNotification(params, options = {}) {
     };
   }
 
-  // 6. Record Initial PENDING State (ADR-013 Section 11)
-  const notifRecord = await OrderNotification.findOneAndUpdate(
-    { idempotencyKey },
-    {
-      $setOnInsert: {
-        orderId: order._id,
-        customerId: order.customerId,
-        recipientEmail: customer.email,
-        triggerStatus: targetStatus,
+  // Determine Effective Recipient based on environment (ADR-013 Section 16)
+  const isStaging = process.env.NODE_ENV === 'staging';
+  const effectiveRecipient = isStaging
+    ? process.env.STAGING_NOTIFICATION_RECIPIENT || 'qa-test@darshanaopticals.lk'
+    : customer.email;
+
+  // 6. Record Initial PENDING State atomically (Review Point 2: Unique Constraint Claim)
+  let notifRecord;
+  try {
+    notifRecord = await OrderNotification.create({
+      orderId: order._id,
+      customerId: order.customerId,
+      recipientEmail: effectiveRecipient,
+      triggerStatus: targetStatus,
+      idempotencyKey,
+      channel: NOTIFICATION_CHANNELS.EMAIL,
+      provider: NOTIFICATION_PROVIDERS.AWS_SES,
+      deliveryStatus: DELIVERY_STATUS.PENDING,
+      attempts: 1,
+      lastAttemptAt: new Date(),
+    });
+  } catch (err) {
+    if (err.code === 11000) {
+      console.info(`[OrderNotification] Duplicate notification suppressed for ${idempotencyKey}`);
+      const existingDoc = await OrderNotification.findOne({ idempotencyKey }).lean();
+      return {
+        handled: true,
+        duplicate: true,
         idempotencyKey,
-        channel: NOTIFICATION_CHANNELS.EMAIL,
-        provider: NOTIFICATION_PROVIDERS.AWS_SES,
-        deliveryStatus: DELIVERY_STATUS.PENDING,
-        attempts: 1,
-        lastAttemptAt: new Date(),
-      },
-    },
-    { upsert: true, new: true }
-  );
+        deliveryStatus: existingDoc?.deliveryStatus || DELIVERY_STATUS.PENDING,
+      };
+    }
+    throw err;
+  }
 
   // 7. Assemble Content via Centralized Template Service (ADR-013 Section 13, AC31-AC36)
   const { subject, text, html } = buildOrderNotificationEmail({
@@ -156,32 +173,12 @@ async function processOrderNotification(params, options = {}) {
     process.env.SES_FROM_EMAIL ||
     'Darshana Opticals <noreply@darshanaopticals.lk>';
 
-  const transporter = options.transporter || createTransporter();
-
   // 8. Handle Missing Transporter / Environment Simulation (ADR-013 Section 16, AC50, AC51)
-  if (!transporter) {
-    if (process.env.NODE_ENV === 'production') {
-      await OrderNotification.updateOne(
-        { _id: notifRecord._id },
-        {
-          $set: {
-            deliveryStatus: DELIVERY_STATUS.FAILED,
-            errorCode: NOTIFICATION_ERROR_CODES.SMTP_UNCONFIGURED,
-            lastAttemptAt: new Date(),
-          },
-        }
-      );
-      console.error(
-        `[OrderNotification] Production error: Notification for order #${orderId} failed (SMTP unconfigured).`
-      );
-      return {
-        handled: true,
-        delivered: false,
-        reason: NOTIFICATION_ERROR_CODES.SMTP_UNCONFIGURED,
-      };
-    }
+  const isNonProduction = ['development', 'test'].includes(process.env.NODE_ENV);
+  let transporter = options.transporter || null;
 
-    // Local / Test simulation (AC50, AC51)
+  if (!transporter && isNonProduction) {
+    // Non-production strictly defaults to simulated delivery unless explicit transporter was injected
     const simulatedMsgId = `simulated-${Date.now()}`;
     await OrderNotification.updateOne(
       { _id: notifRecord._id },
@@ -195,13 +192,38 @@ async function processOrderNotification(params, options = {}) {
       }
     );
     console.info(
-      `[OrderNotification] [SIMULATED] Order #${orderId} milestone notification to ${maskEmail(customer.email)} simulated.`
+      `[OrderNotification] [SIMULATED] Order #${orderId} milestone notification to ${maskEmail(effectiveRecipient)} simulated.`
     );
     return {
       handled: true,
       delivered: true,
       simulated: true,
       messageId: simulatedMsgId,
+    };
+  }
+
+  if (!transporter) {
+    transporter = createTransporter();
+  }
+
+  if (!transporter) {
+    await OrderNotification.updateOne(
+      { _id: notifRecord._id },
+      {
+        $set: {
+          deliveryStatus: DELIVERY_STATUS.FAILED,
+          errorCode: NOTIFICATION_ERROR_CODES.SMTP_UNCONFIGURED,
+          lastAttemptAt: new Date(),
+        },
+      }
+    );
+    console.error(
+      `[OrderNotification] ${process.env.NODE_ENV || 'Production'} error: Notification for order #${orderId} failed (SMTP unconfigured).`
+    );
+    return {
+      handled: true,
+      delivered: false,
+      reason: NOTIFICATION_ERROR_CODES.SMTP_UNCONFIGURED,
     };
   }
 
@@ -216,7 +238,7 @@ async function processOrderNotification(params, options = {}) {
     try {
       sentInfo = await transporter.sendMail({
         from,
-        to: customer.email,
+        to: effectiveRecipient,
         subject,
         text,
         html,
@@ -252,7 +274,7 @@ async function processOrderNotification(params, options = {}) {
       }
     );
     console.info(
-      `[OrderNotification] Notification sent for order #${orderId} to ${maskEmail(customer.email)}`
+      `[OrderNotification] Notification sent for order #${orderId} to ${maskEmail(effectiveRecipient)}`
     );
     return {
       handled: true,

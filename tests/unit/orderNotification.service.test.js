@@ -161,7 +161,7 @@ describe('OrderNotificationService (ADR-013, Issue #60 AC1-AC30)', () => {
         lean: jest.fn().mockResolvedValue(null),
       });
 
-      jest.spyOn(OrderNotification, 'findOneAndUpdate').mockResolvedValue({
+      jest.spyOn(OrderNotification, 'create').mockResolvedValue({
         _id: new mongoose.Types.ObjectId(),
         idempotencyKey: `ORDER_NOTIF_${mockOrderId}_${ORDER_STATUS_VALUES.PICKED_UP}`,
       });
@@ -238,6 +238,52 @@ describe('OrderNotificationService (ADR-013, Issue #60 AC1-AC30)', () => {
       expect(outcome.handled).toBe(true);
       expect(outcome.duplicate).toBe(true);
       expect(mockTransporter.sendMail).not.toHaveBeenCalled();
+    });
+
+    it('atomically suppresses duplicate when concurrent OrderNotification.create throws E11000 (Review Point 2)', async () => {
+      const dupError = new Error('E11000 duplicate key error');
+      dupError.code = 11000;
+      jest.spyOn(OrderNotification, 'create').mockRejectedValue(dupError);
+
+      const mockTransporter = { sendMail: jest.fn() };
+      const outcome = await processOrderNotification(
+        {
+          orderId: mockOrderId,
+          previousStatus: ORDER_STATUS_VALUES.READY_FOR_PICKUP,
+          targetStatus: ORDER_STATUS_VALUES.PICKED_UP,
+        },
+        { transporter: mockTransporter }
+      );
+
+      expect(outcome.handled).toBe(true);
+      expect(outcome.duplicate).toBe(true);
+      expect(mockTransporter.sendMail).not.toHaveBeenCalled();
+    });
+
+    it('redirects recipient strictly to staging inbox in staging environment (Review Point 3)', async () => {
+      process.env.NODE_ENV = 'staging';
+      process.env.STAGING_NOTIFICATION_RECIPIENT = 'qa-staging@darshanaopticals.lk';
+
+      const mockTransporter = {
+        sendMail: jest.fn().mockResolvedValue({ messageId: 'staging-msg-1' }),
+      };
+
+      const outcome = await processOrderNotification(
+        {
+          orderId: mockOrderId,
+          previousStatus: ORDER_STATUS_VALUES.READY_FOR_PICKUP,
+          targetStatus: ORDER_STATUS_VALUES.PICKED_UP,
+        },
+        { transporter: mockTransporter }
+      );
+
+      expect(outcome.handled).toBe(true);
+      expect(outcome.delivered).toBe(true);
+      expect(mockTransporter.sendMail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'qa-staging@darshanaopticals.lk',
+        })
+      );
     });
 
     it('handles missing customer contact without failing or corrupting order (AC8, AC10)', async () => {

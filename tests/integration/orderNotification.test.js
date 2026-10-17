@@ -391,5 +391,113 @@ describe('Order Status Notification Integration Tests (ADR-013, Issue #60 AC1-AC
       });
       expect(notifs).toHaveLength(1);
     });
+
+    it('atomically suppresses duplicate dispatches under simultaneous concurrent execution (Review Point 2)', async () => {
+      const customer = await Customer.create({
+        name: 'Concurrent Customer',
+        email: 'concurrent@example.com',
+        phone: '+94779998877',
+        passwordHash: PASSWORD_HASH,
+      });
+
+      const order = await Order.create({
+        customerId: customer._id,
+        orderDate: new Date(),
+        orderAmount: 15000,
+        status: ORDER_STATUS_VALUES.READY_FOR_PICKUP,
+      });
+
+      // Launch 5 concurrent calls simultaneously
+      const results = await Promise.all([
+        processOrderNotification({
+          orderId: order._id,
+          previousStatus: ORDER_STATUS_VALUES.READY_FOR_PICKUP,
+          targetStatus: ORDER_STATUS_VALUES.PICKED_UP,
+        }),
+        processOrderNotification({
+          orderId: order._id,
+          previousStatus: ORDER_STATUS_VALUES.READY_FOR_PICKUP,
+          targetStatus: ORDER_STATUS_VALUES.PICKED_UP,
+        }),
+        processOrderNotification({
+          orderId: order._id,
+          previousStatus: ORDER_STATUS_VALUES.READY_FOR_PICKUP,
+          targetStatus: ORDER_STATUS_VALUES.PICKED_UP,
+        }),
+        processOrderNotification({
+          orderId: order._id,
+          previousStatus: ORDER_STATUS_VALUES.READY_FOR_PICKUP,
+          targetStatus: ORDER_STATUS_VALUES.PICKED_UP,
+        }),
+        processOrderNotification({
+          orderId: order._id,
+          previousStatus: ORDER_STATUS_VALUES.READY_FOR_PICKUP,
+          targetStatus: ORDER_STATUS_VALUES.PICKED_UP,
+        }),
+      ]);
+
+      const deliveredCount = results.filter((r) => r.delivered === true && !r.duplicate).length;
+      const duplicateCount = results.filter((r) => r.duplicate === true).length;
+
+      expect(deliveredCount).toBe(1);
+      expect(duplicateCount).toBe(4);
+
+      // Verify only 1 record exists in MongoDB
+      const notifs = await OrderNotification.find({
+        orderId: order._id,
+        triggerStatus: ORDER_STATUS_VALUES.PICKED_UP,
+      });
+      expect(notifs).toHaveLength(1);
+    });
+  });
+
+  describe('Environment-Specific Delivery Rules (ADR-013 Section 16, Review Point 3)', () => {
+    it('redirects recipient strictly to staging inbox when NODE_ENV is staging', async () => {
+      process.env.NODE_ENV = 'staging';
+      process.env.STAGING_NOTIFICATION_RECIPIENT = 'qa-staging@darshanaopticals.lk';
+
+      const customer = await Customer.create({
+        name: 'Staging Customer',
+        email: 'real-customer@example.com',
+        phone: '+94770001122',
+        passwordHash: PASSWORD_HASH,
+      });
+
+      const order = await Order.create({
+        customerId: customer._id,
+        orderDate: new Date(),
+        orderAmount: 8500,
+        status: ORDER_STATUS_VALUES.ORDER_CREATED,
+      });
+
+      const mockTransporter = {
+        sendMail: jest.fn().mockResolvedValue({ messageId: 'staging-ph-123' }),
+      };
+
+      const result = await processOrderNotification(
+        {
+          orderId: order._id,
+          previousStatus: ORDER_STATUS_VALUES.ORDER_CREATED,
+          targetStatus: ORDER_STATUS_VALUES.PROCESSING,
+        },
+        { transporter: mockTransporter }
+      );
+
+      expect(result.handled).toBe(true);
+      expect(result.delivered).toBe(true);
+      expect(mockTransporter.sendMail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'qa-staging@darshanaopticals.lk',
+        })
+      );
+
+      const notif = await OrderNotification.findOne({
+        orderId: order._id,
+        triggerStatus: ORDER_STATUS_VALUES.PROCESSING,
+      });
+      expect(notif.recipientEmail).toBe('qa-staging@darshanaopticals.lk');
+
+      process.env.NODE_ENV = 'test';
+    });
   });
 });
