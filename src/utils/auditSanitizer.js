@@ -27,9 +27,7 @@
 const { AUDIT_PROHIBITED_METADATA_KEYS } = require('../constants/audit');
 
 // Case-insensitive set for fast O(1) lookup.
-const PROHIBITED_KEYS_LOWER = new Set(
-  AUDIT_PROHIBITED_METADATA_KEYS.map((k) => k.toLowerCase())
-);
+const PROHIBITED_KEYS_LOWER = new Set(AUDIT_PROHIBITED_METADATA_KEYS.map((k) => k.toLowerCase()));
 
 /**
  * Maximum allowed byte-size for a serialised metadata object.
