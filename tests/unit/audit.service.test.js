@@ -419,6 +419,43 @@ describe('auditService (Unit Tests)', () => {
         })
       );
     });
+
+    it('should throw ValidationError on invalid fromDate format', async () => {
+      await expect(auditService.query({ fromDate: 'not-a-valid-date' })).rejects.toThrow(
+        /invalid fromDate format/
+      );
+    });
+
+    it('should throw ValidationError on invalid toDate format', async () => {
+      await expect(auditService.query({ toDate: 'not-a-valid-date' })).rejects.toThrow(
+        /invalid toDate format/
+      );
+    });
+
+    it('should throw ValidationError when fromDate is after toDate', async () => {
+      await expect(
+        auditService.query({
+          fromDate: '2026-05-10T00:00:00Z',
+          toDate: '2026-05-01T00:00:00Z',
+        })
+      ).rejects.toThrow(/fromDate cannot be after toDate/);
+    });
+
+    it('should throw ValidationError when date range exceeds 90 days (ADR-012 §14.3)', async () => {
+      await expect(
+        auditService.query({
+          fromDate: '2026-01-01T00:00:00Z',
+          toDate: '2026-04-15T00:00:00Z', // 104 days > 90 days
+        })
+      ).rejects.toThrow(/date range exceeds maximum allowed limit of 90 days/);
+    });
+
+    it('should throw ValidationError when fromDate is more than 90 days in the past and toDate is omitted', async () => {
+      const past100Days = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString();
+      await expect(auditService.query({ fromDate: past100Days })).rejects.toThrow(
+        /date range exceeds maximum allowed limit of 90 days/
+      );
+    });
   });
 
   describe('logAuditWriteFailure()', () => {

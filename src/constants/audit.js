@@ -167,6 +167,9 @@ const AUDIT_PAGE_SIZE_DEFAULT = 20;
 /** Minimum audit retention in years as required by SDS and ADR-012. */
 const AUDIT_RETENTION_YEARS = 7;
 
+/** Maximum date range in days permitted for a single audit query (ADR-012 §14.3). */
+const AUDIT_QUERY_MAX_RANGE_DAYS = 90;
+
 // ─── Exports ──────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -186,4 +189,5 @@ module.exports = {
   AUDIT_PAGE_SIZE_MAX,
   AUDIT_PAGE_SIZE_DEFAULT,
   AUDIT_RETENTION_YEARS,
+  AUDIT_QUERY_MAX_RANGE_DAYS,
 };

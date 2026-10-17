@@ -227,5 +227,53 @@ describe('Audit Events Retrieval API (GET /api/audit-events) - ADR-012 AC53-AC58
         pages: 3,
       });
     });
+
+    it('rejects date range query exceeding 90 days with 422 Unprocessable Entity (ADR-012 §14.3)', async () => {
+      const adminToken = createToken({ role: ROLE_VALUES.SYSTEM_ADMIN });
+
+      const response = await request(app)
+        .get('/api/audit-events')
+        .query({
+          fromDate: '2026-01-01T00:00:00.000Z',
+          toDate: '2026-05-01T00:00:00.000Z', // 120 days > 90 days
+        })
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(response.status).toBe(422);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error.message).toMatch(
+        /date range exceeds maximum allowed limit of 90 days/i
+      );
+    });
+
+    it('rejects invalid date query parameters with 422 Unprocessable Entity', async () => {
+      const adminToken = createToken({ role: ROLE_VALUES.SYSTEM_ADMIN });
+
+      const response = await request(app)
+        .get('/api/audit-events')
+        .query({ fromDate: 'not-a-valid-date' })
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(response.status).toBe(422);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error.message).toMatch(/invalid fromDate format/i);
+    });
+
+    it('accepts valid date query within 90 days', async () => {
+      await seedSampleEvents();
+      const adminToken = createToken({ role: ROLE_VALUES.SYSTEM_ADMIN });
+
+      const response = await request(app)
+        .get('/api/audit-events')
+        .query({
+          fromDate: '2026-10-14T00:00:00.000Z',
+          toDate: '2026-10-16T23:59:59.000Z',
+        })
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toHaveLength(3);
+    });
   });
 });

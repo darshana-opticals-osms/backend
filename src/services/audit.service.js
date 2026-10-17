@@ -35,10 +35,12 @@ const {
   AUDIT_OUTCOME_VALUES,
   AUDIT_SOURCE_VALUES,
   AUDIT_SCHEMA_VERSION,
-  AUDIT_SOURCE,
   AUDIT_PAGE_SIZE_DEFAULT,
   AUDIT_PAGE_SIZE_MAX,
+  AUDIT_QUERY_MAX_RANGE_DAYS,
+  AUDIT_SOURCE,
 } = require('../constants/audit');
+const { ValidationError } = require('../errors/AppError');
 const { sanitizeAuditMetadata } = require('../utils/auditSanitizer');
 const { sanitizeLogMessage } = require('../utils/sanitizer');
 
@@ -371,9 +373,50 @@ async function query({
   if (branchId) filter.branchId = String(branchId);
 
   if (fromDate || toDate) {
+    let parsedFrom = null;
+    let parsedTo = null;
+
+    if (fromDate) {
+      parsedFrom = new Date(fromDate);
+      if (Number.isNaN(parsedFrom.getTime())) {
+        throw new ValidationError(
+          'auditService.query(): invalid fromDate format. Expected ISO 8601 date string.'
+        );
+      }
+    }
+
+    if (toDate) {
+      parsedTo = new Date(toDate);
+      if (Number.isNaN(parsedTo.getTime())) {
+        throw new ValidationError(
+          'auditService.query(): invalid toDate format. Expected ISO 8601 date string.'
+        );
+      }
+    }
+
+    if (parsedFrom && parsedTo && parsedFrom > parsedTo) {
+      throw new ValidationError('auditService.query(): fromDate cannot be after toDate.');
+    }
+
+    const MAX_RANGE_MS = AUDIT_QUERY_MAX_RANGE_DAYS * 24 * 60 * 60 * 1000;
+    if (parsedFrom && parsedTo) {
+      if (parsedTo.getTime() - parsedFrom.getTime() > MAX_RANGE_MS) {
+        throw new ValidationError(
+          `auditService.query(): date range exceeds maximum allowed limit of ${AUDIT_QUERY_MAX_RANGE_DAYS} days (ADR-012 §14.3).`
+        );
+      }
+    } else if (parsedFrom && !parsedTo) {
+      const now = Date.now();
+      if (now - parsedFrom.getTime() > MAX_RANGE_MS) {
+        throw new ValidationError(
+          `auditService.query(): date range exceeds maximum allowed limit of ${AUDIT_QUERY_MAX_RANGE_DAYS} days (ADR-012 §14.3).`
+        );
+      }
+    }
+
     filter.occurredAt = {};
-    if (fromDate) filter.occurredAt.$gte = new Date(fromDate);
-    if (toDate) filter.occurredAt.$lte = new Date(toDate);
+    if (parsedFrom) filter.occurredAt.$gte = parsedFrom;
+    if (parsedTo) filter.occurredAt.$lte = parsedTo;
   }
 
   // Bounded pagination (AC57).
