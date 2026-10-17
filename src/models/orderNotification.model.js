@@ -94,7 +94,6 @@ const orderNotificationSchema = new mongoose.Schema(
 );
 
 // Compound indexes defined in ADR-013 Section 11.1
-orderNotificationSchema.index({ idempotencyKey: 1 }, { unique: true });
 orderNotificationSchema.index({ orderId: 1, createdAt: -1 });
 orderNotificationSchema.index({ deliveryStatus: 1, createdAt: -1 });
 

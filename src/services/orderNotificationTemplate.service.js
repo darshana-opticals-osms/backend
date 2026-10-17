@@ -51,9 +51,13 @@ function maskShippingAddress(address) {
     return `***, ${locality}`;
   }
 
-  // Single segment address - mask beginning characters
-  if (trimmed.length <= 6) return '***';
-  return `*** ${trimmed.slice(-6)}`;
+  // Single segment address - mask first word and preserve remaining locality
+  const words = trimmed.split(/\s+/);
+  if (words.length > 1) {
+    return `*** ${words.slice(1).join(' ')}`;
+  }
+
+  return '***';
 }
 
 /**
