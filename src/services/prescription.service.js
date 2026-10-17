@@ -165,41 +165,111 @@ async function createPrescription(
   await validateCustomerExists(customerId);
 
   // AC8, AC9: Insert-only — Prescription.create() always produces a new document.
-  // No findByIdAndUpdate or overwrite is used here.
-  // AC7: recordedAt defaults to Date.now in the model — not accepted from the client.
-  const prescription = await Prescription.create({
-    customerId,
-    recordedBy: authenticatedStaffId,
-    rightEye,
-    leftEye,
-    remarks,
-  });
+  // Both clinical record creation and audit trail recording execute atomically within the same transaction.
+  const isDbConnected = mongoose.connection && mongoose.connection.readyState === 1;
+  let session = null;
+  let prescription = null;
 
-  // AC30, AC31, AC32, AC39: Audit clinical prescription recording (safe references only)
-  const actor =
-    auditContext?.actor ||
-    (auditContext?.user
-      ? auditService.buildUserActor(auditContext.user)
-      : auditService.buildUserActor({
-          userId: authenticatedStaffId,
-          role: 'OPTOMETRIST',
-        }));
+  if (isDbConnected) {
+    try {
+      session = await mongoose.startSession();
+      if (session && typeof session.withTransaction === 'function') {
+        await session.withTransaction(async () => {
+          const created = await Prescription.create(
+            [
+              {
+                customerId,
+                recordedBy: authenticatedStaffId,
+                rightEye,
+                leftEye,
+                remarks,
+              },
+            ],
+            { session }
+          );
 
-  await auditService.record({
-    action: AUDIT_ACTION.PRESCRIPTION_RECORDED,
-    actor,
-    target: {
-      targetType: AUDIT_TARGET_TYPE.PRESCRIPTION,
-      targetId: prescription._id.toString(),
-    },
-    outcome: AUDIT_OUTCOME.SUCCESS,
-    correlationId: auditContext?.correlationId || null,
-    eventId: `audit-prescription-${prescription._id}`,
-    metadata: {
-      customerId: prescription.customerId ? prescription.customerId.toString() : null,
-      recordedByStaffId: authenticatedStaffId ? String(authenticatedStaffId) : null,
-    },
-  });
+          prescription = Array.isArray(created) ? created[0] : created;
+
+          const actor =
+            auditContext?.actor ||
+            (auditContext?.user
+              ? auditService.buildUserActor(auditContext.user)
+              : auditService.buildUserActor({
+                  userId: authenticatedStaffId,
+                  role: 'OPTOMETRIST',
+                }));
+
+          await auditService.record({
+            action: AUDIT_ACTION.PRESCRIPTION_RECORDED,
+            actor,
+            target: {
+              targetType: AUDIT_TARGET_TYPE.PRESCRIPTION,
+              targetId: prescription._id.toString(),
+            },
+            outcome: AUDIT_OUTCOME.SUCCESS,
+            correlationId: auditContext?.correlationId || null,
+            eventId: `audit-prescription-${prescription._id}`,
+            metadata: {
+              customerId: prescription.customerId ? prescription.customerId.toString() : null,
+              recordedByStaffId: authenticatedStaffId ? String(authenticatedStaffId) : null,
+            },
+            session,
+          });
+        });
+      }
+    } catch (err) {
+      const isStandaloneUnsupported =
+        (err.name === 'MongoServerError' &&
+          (err.code === 20 ||
+            err.codeName === 'IllegalOperation' ||
+            (err.message && err.message.includes('Transaction numbers are only allowed')))) ||
+        (err.message && err.message.includes('replica set'));
+
+      if (!isStandaloneUnsupported) {
+        throw err;
+      }
+    } finally {
+      if (session && session.endSession) {
+        await session.endSession();
+      }
+    }
+  }
+
+  // Fallback for standalone/mocked environments without active replica set transactions
+  if (!prescription) {
+    prescription = await Prescription.create({
+      customerId,
+      recordedBy: authenticatedStaffId,
+      rightEye,
+      leftEye,
+      remarks,
+    });
+
+    const actor =
+      auditContext?.actor ||
+      (auditContext?.user
+        ? auditService.buildUserActor(auditContext.user)
+        : auditService.buildUserActor({
+            userId: authenticatedStaffId,
+            role: 'OPTOMETRIST',
+          }));
+
+    await auditService.record({
+      action: AUDIT_ACTION.PRESCRIPTION_RECORDED,
+      actor,
+      target: {
+        targetType: AUDIT_TARGET_TYPE.PRESCRIPTION,
+        targetId: prescription._id.toString(),
+      },
+      outcome: AUDIT_OUTCOME.SUCCESS,
+      correlationId: auditContext?.correlationId || null,
+      eventId: `audit-prescription-${prescription._id}`,
+      metadata: {
+        customerId: prescription.customerId ? prescription.customerId.toString() : null,
+        recordedByStaffId: authenticatedStaffId ? String(authenticatedStaffId) : null,
+      },
+    });
+  }
 
   // Populate the recordedBy staff name for the safe response shape.
   await prescription.populate('recordedBy', 'name');

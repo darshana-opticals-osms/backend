@@ -8,6 +8,7 @@ const Customer = require('../../src/models/customer.model');
 const Staff = require('../../src/models/staff.model');
 const Prescription = require('../../src/models/prescription.model');
 const AuditEvent = require('../../src/models/auditEvent.model');
+const auditService = require('../../src/services/audit.service');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 const {
   AUDIT_ACTION,
@@ -219,6 +220,35 @@ describe('Clinical Operations - Audit Trail Integration (ADR-012 / DDP-065)', ()
       // Sensitive credentials MUST NOT be stored
       expect(metadata.password).toBeUndefined();
       expect(metadata.token).toBeUndefined();
+    });
+
+    it('rolls back prescription persistence when audit event persistence fails (transaction atomicity)', async () => {
+      const optometrist = await createStaff(ROLE_VALUES.OPTOMETRIST);
+      const customer = await createCustomer();
+      const token = createToken({
+        userId: optometrist._id.toString(),
+        role: ROLE_VALUES.OPTOMETRIST,
+      });
+
+      // Inject failure on auditService.record
+      const recordSpy = jest
+        .spyOn(auditService, 'record')
+        .mockRejectedValueOnce(new Error('Simulated audit persistence write failure'));
+
+      const response = await request(app)
+        .post('/api/prescriptions')
+        .set('Authorization', `Bearer ${token}`)
+        .send(buildPrescriptionPayload(customer._id));
+
+      expect(response.status).toBe(500);
+
+      // Verify transaction atomicity: Prescription document must be rolled back!
+      const prescriptionCount = await Prescription.countDocuments({
+        customerId: customer._id,
+      });
+      expect(prescriptionCount).toBe(0);
+
+      recordSpy.mockRestore();
     });
   });
 });

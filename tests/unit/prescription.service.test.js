@@ -81,6 +81,7 @@ const buildMockPrescriptionDoc = (overrides = {}) => {
 describe('Prescription service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.spyOn(auditService, 'record').mockResolvedValue({});
   });
 
   // ── validateCustomerExists ───────────────────────────────────────────────────
