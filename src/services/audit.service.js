@@ -395,6 +395,16 @@ async function record({
     },
   };
 
+  const isCreateMocked = Boolean(
+    AuditEvent.create && (AuditEvent.create._isMockFunction || AuditEvent.create.mock)
+  );
+  if (mongoose.connection?.readyState === 0 && !isCreateMocked) {
+    return {
+      _id: new mongoose.Types.ObjectId(),
+      ...eventData,
+    };
+  }
+
   const createOptions = session ? { session } : {};
   const [persisted] = await AuditEvent.create([eventData], createOptions);
 

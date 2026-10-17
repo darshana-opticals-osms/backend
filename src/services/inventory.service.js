@@ -343,7 +343,10 @@ async function updateInventory(inventoryId, inventoryInput = {}, auditContext = 
     Object.prototype.hasOwnProperty.call(inventoryInput, 'imagePublicId');
   const isPriceMutation = Object.prototype.hasOwnProperty.call(inventoryInput, 'price');
 
-  if (isImageMutation || isPriceMutation) {
+  if (
+    isImageMutation ||
+    (isPriceMutation && auditContext && (auditContext.actor || auditContext.user))
+  ) {
     existingInventory = await Inventory.findById(inventoryId);
     if (!existingInventory) {
       throw new NotFoundError('Inventory item not found.');
