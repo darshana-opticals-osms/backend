@@ -15,6 +15,7 @@ const {
   PAYHERE_STATUS_CODE,
 } = require('../constants/payment');
 const { ORDER_STATUS_VALUES } = require('../constants/orderStatuses');
+const { domainEvents, ORDER_EVENTS } = require('../utils/domainEvents');
 const {
   BadRequestError,
   ConflictError,
@@ -423,6 +424,7 @@ async function processVerifiedNotification(fields) {
 
   const session = await mongoose.startSession();
   let result;
+  let completedOrder = null;
   try {
     await session.withTransaction(async () => {
       const currentPayment = await Payment.findById(payment._id).session(session);
@@ -574,6 +576,7 @@ async function processVerifiedNotification(fields) {
           throw new ConflictError('Payment completion raced with another state change.');
         }
         await PaymentEvent.create([eventData(currentPayment, fields, 'applied')], { session });
+        completedOrder = order;
         result = { action: 'applied', successBoundary: true };
         return;
       }
@@ -603,7 +606,6 @@ async function processVerifiedNotification(fields) {
       await PaymentEvent.create([eventData(currentPayment, fields, 'applied')], { session });
       result = { action: 'applied', successBoundary: false };
     });
-    return result;
   } catch (error) {
     if (error?.code === 11000 && (await PaymentEvent.exists({ eventKey }))) {
       return { action: 'duplicate' };
@@ -612,6 +614,18 @@ async function processVerifiedNotification(fields) {
   } finally {
     await session.endSession();
   }
+
+  if (result?.action === 'applied' && result?.successBoundary === true && completedOrder) {
+    domainEvents.emit(ORDER_EVENTS.STATUS_CHANGED, {
+      orderId: completedOrder._id,
+      previousStatus: ORDER_STATUS_VALUES.ORDER_CREATED,
+      targetStatus: ORDER_STATUS_VALUES.PROCESSING,
+      orderAmount: completedOrder.orderAmount,
+      customerId: completedOrder.customerId,
+    });
+  }
+
+  return result;
 }
 
 module.exports = {

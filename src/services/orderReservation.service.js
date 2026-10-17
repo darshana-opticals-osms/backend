@@ -10,6 +10,7 @@ const { PAYMENT_STATUS, PAYMENT_PROVIDER, PAYMENT_METHOD } = require('../constan
 const { cancelExpiredActiveAttempts } = require('./payment.service');
 const { formatAmount } = require('./adapters/PayHerePaymentAdapter');
 const { ORDER_STATUS_VALUES } = require('../constants/orderStatuses');
+const { domainEvents, ORDER_EVENTS } = require('../utils/domainEvents');
 const { ConflictError, ValidationError } = require('../errors/AppError');
 const { evaluateReorderAlert } = require('./reorderAlert.service');
 const { sendOrderCancellationNotification } = require('./notification.service');
@@ -81,6 +82,14 @@ async function findRetrievalExpiryHold(order, payments, session) {
 }
 
 async function notifyCancellation(order) {
+  domainEvents.emit(ORDER_EVENTS.STATUS_CHANGED, {
+    orderId: order._id,
+    previousStatus: ORDER_STATUS_VALUES.ORDER_CREATED,
+    targetStatus: ORDER_STATUS_VALUES.CANCELLED,
+    orderAmount: order.orderAmount,
+    customerId: order.customerId,
+  });
+
   try {
     const customer = await Customer.findById(order.customerId).lean();
     if (customer?.email) {

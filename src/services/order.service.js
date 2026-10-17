@@ -15,6 +15,7 @@ const {
   isValidStatusTransition,
   isTerminalStatus,
 } = require('../constants/orderStatuses');
+const { domainEvents, ORDER_EVENTS } = require('../utils/domainEvents');
 const { sendOrderCancellationNotification } = require('./notification.service');
 const { cancelUnpaidReservation } = require('./orderReservation.service');
 const { NotFoundError, ValidationError, ConflictError } = require('../errors/AppError');
@@ -362,6 +363,13 @@ async function updateOrderStatus(orderId, requestedStatus, staffUserId) {
     } finally {
       await session.endSession();
     }
+    domainEvents.emit(ORDER_EVENTS.STATUS_CHANGED, {
+      orderId: completed._id,
+      previousStatus,
+      targetStatus: trimmedStatus,
+      orderAmount: completed.orderAmount,
+      customerId: completed.customerId,
+    });
     const items = await OrderItem.find({ orderId }).lean();
     return shapeOrderDetail(completed, items, { isStaff: true });
   }
@@ -420,6 +428,14 @@ async function updateOrderStatus(orderId, requestedStatus, staffUserId) {
       'CONCURRENT_STATUS_UPDATE'
     );
   }
+
+  domainEvents.emit(ORDER_EVENTS.STATUS_CHANGED, {
+    orderId: updatedOrder._id,
+    previousStatus,
+    targetStatus: trimmedStatus,
+    orderAmount: updatedOrder.orderAmount,
+    customerId: updatedOrder.customerId,
+  });
 
   // ADR-004 §17: Automated cancellation notification to customer
   if (trimmedStatus === ORDER_STATUS_VALUES.CANCELLED) {
