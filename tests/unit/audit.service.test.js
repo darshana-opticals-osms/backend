@@ -490,6 +490,32 @@ describe('auditService (Unit Tests)', () => {
       expect(gteTime).toBeGreaterThanOrEqual(expectedMin - 1000);
       expect(gteTime).toBeLessThanOrEqual(expectedMax + 1000);
     });
+
+    it('should bound query to 90 days before toDate when only toDate is supplied (ADR-012 §14.3)', async () => {
+      const leanMock = jest.fn().mockResolvedValue([]);
+      const limitMock = jest.fn().mockReturnValue({ lean: leanMock });
+      const skipMock = jest.fn().mockReturnValue({ limit: limitMock });
+      const sortMock = jest.fn().mockReturnValue({ skip: skipMock });
+      const findSpy = jest.spyOn(AuditEvent, 'find').mockReturnValue({ sort: sortMock });
+      jest.spyOn(AuditEvent, 'countDocuments').mockResolvedValue(0);
+
+      const to = '2026-10-17T12:00:00.000Z';
+      const toDateObj = new Date(to);
+      const expectedFromDateObj = new Date(
+        toDateObj.getTime() - AUDIT_QUERY_MAX_RANGE_DAYS * 24 * 60 * 60 * 1000
+      );
+
+      await auditService.query({ toDate: to });
+
+      expect(findSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          occurredAt: {
+            $gte: expectedFromDateObj,
+            $lte: toDateObj,
+          },
+        })
+      );
+    });
   });
 
   describe('logAuditWriteFailure()', () => {

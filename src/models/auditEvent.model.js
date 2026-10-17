@@ -256,6 +256,9 @@ auditEventSchema.index({ targetType: 1, targetId: 1, occurredAt: -1 });
 auditEventSchema.index({ actorId: 1, occurredAt: -1 });
 auditEventSchema.index({ branchId: 1, occurredAt: -1 });
 
+// Database-level linear chain integrity enforcement: prevents branching forks under concurrent transactions (ADR-012 §10.2).
+auditEventSchema.index({ 'integrity.prevEventHash': 1 }, { unique: true, sparse: true });
+
 // ─── Append-Only Middleware (ADR-012 §AC4–AC5) ───────────────────────────────
 //
 // These pre-hooks intercept all mutation operations on AuditEvent documents that

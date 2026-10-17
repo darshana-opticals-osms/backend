@@ -348,62 +348,82 @@ async function record({
 
   // Critical Section: Hash Calculation and Persistence serialized under write lock
   // to protect against branching forks under concurrent write load (ADR-012 §10.2).
-  return executeWithAuditLock(async () => {
-    // 11. Cryptographic Hash Chaining (ADR-012 §10.2).
-    //     Fetch the most recent event's hash to maintain continuous linkage.
-    let prevEventHash = AUDIT_GENESIS_HASH;
-    const query = AuditEvent.findOne(
-      {},
-      { 'integrity.eventHash': 1 },
-      session ? { sort: { _id: -1 }, session } : { sort: { _id: -1 } }
-    );
-    const lastEvent = query && typeof query.lean === 'function' ? await query.lean() : await query;
-    if (lastEvent?.integrity?.eventHash) {
-      prevEventHash = lastEvent.integrity.eventHash;
+  // Database-level coordination: The unique index on integrity.prevEventHash enforces
+  // that no two concurrent transactions can commit a fork. When multiple processes
+  // run non-transactionally, an automatic retry loop recalculates from the new predecessor.
+  const maxRetries = session ? 1 : 3;
+  let attempt = 0;
+  while (attempt < maxRetries) {
+    attempt += 1;
+    try {
+      return await executeWithAuditLock(async () => {
+        // 11. Cryptographic Hash Chaining (ADR-012 §10.2).
+        //     Fetch the most recent event's hash to maintain continuous linkage.
+        let prevEventHash = AUDIT_GENESIS_HASH;
+        const query = AuditEvent.findOne(
+          {},
+          { 'integrity.eventHash': 1 },
+          session ? { sort: { _id: -1 }, session } : { sort: { _id: -1 } }
+        );
+        const lastEvent =
+          query && typeof query.lean === 'function' ? await query.lean() : await query;
+        if (lastEvent?.integrity?.eventHash) {
+          prevEventHash = lastEvent.integrity.eventHash;
+        }
+
+        const payloadString = computePayloadString({
+          eventId: resolvedEventId,
+          schemaVersion,
+          occurredAt,
+          action,
+          actorId: normalizedActor.actorId,
+          targetType: normalizedTarget.targetType,
+          targetId: normalizedTarget.targetId,
+          metadata: safeMetadata,
+        });
+        const eventHash = computeEventHash(prevEventHash, payloadString);
+
+        // 12. Persist the AuditEvent.
+        //     Idempotency: if a record with the same eventId already exists (from a prior
+        //     successful write on a retry), the unique index on eventId will produce a
+        //     duplicate-key error. Callers must handle this case as a no-op (AC48).
+        const eventData = {
+          eventId: resolvedEventId,
+          schemaVersion,
+          action,
+          occurredAt,
+          actorType: normalizedActor.actorType,
+          actorId: normalizedActor.actorId,
+          actorRole: normalizedActor.actorRole,
+          targetType: normalizedTarget.targetType,
+          targetId: normalizedTarget.targetId,
+          branchId: branchId ? String(branchId).trim() : null,
+          outcome,
+          correlationId: safeCorrelationId,
+          source: source || null,
+          metadata: safeMetadata,
+          integrity: {
+            eventHash,
+            prevEventHash,
+          },
+        };
+
+        const createOptions = session ? { session } : {};
+        const [persisted] = await AuditEvent.create([eventData], createOptions);
+
+        return persisted;
+      });
+    } catch (err) {
+      const isPrevHashDuplicate =
+        err?.code === 11000 &&
+        (err?.message?.includes('prevEventHash') || err?.keyPattern?.['integrity.prevEventHash']);
+      if (!session && isPrevHashDuplicate && attempt < maxRetries) {
+        // Multi-process non-transactional race condition: retry with the updated chain head
+        continue;
+      }
+      throw err;
     }
-
-    const payloadString = computePayloadString({
-      eventId: resolvedEventId,
-      schemaVersion,
-      occurredAt,
-      action,
-      actorId: normalizedActor.actorId,
-      targetType: normalizedTarget.targetType,
-      targetId: normalizedTarget.targetId,
-      metadata: safeMetadata,
-    });
-    const eventHash = computeEventHash(prevEventHash, payloadString);
-
-    // 12. Persist the AuditEvent.
-    //     Idempotency: if a record with the same eventId already exists (from a prior
-    //     successful write on a retry), the unique index on eventId will produce a
-    //     duplicate-key error. Callers must handle this case as a no-op (AC48).
-    const eventData = {
-      eventId: resolvedEventId,
-      schemaVersion,
-      action,
-      occurredAt,
-      actorType: normalizedActor.actorType,
-      actorId: normalizedActor.actorId,
-      actorRole: normalizedActor.actorRole,
-      targetType: normalizedTarget.targetType,
-      targetId: normalizedTarget.targetId,
-      branchId: branchId ? String(branchId).trim() : null,
-      outcome,
-      correlationId: safeCorrelationId,
-      source: source || null,
-      metadata: safeMetadata,
-      integrity: {
-        eventHash,
-        prevEventHash,
-      },
-    };
-
-    const createOptions = session ? { session } : {};
-    const [persisted] = await AuditEvent.create([eventData], createOptions);
-
-    return persisted;
-  });
+  }
 }
 
 // ─── Audit Read (ADR-012 §AC53–AC58) ─────────────────────────────────────────
@@ -503,6 +523,9 @@ async function query({
           `auditService.query(): date range exceeds maximum allowed limit of ${AUDIT_QUERY_MAX_RANGE_DAYS} days (ADR-012 §14.3).`
         );
       }
+    } else if (!parsedFrom && parsedTo) {
+      // Queries supplying only toDate must be strictly bounded to at most 90 days ending at toDate (ADR-012 §14.3)
+      parsedFrom = new Date(parsedTo.getTime() - MAX_RANGE_MS);
     }
 
     filter.occurredAt = {};

@@ -89,6 +89,7 @@ describe('Audit Events Retrieval API (GET /api/audit-events) - ADR-012 AC53-AC58
         outcome: AUDIT_OUTCOME.SUCCESS,
         occurredAt: new Date(baseDate.getTime() + 1000),
         metadata: { previousQuantity: 10, newQuantity: 15, adjustmentDelta: 5 },
+        integrity: { eventHash: 'seed-hash-1', prevEventHash: 'seed-prev-1' },
       },
       {
         action: AUDIT_ACTION.PAYMENT_COMPLETED,
@@ -100,6 +101,7 @@ describe('Audit Events Retrieval API (GET /api/audit-events) - ADR-012 AC53-AC58
         outcome: AUDIT_OUTCOME.SUCCESS,
         occurredAt: new Date(baseDate.getTime() + 2000),
         metadata: { orderId: 'order-303', amount: 4500, currency: 'LKR' },
+        integrity: { eventHash: 'seed-hash-2', prevEventHash: 'seed-prev-2' },
       },
       {
         action: AUDIT_ACTION.PRESCRIPTION_RECORDED,
@@ -111,6 +113,7 @@ describe('Audit Events Retrieval API (GET /api/audit-events) - ADR-012 AC53-AC58
         outcome: AUDIT_OUTCOME.SUCCESS,
         occurredAt: new Date(baseDate.getTime() + 3000),
         metadata: { customerId: 'cust-505', recordedByStaffId: 'user-optom-03' },
+        integrity: { eventHash: 'seed-hash-3', prevEventHash: 'seed-prev-3' },
       },
     ]);
   };
@@ -299,6 +302,54 @@ describe('Audit Events Retrieval API (GET /api/audit-events) - ADR-012 AC53-AC58
       expect(response.body.success).toBe(true);
       expect(response.body.data).toHaveLength(3);
     });
+
+    it('bounds query to 90 days before toDate when only toDate is supplied (ADR-012 §14.3)', async () => {
+      const adminToken = createToken({ role: ROLE_VALUES.SYSTEM_ADMIN });
+      const targetToDate = new Date('2026-10-17T12:00:00.000Z');
+
+      const recentDate = new Date('2026-10-07T12:00:00.000Z'); // 10 days before targetToDate
+      const oldDate = new Date('2026-06-01T12:00:00.000Z'); // ~138 days before targetToDate (>90 days)
+
+      await AuditEvent.create([
+        {
+          eventId: 'audit-recent-event',
+          schemaVersion: '1.0',
+          action: AUDIT_ACTION.INVENTORY_QUANTITY_ADJUSTED,
+          occurredAt: recentDate,
+          actorType: AUDIT_ACTOR_TYPE.USER,
+          actorId: 'usr-1',
+          actorRole: ROLE_VALUES.SYSTEM_ADMIN,
+          targetType: AUDIT_TARGET_TYPE.INVENTORY,
+          targetId: 'inv-recent',
+          outcome: AUDIT_OUTCOME.SUCCESS,
+          integrity: { eventHash: 'hash-recent', prevEventHash: 'prev-recent' },
+        },
+        {
+          eventId: 'audit-old-event',
+          schemaVersion: '1.0',
+          action: AUDIT_ACTION.INVENTORY_QUANTITY_ADJUSTED,
+          occurredAt: oldDate,
+          actorType: AUDIT_ACTOR_TYPE.USER,
+          actorId: 'usr-1',
+          actorRole: ROLE_VALUES.SYSTEM_ADMIN,
+          targetType: AUDIT_TARGET_TYPE.INVENTORY,
+          targetId: 'inv-old',
+          outcome: AUDIT_OUTCOME.SUCCESS,
+          integrity: { eventHash: 'hash-old', prevEventHash: 'prev-old' },
+        },
+      ]);
+
+      const response = await request(app)
+        .get('/api/audit-events')
+        .query({ toDate: targetToDate.toISOString() })
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      const returnedIds = response.body.data.map((e) => e.eventId);
+      expect(returnedIds).toContain('audit-recent-event');
+      expect(returnedIds).not.toContain('audit-old-event');
+    });
   });
 
   describe('Cryptographic Hash Chain Continuity & Tamper Evidence (ADR-012 §10.2, §17.2 Requirement 4)', () => {
@@ -387,6 +438,55 @@ describe('Audit Events Retrieval API (GET /api/audit-events) - ADR-012 AC53-AC58
       const prevHashes = allEvents.map((e) => e.integrity.prevEventHash);
       const uniquePrevHashes = new Set(prevHashes);
       expect(uniquePrevHashes.size).toBe(10);
+    });
+
+    it('maintains strict linear chain continuity and prevents branching forks across concurrent MongoDB transactions', async () => {
+      // Execute 5 overlapping concurrent transactions that record audit events
+      const concurrentTxWrites = Array.from({ length: 5 }, async (_, i) => {
+        const session = await mongoose.startSession();
+        try {
+          return await session.withTransaction(async () => {
+            // Artificial delay to increase overlap window
+            await new Promise((resolve) => setTimeout(resolve, (5 - i) * 10));
+
+            const event = await auditService.record({
+              action: AUDIT_ACTION.PRESCRIPTION_RECORDED,
+              actor: {
+                actorType: AUDIT_ACTOR_TYPE.USER,
+                actorId: `concurrent-tx-user-${i}`,
+                actorRole: ROLE_VALUES.OPTOMETRIST,
+              },
+              target: {
+                targetType: AUDIT_TARGET_TYPE.PRESCRIPTION,
+                targetId: `concurrent-tx-rx-${i}`,
+              },
+              outcome: AUDIT_OUTCOME.SUCCESS,
+              metadata: { txIndex: i },
+              session,
+            });
+
+            // Artificial delay post-write before committing transaction
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            return event;
+          });
+        } finally {
+          await session.endSession();
+        }
+      });
+
+      const results = await Promise.all(concurrentTxWrites);
+      expect(results).toHaveLength(5);
+
+      // Verify that all 5 events form a single contiguous linear chain without any fork
+      const chainVerification = await auditService.verifyIntegrityChain();
+      expect(chainVerification.valid).toBe(true);
+      expect(chainVerification.verifiedCount).toBe(5);
+
+      // Verify all recorded events in DB have distinct prevEventHash values (no branching forks)
+      const allEvents = await AuditEvent.find({}).sort({ occurredAt: 1, _id: 1 }).lean();
+      const prevHashes = allEvents.map((e) => e.integrity.prevEventHash);
+      const uniquePrevHashes = new Set(prevHashes);
+      expect(uniquePrevHashes.size).toBe(5);
     });
   });
 });
