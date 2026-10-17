@@ -46,6 +46,8 @@ describe('Loyalty decimal core and controlled persistence', () => {
     expect(LoyaltyTransaction.schema.indexes()).toEqual(
       expect.arrayContaining([
         [{ sourceEventId: 1, eventType: 1 }, expect.objectContaining({ unique: true })],
+        [{ customerId: 1, createdAt: -1, _id: -1 }, expect.any(Object)],
+        [{ orderId: 1, createdAt: -1, _id: -1 }, expect.any(Object)],
         [{ paymentId: 1, eventType: 1 }, expect.objectContaining({ unique: true })],
       ])
     );

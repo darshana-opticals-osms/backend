@@ -7,6 +7,7 @@ const Customer = require('../../src/models/customer.model');
 const Order = require('../../src/models/order.model');
 const Payment = require('../../src/models/payment.model');
 const PaymentEvent = require('../../src/models/paymentEvent.model');
+const LoyaltyTransaction = require('../../src/models/loyaltyTransaction.model');
 const Inventory = require('../../src/models/inventory.model');
 const Branch = require('../../src/models/branch.model');
 const { ROLE_VALUES } = require('../../src/constants/roles');
@@ -62,11 +63,17 @@ describe('Payment API and PayHere IPN', () => {
     });
     await mongoose.disconnect();
     await mongoose.connect(`${uri}?replicaSet=rs0`, { serverSelectionTimeoutMS: 15000 });
-    await Promise.all([Order.init(), Payment.init(), PaymentEvent.init()]);
+    await Promise.all([
+      Order.init(),
+      Payment.init(),
+      PaymentEvent.init(),
+      LoyaltyTransaction.init(),
+    ]);
     app = createApp();
   }, 60000);
 
   beforeEach(async () => {
+    await LoyaltyTransaction.collection.deleteMany({});
     await Promise.all([
       PaymentEvent.deleteMany({}),
       Payment.deleteMany({}),
@@ -789,13 +796,17 @@ describe('Payment API and PayHere IPN', () => {
 
     const storedPayment = await Payment.findById(payment._id);
     const storedOrder = await Order.findById(order._id);
+    const storedCustomer = await Customer.findById(customer._id).select('+loyaltyBalance').lean();
     expect(storedPayment.status).toBe(PAYMENT_STATUS.COMPLETED);
     expect(storedPayment.providerTransactionId).toBe(fields.payment_id);
     expect(storedPayment.reconciliationRequired).toBe(false);
+    expect(storedOrder.status).toBe(ORDER_STATUS_VALUES.PROCESSING);
     expect(
       storedOrder.statusHistory.filter((entry) => entry.status === ORDER_STATUS_VALUES.PROCESSING)
     ).toHaveLength(1);
     expect(await PaymentEvent.countDocuments({ paymentId: payment._id })).toBe(1);
+    expect(await LoyaltyTransaction.countDocuments({ paymentId: payment._id })).toBe(0);
+    expect(storedCustomer.loyaltyBalance.toString()).toBe('0.00');
   });
 
   it('flags a distinct verified successful provider transaction after completion', async () => {

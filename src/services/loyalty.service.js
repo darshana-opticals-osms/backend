@@ -133,7 +133,7 @@ async function balance(customerId, session) {
     .session(session)
     .lean();
   if (!customer) throw new NotFoundError('Customer not found.');
-  if (customer.loyaltyBalance === undefined)
+  if (customer.loyaltyBalance === undefined || customer.loyaltyBalance === null)
     throw conflict(
       'Legacy balance requires authoritative initialization.',
       'LOYALTY_BALANCE_UNINITIALIZED'

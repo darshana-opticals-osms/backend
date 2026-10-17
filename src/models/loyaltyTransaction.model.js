@@ -63,6 +63,9 @@ const schema = new mongoose.Schema(
 );
 
 schema.index({ sourceEventId: 1, eventType: 1 }, { unique: true });
+schema.index({ createdAt: -1, _id: -1 });
+schema.index({ customerId: 1, createdAt: -1, _id: -1 });
+schema.index({ orderId: 1, createdAt: -1, _id: -1 });
 schema.index(
   { paymentId: 1, eventType: 1 },
   {

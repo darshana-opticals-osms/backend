@@ -26,7 +26,9 @@ const appointmentRoutes = require('./routes/appointment.routes');
 const { paymentRouter, paymentNotificationRouter } = require('./routes/payment.routes');
 const doctorRoutes = require('./routes/doctor.routes');
 const auditRoutes = require('./routes/audit.routes');
+const loyaltyRoutes = require('./routes/loyalty.routes');
 const captureCheckoutRequest = require('./middleware/captureCheckoutRequest');
+const captureLoyaltyRequest = require('./middleware/captureLoyaltyRequest');
 const { rejectUnsafeAppointmentInput } = require('./middleware/rejectUnsafeAppointmentInput');
 const notFound = require('./middleware/notFound');
 
@@ -57,6 +59,7 @@ function createApp() {
   app.use(express.json({ limit: REQUEST_BODY_LIMIT }));
 
   app.use('/api/checkout', captureCheckoutRequest);
+  app.use('/api/loyalty', captureLoyaltyRequest);
 
   app.use(['/api/appointments', '/api/doctor-sessions'], rejectUnsafeAppointmentInput);
 
@@ -90,6 +93,7 @@ function createApp() {
   app.use('/api', appointmentRoutes);
   app.use('/api', doctorRoutes);
   app.use('/api', auditRoutes);
+  app.use('/api', loyaltyRoutes);
 
   // Catch-all route handler for non-existent endpoints (404)
 

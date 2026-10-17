@@ -24,6 +24,139 @@ const options = {
         },
       },
       schemas: {
+        LoyaltyTransaction: {
+          type: 'object',
+          description:
+            'Backend-authored, append-only loyalty history item returned to its owning Customer.',
+          additionalProperties: false,
+          required: ['id', 'type', 'pointsDelta', 'balanceAfter', 'orderId', 'createdAt'],
+          properties: {
+            id: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' },
+            type: {
+              type: 'string',
+              enum: ['EARN_PURCHASE', 'REFUND_REVERSAL', 'REDEMPTION_DEDUCTION'],
+              description:
+                'Persisted event category. The schema category does not make redemption functionality available.',
+            },
+            pointsDelta: {
+              type: 'string',
+              pattern: '^-?\\d+\\.\\d{2}$',
+              description: 'Backend-calculated point change as an exact two-decimal string.',
+              example: '10.00',
+            },
+            balanceAfter: {
+              type: 'string',
+              pattern: '^-?\\d+\\.\\d{2}$',
+              description:
+                'Backend-authoritative balance after this event as an exact two-decimal string.',
+              example: '12.50',
+            },
+            orderId: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        LoyaltyPagination: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['page', 'limit', 'total', 'totalPages'],
+          properties: {
+            page: { type: 'integer', minimum: 1, maximum: 10000, example: 1 },
+            limit: { type: 'integer', minimum: 1, maximum: 100, example: 25 },
+            total: { type: 'integer', minimum: 0, example: 1 },
+            totalPages: { type: 'integer', minimum: 0, example: 1 },
+          },
+        },
+        OwnLoyaltyData: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['balance', 'transactions', 'pagination'],
+          properties: {
+            balance: {
+              type: 'string',
+              pattern: '^\\d+\\.\\d{2}$',
+              description:
+                'Authoritative persisted Customer balance as a fixed two-decimal string.',
+              example: '12.50',
+            },
+            transactions: {
+              type: 'array',
+              items: { $ref: '#/components/schemas/LoyaltyTransaction' },
+            },
+            pagination: { $ref: '#/components/schemas/LoyaltyPagination' },
+          },
+        },
+        OwnLoyaltyResponse: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['success', 'data'],
+          properties: {
+            success: { type: 'boolean', example: true },
+            data: { $ref: '#/components/schemas/OwnLoyaltyData' },
+          },
+        },
+        ManagementLoyaltyTransaction: {
+          type: 'object',
+          description:
+            'Safe read-only monitoring DTO without Customer PII, provider secrets or internal source metadata.',
+          additionalProperties: false,
+          required: [
+            'id',
+            'customerId',
+            'orderId',
+            'paymentId',
+            'type',
+            'pointsDelta',
+            'balanceAfter',
+            'createdAt',
+          ],
+          properties: {
+            id: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' },
+            customerId: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' },
+            orderId: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' },
+            paymentId: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' },
+            type: {
+              type: 'string',
+              enum: ['EARN_PURCHASE', 'REFUND_REVERSAL', 'REDEMPTION_DEDUCTION'],
+              description:
+                'Persisted event category. The schema category does not make redemption functionality available.',
+            },
+            pointsDelta: {
+              type: 'string',
+              pattern: '^-?\\d+\\.\\d{2}$',
+              description: 'Backend-calculated point change as an exact two-decimal string.',
+              example: '10.00',
+            },
+            balanceAfter: {
+              type: 'string',
+              pattern: '^-?\\d+\\.\\d{2}$',
+              description:
+                'Backend-authoritative balance after this event as an exact two-decimal string.',
+              example: '12.50',
+            },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        ManagementLoyaltyData: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['transactions', 'pagination'],
+          properties: {
+            transactions: {
+              type: 'array',
+              items: { $ref: '#/components/schemas/ManagementLoyaltyTransaction' },
+            },
+            pagination: { $ref: '#/components/schemas/LoyaltyPagination' },
+          },
+        },
+        ManagementLoyaltyResponse: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['success', 'data'],
+          properties: {
+            success: { type: 'boolean', example: true },
+            data: { $ref: '#/components/schemas/ManagementLoyaltyData' },
+          },
+        },
         ValidationIssue: {
           type: 'object',
           required: ['field', 'message'],
