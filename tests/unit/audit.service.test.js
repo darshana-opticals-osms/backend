@@ -82,6 +82,19 @@ describe('auditService (Unit Tests)', () => {
   });
 
   describe('record() - Validation and Normalization', () => {
+    beforeEach(() => {
+      jest.spyOn(AuditEvent, 'create').mockImplementation(async (docs) =>
+        docs.map((d) => ({
+          _id: new mongoose.Types.ObjectId(),
+          ...d,
+        }))
+      );
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
     it('should throw when action is missing or invalid', async () => {
       await expect(
         auditService.record({
@@ -221,6 +234,15 @@ describe('auditService (Unit Tests)', () => {
   });
 
   describe('record() - Persistence & Sanitization Behavior', () => {
+    beforeEach(() => {
+      jest.spyOn(AuditEvent, 'create').mockImplementation(async (docs) =>
+        docs.map((d) => ({
+          _id: new mongoose.Types.ObjectId(),
+          ...d,
+        }))
+      );
+    });
+
     afterEach(() => {
       jest.restoreAllMocks();
     });
@@ -288,6 +310,21 @@ describe('auditService (Unit Tests)', () => {
         expect.any(Array),
         expect.objectContaining({ session: mockSession })
       );
+    });
+
+    it('should propagate database persistence failures to callers (fail-closed requirement)', async () => {
+      jest
+        .spyOn(AuditEvent, 'create')
+        .mockRejectedValueOnce(new Error('Mongo connection timed out or write rejected'));
+
+      await expect(
+        auditService.record({
+          action: AUDIT_ACTION.INVENTORY_QUANTITY_ADJUSTED,
+          actor: validUserActor,
+          target: validTarget,
+          outcome: AUDIT_OUTCOME.SUCCESS,
+        })
+      ).rejects.toThrow('Mongo connection timed out or write rejected');
     });
   });
 

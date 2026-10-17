@@ -132,6 +132,8 @@ async function setGlobalReorderThreshold(
   try {
     let result;
     await session.withTransaction(async () => {
+      const previousThreshold = await getGlobalReorderThreshold(session);
+
       await InventoryConfig.findOneAndUpdate(
         { key: REORDER_THRESHOLD_KEY },
         { $set: { value: newThreshold, updatedBy } },
@@ -141,7 +143,6 @@ async function setGlobalReorderThreshold(
       const reconciliation = await reconcileAllInventories(newThreshold, session);
 
       if (auditContext && (auditContext.actor || auditContext.user)) {
-        const previousThreshold = await getGlobalReorderThreshold(session);
         const actor = auditContext.actor || auditService.buildUserActor(auditContext.user);
         await auditService.record({
           action: AUDIT_ACTION.INVENTORY_REORDER_CONFIG_CHANGED,

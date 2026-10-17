@@ -269,6 +269,7 @@ describe('Inventory Operations - Audit Trail Integration (ADR-012 / DDP-065)', (
       expect(auditEvent.targetType).toBe(AUDIT_TARGET_TYPE.INVENTORY);
       expect(auditEvent.targetId).toBe('GLOBAL_CONFIG');
       expect(auditEvent.outcome).toBe(AUDIT_OUTCOME.SUCCESS);
+      expect(auditEvent.metadata.previousThreshold).toBe(5);
       expect(auditEvent.metadata.newThreshold).toBe(12);
     });
   });
