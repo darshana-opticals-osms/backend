@@ -71,7 +71,7 @@ function buildTrackingUrl(orderId) {
     /\/$/,
     ''
   );
-  return `${base}/orders/${encodeURIComponent(orderId)}/track`;
+  return `${base}/orders/${encodeURIComponent(orderId)}`;
 }
 
 /**
