@@ -27,6 +27,7 @@ jest.mock('../../src/models/staff.model', () => ({
 jest.mock('../../src/models/prescription.model', () => ({
   create: jest.fn(),
   find: jest.fn(),
+  deleteOne: jest.fn(),
 }));
 
 // ─── Test Fixtures ────────────────────────────────────────────────────────────
@@ -344,6 +345,22 @@ describe('Prescription service', () => {
       expect(Prescription.create).toHaveBeenCalledTimes(2);
       expect(original.id).toBe(originalId.toString());
       expect(correction.id).toBe(correctionId.toString());
+    });
+
+    it('should delete created prescription and propagate error if audit recording fails (fail-closed)', async () => {
+      Staff.exists.mockResolvedValue({ _id: validStaffId });
+      Customer.exists.mockResolvedValue({ _id: validCustomerId });
+
+      const mockDoc = buildMockPrescriptionDoc();
+      Prescription.create.mockResolvedValue(mockDoc);
+      Prescription.deleteOne.mockResolvedValue({ deletedCount: 1 });
+      auditService.record.mockRejectedValueOnce(new Error('Audit persistence failed'));
+
+      await expect(createPrescription(validStaffId, validClinicalInput)).rejects.toThrow(
+        'Audit persistence failed'
+      );
+
+      expect(Prescription.deleteOne).toHaveBeenCalledWith({ _id: mockDoc._id });
     });
   });
 

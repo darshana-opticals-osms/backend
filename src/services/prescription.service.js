@@ -254,21 +254,28 @@ async function createPrescription(
             role: 'OPTOMETRIST',
           }));
 
-    await auditService.record({
-      action: AUDIT_ACTION.PRESCRIPTION_RECORDED,
-      actor,
-      target: {
-        targetType: AUDIT_TARGET_TYPE.PRESCRIPTION,
-        targetId: prescription._id.toString(),
-      },
-      outcome: AUDIT_OUTCOME.SUCCESS,
-      correlationId: auditContext?.correlationId || null,
-      eventId: `audit-prescription-${prescription._id}`,
-      metadata: {
-        customerId: prescription.customerId ? prescription.customerId.toString() : null,
-        recordedByStaffId: authenticatedStaffId ? String(authenticatedStaffId) : null,
-      },
-    });
+    try {
+      await auditService.record({
+        action: AUDIT_ACTION.PRESCRIPTION_RECORDED,
+        actor,
+        target: {
+          targetType: AUDIT_TARGET_TYPE.PRESCRIPTION,
+          targetId: prescription._id.toString(),
+        },
+        outcome: AUDIT_OUTCOME.SUCCESS,
+        correlationId: auditContext?.correlationId || null,
+        eventId: `audit-prescription-${prescription._id}`,
+        metadata: {
+          customerId: prescription.customerId ? prescription.customerId.toString() : null,
+          recordedByStaffId: authenticatedStaffId ? String(authenticatedStaffId) : null,
+        },
+      });
+    } catch (auditError) {
+      // Clinical operations must be strictly fail-closed.
+      // If audit trail recording fails in the standalone path, delete the created prescription before throwing.
+      await Prescription.deleteOne({ _id: prescription._id });
+      throw auditError;
+    }
   }
 
   // Populate the recordedBy staff name for the safe response shape.

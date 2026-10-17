@@ -250,5 +250,47 @@ describe('Clinical Operations - Audit Trail Integration (ADR-012 / DDP-065)', ()
 
       recordSpy.mockRestore();
     });
+
+    it('rolls back prescription persistence when audit event persistence fails in standalone/unsupported transaction mode (fail-closed)', async () => {
+      const optometrist = await createStaff(ROLE_VALUES.OPTOMETRIST);
+      const customer = await createCustomer();
+      const token = createToken({
+        userId: optometrist._id.toString(),
+        role: ROLE_VALUES.OPTOMETRIST,
+      });
+
+      // Force standalone fallback by throwing unsupported transaction error
+      const startSessionSpy = jest
+        .spyOn(mongoose, 'startSession')
+        .mockImplementationOnce(async () => {
+          const error = new Error(
+            'Transaction numbers are only allowed on a replica set member or mongos'
+          );
+          error.name = 'MongoServerError';
+          error.code = 20;
+          throw error;
+        });
+
+      // Inject failure on auditService.record
+      const recordSpy = jest
+        .spyOn(auditService, 'record')
+        .mockRejectedValueOnce(new Error('Simulated standalone audit persistence write failure'));
+
+      const response = await request(app)
+        .post('/api/prescriptions')
+        .set('Authorization', `Bearer ${token}`)
+        .send(buildPrescriptionPayload(customer._id));
+
+      expect(response.status).toBe(500);
+
+      // Verify fail-closed rollback: Prescription document must be cleaned up / deleted!
+      const prescriptionCount = await Prescription.countDocuments({
+        customerId: customer._id,
+      });
+      expect(prescriptionCount).toBe(0);
+
+      startSessionSpy.mockRestore();
+      recordSpy.mockRestore();
+    });
   });
 });
