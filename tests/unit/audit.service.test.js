@@ -89,6 +89,9 @@ describe('auditService (Unit Tests)', () => {
           ...d,
         }))
       );
+      jest.spyOn(AuditEvent, 'findOne').mockReturnValue({
+        lean: jest.fn().mockResolvedValue(null),
+      });
     });
 
     afterEach(() => {
@@ -241,6 +244,9 @@ describe('auditService (Unit Tests)', () => {
           ...d,
         }))
       );
+      jest.spyOn(AuditEvent, 'findOne').mockReturnValue({
+        lean: jest.fn().mockResolvedValue(null),
+      });
     });
 
     afterEach(() => {

@@ -354,5 +354,39 @@ describe('Audit Events Retrieval API (GET /api/audit-events) - ADR-012 AC53-AC58
       expect(tamperedVerification.failedEventId).toBe(tamperedEvent.eventId);
       expect(tamperedVerification.error).toMatch(/hash mismatch/i);
     });
+
+    it('maintains strict linear chain continuity and prevents branching forks under concurrent writes', async () => {
+      // Execute 10 simultaneous concurrent audit write operations
+      const concurrentWrites = Array.from({ length: 10 }, (_, i) =>
+        auditService.record({
+          action: AUDIT_ACTION.INVENTORY_QUANTITY_ADJUSTED,
+          actor: {
+            actorType: AUDIT_ACTOR_TYPE.USER,
+            actorId: `concurrent-user-${i}`,
+            actorRole: ROLE_VALUES.BRANCH_MANAGER,
+          },
+          target: {
+            targetType: AUDIT_TARGET_TYPE.INVENTORY,
+            targetId: `concurrent-item-${i}`,
+          },
+          outcome: AUDIT_OUTCOME.SUCCESS,
+          metadata: { concurrentIndex: i },
+        })
+      );
+
+      const results = await Promise.all(concurrentWrites);
+      expect(results).toHaveLength(10);
+
+      // Verify that all 10 events form a single contiguous linear chain without any fork
+      const chainVerification = await auditService.verifyIntegrityChain();
+      expect(chainVerification.valid).toBe(true);
+      expect(chainVerification.verifiedCount).toBe(10);
+
+      // Verify all recorded events in DB have distinct prevEventHash values (no two events branch off the same predecessor)
+      const allEvents = await AuditEvent.find({}).sort({ occurredAt: 1, _id: 1 }).lean();
+      const prevHashes = allEvents.map((e) => e.integrity.prevEventHash);
+      const uniquePrevHashes = new Set(prevHashes);
+      expect(uniquePrevHashes.size).toBe(10);
+    });
   });
 });

@@ -25,7 +25,6 @@
 // Audit reading is handled by a separate read-only path (auditService.query).
 
 const { randomUUID, createHash } = require('crypto');
-const mongoose = require('mongoose');
 const AuditEvent = require('../models/auditEvent.model');
 const {
   AUDIT_ACTION,
@@ -89,6 +88,18 @@ function computePayloadString({
  */
 function computeEventHash(prevEventHash, payloadString) {
   return createHash('sha256').update(`${prevEventHash}${payloadString}`).digest('hex');
+}
+
+// ─── Asynchronous Concurrency Serialization (ADR-012 §10.2) ───────────────────
+// Serializes cryptographic hash computation and document insertion to guarantee
+// linear continuity and prevent branching forks under concurrent write load.
+let writeLockQueue = Promise.resolve();
+
+function executeWithAuditLock(operation) {
+  const run = () => operation();
+  const next = writeLockQueue.then(run, run);
+  writeLockQueue = next.catch(() => {});
+  return next;
 }
 
 // ─── Validation Helpers ───────────────────────────────────────────────────────
@@ -335,80 +346,64 @@ async function record({
   // 10. Centralized metadata sanitization/redaction (AC36–AC41).
   const safeMetadata = sanitizeAuditMetadata(metadata);
 
-  // 11. Cryptographic Hash Chaining (ADR-012 §10.2).
-  //     Fetch the most recent event's hash to maintain continuous linkage.
-  let prevEventHash = AUDIT_GENESIS_HASH;
-  const isMocked = Boolean(
-    AuditEvent.findOne && (AuditEvent.findOne._isMockFunction || AuditEvent.findOne.mock)
-  );
-  if (mongoose.connection?.readyState !== 0 || isMocked) {
-    try {
-      const query = AuditEvent.findOne(
-        {},
-        { 'integrity.eventHash': 1 },
-        session ? { sort: { _id: -1 }, session } : { sort: { _id: -1 } }
-      );
-      const lastEvent =
-        query && typeof query.lean === 'function' ? await query.lean() : await query;
-      if (lastEvent?.integrity?.eventHash) {
-        prevEventHash = lastEvent.integrity.eventHash;
-      }
-    } catch {
-      prevEventHash = AUDIT_GENESIS_HASH;
+  // Critical Section: Hash Calculation and Persistence serialized under write lock
+  // to protect against branching forks under concurrent write load (ADR-012 §10.2).
+  return executeWithAuditLock(async () => {
+    // 11. Cryptographic Hash Chaining (ADR-012 §10.2).
+    //     Fetch the most recent event's hash to maintain continuous linkage.
+    let prevEventHash = AUDIT_GENESIS_HASH;
+    const query = AuditEvent.findOne(
+      {},
+      { 'integrity.eventHash': 1 },
+      session ? { sort: { _id: -1 }, session } : { sort: { _id: -1 } }
+    );
+    const lastEvent = query && typeof query.lean === 'function' ? await query.lean() : await query;
+    if (lastEvent?.integrity?.eventHash) {
+      prevEventHash = lastEvent.integrity.eventHash;
     }
-  }
 
-  const payloadString = computePayloadString({
-    eventId: resolvedEventId,
-    schemaVersion,
-    occurredAt,
-    action,
-    actorId: normalizedActor.actorId,
-    targetType: normalizedTarget.targetType,
-    targetId: normalizedTarget.targetId,
-    metadata: safeMetadata,
-  });
-  const eventHash = computeEventHash(prevEventHash, payloadString);
+    const payloadString = computePayloadString({
+      eventId: resolvedEventId,
+      schemaVersion,
+      occurredAt,
+      action,
+      actorId: normalizedActor.actorId,
+      targetType: normalizedTarget.targetType,
+      targetId: normalizedTarget.targetId,
+      metadata: safeMetadata,
+    });
+    const eventHash = computeEventHash(prevEventHash, payloadString);
 
-  // 12. Persist the AuditEvent.
-  //     Idempotency: if a record with the same eventId already exists (from a prior
-  //     successful write on a retry), the unique index on eventId will produce a
-  //     duplicate-key error. Callers must handle this case as a no-op (AC48).
-  const eventData = {
-    eventId: resolvedEventId,
-    schemaVersion,
-    action,
-    occurredAt,
-    actorType: normalizedActor.actorType,
-    actorId: normalizedActor.actorId,
-    actorRole: normalizedActor.actorRole,
-    targetType: normalizedTarget.targetType,
-    targetId: normalizedTarget.targetId,
-    branchId: branchId ? String(branchId).trim() : null,
-    outcome,
-    correlationId: safeCorrelationId,
-    source: source || null,
-    metadata: safeMetadata,
-    integrity: {
-      eventHash,
-      prevEventHash,
-    },
-  };
-
-  const isCreateMocked = Boolean(
-    AuditEvent.create && (AuditEvent.create._isMockFunction || AuditEvent.create.mock)
-  );
-  if (mongoose.connection?.readyState === 0 && !isCreateMocked) {
-    return {
-      _id: new mongoose.Types.ObjectId(),
-      ...eventData,
+    // 12. Persist the AuditEvent.
+    //     Idempotency: if a record with the same eventId already exists (from a prior
+    //     successful write on a retry), the unique index on eventId will produce a
+    //     duplicate-key error. Callers must handle this case as a no-op (AC48).
+    const eventData = {
+      eventId: resolvedEventId,
+      schemaVersion,
+      action,
+      occurredAt,
+      actorType: normalizedActor.actorType,
+      actorId: normalizedActor.actorId,
+      actorRole: normalizedActor.actorRole,
+      targetType: normalizedTarget.targetType,
+      targetId: normalizedTarget.targetId,
+      branchId: branchId ? String(branchId).trim() : null,
+      outcome,
+      correlationId: safeCorrelationId,
+      source: source || null,
+      metadata: safeMetadata,
+      integrity: {
+        eventHash,
+        prevEventHash,
+      },
     };
-  }
 
-  const createOptions = session ? { session } : {};
-  const [persisted] = await AuditEvent.create([eventData], createOptions);
+    const createOptions = session ? { session } : {};
+    const [persisted] = await AuditEvent.create([eventData], createOptions);
 
-  return persisted;
+    return persisted;
+  });
 }
 
 // ─── Audit Read (ADR-012 §AC53–AC58) ─────────────────────────────────────────
