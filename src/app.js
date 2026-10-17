@@ -25,6 +25,7 @@ const orderRoutes = require('./routes/order.routes');
 const appointmentRoutes = require('./routes/appointment.routes');
 const { paymentRouter, paymentNotificationRouter } = require('./routes/payment.routes');
 const doctorRoutes = require('./routes/doctor.routes');
+const auditRoutes = require('./routes/audit.routes');
 const captureCheckoutRequest = require('./middleware/captureCheckoutRequest');
 const { rejectUnsafeAppointmentInput } = require('./middleware/rejectUnsafeAppointmentInput');
 const notFound = require('./middleware/notFound');
@@ -88,6 +89,7 @@ function createApp() {
   app.use('/api', paymentRouter);
   app.use('/api', appointmentRoutes);
   app.use('/api', doctorRoutes);
+  app.use('/api', auditRoutes);
 
   // Catch-all route handler for non-existent endpoints (404)
 

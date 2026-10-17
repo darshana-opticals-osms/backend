@@ -87,6 +87,7 @@ describe('Swagger documentation integrity', () => {
     'PATCH /appointments/{id}/reassign',
     'POST /doctors',
     'GET /doctors',
+    'GET /audit-events',
   ];
 
   const normalize = (value) => value.toUpperCase();
@@ -171,6 +172,7 @@ describe('Swagger documentation integrity', () => {
       '/appointments/{id}/cancel',
       '/appointments/{id}/reassign',
       '/doctors',
+      '/audit-events',
     ];
 
     for (const path of publicPaths) {
@@ -419,5 +421,31 @@ describe('Swagger documentation integrity', () => {
     expect(resetRequestSchema.properties).toHaveProperty('token');
     expect(resetRequestSchema.properties).toHaveProperty('newPassword');
     expect(resetRequestSchema.properties).not.toHaveProperty('confirmPassword');
+  });
+
+  it('should document Audit trail endpoint with strict SYSTEM_ADMIN security and filter parameters (Issue #57)', () => {
+    const auditDoc = swaggerSpec.paths['/audit-events'].get;
+    expect(auditDoc).toBeDefined();
+    expect(auditDoc.tags).toContain('Audit');
+    expect(auditDoc.security).toEqual([{ bearerAuth: [] }]);
+    expect(auditDoc.description).toMatch(/SYSTEM_ADMIN/);
+    expect(auditDoc.responses['200']).toBeDefined();
+    expect(auditDoc.responses['401']).toBeDefined();
+    expect(auditDoc.responses['403']).toBeDefined();
+
+    const paramNames = auditDoc.parameters.map((p) => p.name);
+    expect(paramNames).toEqual(
+      expect.arrayContaining([
+        'action',
+        'targetType',
+        'targetId',
+        'actorId',
+        'branchId',
+        'fromDate',
+        'toDate',
+        'page',
+        'limit',
+      ])
+    );
   });
 });
