@@ -5,7 +5,6 @@ const Inventory = require('../models/inventory.model');
 const Payment = require('../models/payment.model');
 const PaymentEvent = require('../models/paymentEvent.model');
 const PaymentRetrievalEvidence = require('../models/paymentRetrievalEvidence.model');
-const Customer = require('../models/customer.model');
 const { PAYMENT_STATUS, PAYMENT_PROVIDER, PAYMENT_METHOD } = require('../constants/payment');
 const { cancelExpiredActiveAttempts } = require('./payment.service');
 const { formatAmount } = require('./adapters/PayHerePaymentAdapter');
@@ -13,7 +12,6 @@ const { ORDER_STATUS_VALUES } = require('../constants/orderStatuses');
 const { domainEvents, ORDER_EVENTS } = require('../utils/domainEvents');
 const { ConflictError, ValidationError } = require('../errors/AppError');
 const { evaluateReorderAlert } = require('./reorderAlert.service');
-const { sendOrderCancellationNotification } = require('./notification.service');
 const { restoreCartItems } = require('./cart.service');
 
 const DEFAULT_BATCH_SIZE = 100;
@@ -81,25 +79,15 @@ async function findRetrievalExpiryHold(order, payments, session) {
     : 'PAYMENT_RECONCILIATION_REQUIRED';
 }
 
-async function notifyCancellation(order) {
-  domainEvents.emit(ORDER_EVENTS.STATUS_CHANGED, {
-    orderId: order._id,
-    previousStatus: ORDER_STATUS_VALUES.ORDER_CREATED,
-    targetStatus: ORDER_STATUS_VALUES.CANCELLED,
-    orderAmount: order.orderAmount,
-    customerId: order.customerId,
-  });
-
+function notifyCancellation(order) {
   try {
-    const customer = await Customer.findById(order.customerId).lean();
-    if (customer?.email) {
-      await sendOrderCancellationNotification({
-        customerEmail: customer.email,
-        customerName: customer.name,
-        orderId: order._id.toString(),
-        orderAmount: order.orderAmount,
-      });
-    }
+    domainEvents.emit(ORDER_EVENTS.STATUS_CHANGED, {
+      orderId: order._id,
+      previousStatus: ORDER_STATUS_VALUES.ORDER_CREATED,
+      targetStatus: ORDER_STATUS_VALUES.CANCELLED,
+      orderAmount: order.orderAmount,
+      customerId: order.customerId,
+    });
   } catch (error) {
     console.warn(
       `[OrderReservation] Non-blocking notification failure for order ${order._id}:`,
