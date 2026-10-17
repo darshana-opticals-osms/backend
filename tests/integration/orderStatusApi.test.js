@@ -37,6 +37,9 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
     process.env.JWT_SECRET = JWT_SECRET;
     process.env.JWT_EXPIRES_IN = '1h';
     delete process.env.MONGODB_URI;
+    delete process.env.SMTP_HOST;
+    delete process.env.SMTP_USER;
+    delete process.env.SMTP_PASS;
     mongoServer = await MongoMemoryServer.create({ instance: { replSet: 'rs0' } });
     const uri = mongoServer.getUri();
     await mongoose.connect(uri, { directConnection: true });

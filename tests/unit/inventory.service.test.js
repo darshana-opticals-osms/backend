@@ -14,6 +14,7 @@ const {
 } = require('../../src/services/inventory.service');
 const { deleteImage } = require('../../src/services/imageUpload.service');
 const { ImageUpload } = require('../../src/models/imageUpload.model');
+const auditService = require('../../src/services/audit.service');
 
 jest.mock('../../src/services/imageUpload.service', () => ({
   uploadImage: jest.fn(),
@@ -852,6 +853,103 @@ describe('Inventory service', () => {
 
       expect(deleteImage).toHaveBeenCalledWith(newUpload.publicId);
       expect(deleteImage).not.toHaveBeenCalledWith(originalInventory.imagePublicId);
+    });
+  });
+
+  describe('Audit integration (ADR-012)', () => {
+    it('should record INVENTORY_QUANTITY_ADJUSTED with safe before/after metadata when actor is provided', async () => {
+      const inventoryId = new mongoose.Types.ObjectId().toString();
+      const branchId = new mongoose.Types.ObjectId().toString();
+
+      Inventory.findById.mockResolvedValue({
+        _id: inventoryId,
+        quantity: 10,
+        branchId,
+      });
+
+      Inventory.findByIdAndUpdate.mockResolvedValue({
+        _id: inventoryId,
+        itemName: 'Classic Frame',
+        quantity: 15,
+        branchId,
+      });
+
+      const spyRecord = jest.spyOn(auditService, 'record').mockResolvedValue({});
+
+      const actor = {
+        actorType: 'USER',
+        actorId: 'user-123',
+        actorRole: 'BRANCH_MANAGER',
+      };
+
+      await updateInventoryQuantity(inventoryId, 15, null, {
+        actor,
+        correlationId: 'req-corr-1',
+      });
+
+      expect(spyRecord).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'INVENTORY_QUANTITY_ADJUSTED',
+          actor,
+          target: {
+            targetType: 'INVENTORY',
+            targetId: inventoryId,
+          },
+          outcome: 'SUCCESS',
+          branchId,
+          correlationId: 'req-corr-1',
+          metadata: {
+            previousQuantity: 10,
+            newQuantity: 15,
+            adjustmentDelta: 5,
+          },
+        })
+      );
+
+      spyRecord.mockRestore();
+    });
+
+    it('should record INVENTORY_CHECKOUT_STOCK_DEDUCTED with orderId and remainingQuantity', async () => {
+      const inventoryId = new mongoose.Types.ObjectId().toString();
+      const branchId = new mongoose.Types.ObjectId().toString();
+
+      Inventory.findOneAndUpdate.mockResolvedValue({
+        _id: inventoryId,
+        quantity: 7,
+        branchId,
+      });
+
+      const spyRecord = jest.spyOn(auditService, 'record').mockResolvedValue({});
+
+      const actor = {
+        actorType: 'SYSTEM',
+        actorId: 'OSMS_BACKEND',
+        actorRole: 'OSMS_BACKEND',
+      };
+
+      await deductInventoryStock([{ inventoryId, quantity: 3 }], null, {
+        actor,
+        orderId: 'order-999',
+      });
+
+      expect(spyRecord).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'INVENTORY_CHECKOUT_STOCK_DEDUCTED',
+          actor,
+          target: {
+            targetType: 'INVENTORY',
+            targetId: inventoryId,
+          },
+          outcome: 'SUCCESS',
+          metadata: {
+            deductedQuantity: 3,
+            remainingQuantity: 7,
+            orderId: 'order-999',
+          },
+        })
+      );
+
+      spyRecord.mockRestore();
     });
   });
 });

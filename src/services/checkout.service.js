@@ -140,8 +140,8 @@ function toCheckoutResponse(order, orderItems) {
   };
 }
 
-async function decrementInventoryStock(items, session = null) {
-  return deductInventoryStock(items, session);
+async function decrementInventoryStock(items, session = null, auditContext = null) {
+  return deductInventoryStock(items, session, auditContext);
 }
 
 async function checkoutCustomer(customerId) {
@@ -197,7 +197,10 @@ async function checkoutCustomer(customerId) {
         { session, ordered: true }
       );
 
-      await deductInventoryStock(cart.items, session);
+      await deductInventoryStock(cart.items, session, {
+        system: true,
+        orderId: order._id.toString(),
+      });
 
       const deletion = await Cart.deleteOne({ _id: cart._id, customerId }).session(session);
       if (deletion.deletedCount !== 1) {

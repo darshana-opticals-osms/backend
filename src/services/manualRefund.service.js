@@ -19,6 +19,8 @@ const {
   NotFoundError,
   ConflictError,
 } = require('../errors/AppError');
+const auditService = require('./audit.service');
+const { AUDIT_ACTION, AUDIT_TARGET_TYPE, AUDIT_OUTCOME } = require('../constants/audit');
 const { isIdentifier } = require('../validations/paymentMonitoring.validation');
 const {
   validateManualRefundEvidence,
@@ -173,6 +175,27 @@ async function recordConfirmedManualFullRefund({ auth, paymentId, evidence, idem
             );
             if (update.modifiedCount !== 1)
               throw new ConflictError('Payment state changed.', null, 'REFUND_SOURCE_CONFLICT');
+
+            const refundActor = auditService.buildUserActor(auth);
+            const evidenceId = refundEvidence.evidenceId || refundEvidence._id;
+            await auditService.record({
+              action: AUDIT_ACTION.PAYMENT_REFUNDED,
+              actor: refundActor,
+              target: {
+                targetType: AUDIT_TARGET_TYPE.PAYMENT,
+                targetId: payment._id.toString(),
+              },
+              outcome: AUDIT_OUTCOME.SUCCESS,
+              eventId: `audit-payment-refund-${evidenceId}`,
+              metadata: {
+                orderId: order._id.toString(),
+                amount: payment.amount,
+                currency: payment.currency,
+                refundEvidenceId: evidenceId ? evidenceId.toString() : null,
+              },
+              session,
+            });
+
             // An Order that never reached COMPLETED cannot have earned under ADR-005.
             // Otherwise a durable reversal is mandatory in this SAME transaction.
             const neverEarned = await loyaltyRefund.verifyNeverEarnedFullRefund({

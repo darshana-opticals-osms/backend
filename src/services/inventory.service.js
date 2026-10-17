@@ -4,6 +4,8 @@ const Inventory = require('../models/inventory.model');
 const { NotFoundError, ValidationError, ConflictError } = require('../errors/AppError');
 
 const reorderAlertService = require('./reorderAlert.service');
+const auditService = require('./audit.service');
+const { AUDIT_ACTION, AUDIT_TARGET_TYPE, AUDIT_OUTCOME } = require('../constants/audit');
 const { deleteImage } = require('./imageUpload.service');
 const { ImageUpload, IMAGE_UPLOAD_STATUS } = require('../models/imageUpload.model');
 const { sanitizeLogMessage } = require('../utils/sanitizer');
@@ -311,7 +313,7 @@ async function getBranchInventory(branchId) {
   return Inventory.find({ branchId });
 }
 
-async function updateInventory(inventoryId, inventoryInput = {}) {
+async function updateInventory(inventoryId, inventoryInput = {}, auditContext = null) {
   validateInventoryId(inventoryId);
 
   if (
@@ -339,8 +341,12 @@ async function updateInventory(inventoryId, inventoryInput = {}) {
   const isImageMutation =
     Object.prototype.hasOwnProperty.call(inventoryInput, 'imageUrl') ||
     Object.prototype.hasOwnProperty.call(inventoryInput, 'imagePublicId');
+  const isPriceMutation = Object.prototype.hasOwnProperty.call(inventoryInput, 'price');
 
-  if (isImageMutation) {
+  if (
+    isImageMutation ||
+    (isPriceMutation && auditContext && (auditContext.actor || auditContext.user))
+  ) {
     existingInventory = await Inventory.findById(inventoryId);
     if (!existingInventory) {
       throw new NotFoundError('Inventory item not found.');
@@ -397,6 +403,33 @@ async function updateInventory(inventoryId, inventoryInput = {}) {
           );
         }
 
+        if (
+          isPriceMutation &&
+          existingInventory &&
+          Number(existingInventory.price) !== Number(inventoryInput.price) &&
+          auditContext &&
+          (auditContext.actor || auditContext.user)
+        ) {
+          const actor = auditContext.actor || auditService.buildUserActor(auditContext.user);
+          await auditService.record({
+            action: AUDIT_ACTION.INVENTORY_PRICE_UPDATED,
+            actor,
+            target: {
+              targetType: AUDIT_TARGET_TYPE.INVENTORY,
+              targetId: updated._id.toString(),
+            },
+            branchId: updated.branchId ? updated.branchId.toString() : null,
+            outcome: AUDIT_OUTCOME.SUCCESS,
+            correlationId: auditContext.correlationId || null,
+            metadata: {
+              previousPrice: Number(existingInventory.price),
+              newPrice: Number(inventoryInput.price),
+              priceDelta: Number(inventoryInput.price) - Number(existingInventory.price),
+            },
+            session,
+          });
+        }
+
         return updated;
       },
       async () => {
@@ -431,9 +464,36 @@ async function updateInventory(inventoryId, inventoryInput = {}) {
               { $set: { status: IMAGE_UPLOAD_STATUS.ATTACHED, inventoryId: updated._id } }
             );
           }
+
+          if (
+            isPriceMutation &&
+            existingInventory &&
+            Number(existingInventory.price) !== Number(inventoryInput.price) &&
+            auditContext &&
+            (auditContext.actor || auditContext.user)
+          ) {
+            const actor = auditContext.actor || auditService.buildUserActor(auditContext.user);
+            await auditService.record({
+              action: AUDIT_ACTION.INVENTORY_PRICE_UPDATED,
+              actor,
+              target: {
+                targetType: AUDIT_TARGET_TYPE.INVENTORY,
+                targetId: updated._id.toString(),
+              },
+              branchId: updated.branchId ? updated.branchId.toString() : null,
+              outcome: AUDIT_OUTCOME.SUCCESS,
+              correlationId: auditContext.correlationId || null,
+              metadata: {
+                previousPrice: Number(existingInventory.price),
+                newPrice: Number(inventoryInput.price),
+                priceDelta: Number(inventoryInput.price) - Number(existingInventory.price),
+              },
+            });
+          }
+
           return updated;
         } catch (trackingError) {
-          if (isImageMutation && existingInventory) {
+          if ((isImageMutation || isPriceMutation) && existingInventory) {
             await Inventory.findByIdAndUpdate(
               inventoryId,
               { $set: originalValues },
@@ -489,7 +549,12 @@ async function removeInventoryImage(inventoryId) {
   return inventory;
 }
 
-async function updateInventoryQuantity(inventoryId, quantity, externalSession = null) {
+async function updateInventoryQuantity(
+  inventoryId,
+  quantity,
+  externalSession = null,
+  auditContext = null
+) {
   validateInventoryId(inventoryId);
 
   if (typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity < 0) {
@@ -499,6 +564,9 @@ async function updateInventoryQuantity(inventoryId, quantity, externalSession = 
   }
 
   if (externalSession) {
+    const existingDoc = await Inventory.findById(inventoryId).session(externalSession);
+    const previousQuantity = existingDoc ? existingDoc.quantity : null;
+
     const updatedInventory = await Inventory.findByIdAndUpdate(
       inventoryId,
       { $set: { quantity } },
@@ -515,11 +583,41 @@ async function updateInventoryQuantity(inventoryId, quantity, externalSession = 
     }
 
     await reorderAlertService.evaluateReorderAlert(updatedInventory, null, externalSession);
+
+    // Audit manual adjustment (AC16–AC18, AC43, AC45)
+    if (auditContext && (auditContext.actor || auditContext.user)) {
+      const actor = auditContext.actor || auditService.buildUserActor(auditContext.user);
+      await auditService.record({
+        action: AUDIT_ACTION.INVENTORY_QUANTITY_ADJUSTED,
+        actor,
+        target: {
+          targetType: AUDIT_TARGET_TYPE.INVENTORY,
+          targetId: updatedInventory._id.toString(),
+        },
+        outcome: AUDIT_OUTCOME.SUCCESS,
+        branchId: updatedInventory.branchId ? updatedInventory.branchId.toString() : null,
+        correlationId: auditContext.correlationId || null,
+        eventId: auditContext.eventId || null,
+        metadata: {
+          previousQuantity,
+          newQuantity: updatedInventory.quantity,
+          adjustmentDelta:
+            typeof previousQuantity === 'number'
+              ? updatedInventory.quantity - previousQuantity
+              : null,
+        },
+        session: externalSession,
+      });
+    }
+
     return updatedInventory;
   }
 
   return executeWithTransactionOrRecovery(
     async (session) => {
+      const existingDoc = await Inventory.findById(inventoryId).session(session);
+      const previousQuantity = existingDoc ? existingDoc.quantity : null;
+
       const updatedInventory = await Inventory.findByIdAndUpdate(
         inventoryId,
         { $set: { quantity } },
@@ -536,6 +634,33 @@ async function updateInventoryQuantity(inventoryId, quantity, externalSession = 
       }
 
       await reorderAlertService.evaluateReorderAlert(updatedInventory, null, session);
+
+      // Audit manual adjustment inside transaction (fail-closed, AC43/AC45)
+      if (auditContext && (auditContext.actor || auditContext.user)) {
+        const actor = auditContext.actor || auditService.buildUserActor(auditContext.user);
+        await auditService.record({
+          action: AUDIT_ACTION.INVENTORY_QUANTITY_ADJUSTED,
+          actor,
+          target: {
+            targetType: AUDIT_TARGET_TYPE.INVENTORY,
+            targetId: updatedInventory._id.toString(),
+          },
+          outcome: AUDIT_OUTCOME.SUCCESS,
+          branchId: updatedInventory.branchId ? updatedInventory.branchId.toString() : null,
+          correlationId: auditContext.correlationId || null,
+          eventId: auditContext.eventId || null,
+          metadata: {
+            previousQuantity,
+            newQuantity: updatedInventory.quantity,
+            adjustmentDelta:
+              typeof previousQuantity === 'number'
+                ? updatedInventory.quantity - previousQuantity
+                : null,
+          },
+          session,
+        });
+      }
+
       return updatedInventory;
     },
     async () => {
@@ -558,7 +683,6 @@ async function updateInventoryQuantity(inventoryId, quantity, externalSession = 
 
       try {
         await reorderAlertService.evaluateReorderAlert(updatedInventory);
-        return updatedInventory;
       } catch (alertError) {
         if (previousQuantity !== null) {
           await Inventory.findByIdAndUpdate(
@@ -573,6 +697,53 @@ async function updateInventoryQuantity(inventoryId, quantity, externalSession = 
         }
         throw alertError;
       }
+
+      // Standalone recovery audit write (fail-closed, AC43)
+      if (auditContext && (auditContext.actor || auditContext.user)) {
+        const actor = auditContext.actor || auditService.buildUserActor(auditContext.user);
+        try {
+          await auditService.record({
+            action: AUDIT_ACTION.INVENTORY_QUANTITY_ADJUSTED,
+            actor,
+            target: {
+              targetType: AUDIT_TARGET_TYPE.INVENTORY,
+              targetId: updatedInventory._id.toString(),
+            },
+            outcome: AUDIT_OUTCOME.SUCCESS,
+            branchId: updatedInventory.branchId ? updatedInventory.branchId.toString() : null,
+            correlationId: auditContext.correlationId || null,
+            eventId: auditContext.eventId || null,
+            metadata: {
+              previousQuantity,
+              newQuantity: updatedInventory.quantity,
+              adjustmentDelta:
+                typeof previousQuantity === 'number'
+                  ? updatedInventory.quantity - previousQuantity
+                  : null,
+            },
+          });
+        } catch (auditErr) {
+          auditService.logAuditWriteFailure(
+            AUDIT_ACTION.INVENTORY_QUANTITY_ADJUSTED,
+            updatedInventory._id.toString(),
+            auditErr
+          );
+          if (previousQuantity !== null) {
+            await Inventory.findByIdAndUpdate(
+              inventoryId,
+              { $set: { quantity: previousQuantity } },
+              {
+                new: true,
+                runValidators: true,
+                context: 'query',
+              }
+            );
+          }
+          throw auditErr;
+        }
+      }
+
+      return updatedInventory;
     }
   );
 }
@@ -582,9 +753,10 @@ async function updateInventoryQuantity(inventoryId, quantity, externalSession = 
  * Safely decrements stock preventing negative quantities and triggers reorder evaluation.
  * @param {Array<{ inventoryId: string|mongoose.Types.ObjectId, quantity: number }>} items
  * @param {import('mongoose').ClientSession|null} [session=null]
+ * @param {object|null} [auditContext=null]
  * @returns {Promise<Array<object>>} Updated inventory records
  */
-async function deductInventoryStock(items, session = null) {
+async function deductInventoryStock(items, session = null, auditContext = null) {
   const updatedRecords = [];
 
   for (const item of items) {
@@ -611,6 +783,38 @@ async function deductInventoryStock(items, session = null) {
 
     await reorderAlertService.evaluateReorderAlert(updated, null, session);
     updatedRecords.push(updated);
+
+    // Audit checkout stock deduction (AC19, AC20, AC43, AC45)
+    if (auditContext && (auditContext.actor || auditContext.user || auditContext.system)) {
+      const actor =
+        auditContext.actor ||
+        (auditContext.user
+          ? auditService.buildUserActor(auditContext.user)
+          : auditService.buildSystemActor());
+
+      const eventId =
+        auditContext.eventId ||
+        (auditContext.orderId ? `audit-deduct-${auditContext.orderId}-${updated._id}` : null);
+
+      await auditService.record({
+        action: AUDIT_ACTION.INVENTORY_CHECKOUT_STOCK_DEDUCTED,
+        actor,
+        target: {
+          targetType: AUDIT_TARGET_TYPE.INVENTORY,
+          targetId: updated._id.toString(),
+        },
+        outcome: AUDIT_OUTCOME.SUCCESS,
+        branchId: updated.branchId ? updated.branchId.toString() : null,
+        correlationId: auditContext.correlationId || null,
+        eventId,
+        metadata: {
+          deductedQuantity: quantity,
+          remainingQuantity: updated.quantity,
+          orderId: auditContext.orderId || null,
+        },
+        session,
+      });
+    }
   }
 
   return updatedRecords;

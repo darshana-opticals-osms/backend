@@ -15,6 +15,13 @@ const {
   PAYHERE_STATUS_CODE,
 } = require('../constants/payment');
 const { ORDER_STATUS_VALUES } = require('../constants/orderStatuses');
+const auditService = require('./audit.service');
+const {
+  AUDIT_ACTION,
+  AUDIT_TARGET_TYPE,
+  AUDIT_OUTCOME,
+  AUDIT_SOURCE,
+} = require('../constants/audit');
 const { domainEvents, ORDER_EVENTS } = require('../utils/domainEvents');
 const {
   BadRequestError,
@@ -170,7 +177,16 @@ async function cancelExpiredActiveAttempts(orderId, session) {
       'PAYMENT_RECONCILIATION_REQUIRED'
     );
   }
-  return Payment.updateMany(
+
+  const expiredPayments = await Payment.find({
+    orderId,
+    provider: PAYMENT_PROVIDER.PAYHERE,
+    method: PAYMENT_METHOD.ONLINE_GATEWAY,
+    status: { $in: ACTIVE_PAYMENT_STATUSES },
+    reconciliationRequired: { $ne: true },
+  }).session(session);
+
+  const result = await Payment.updateMany(
     {
       orderId,
       provider: PAYMENT_PROVIDER.PAYHERE,
@@ -181,9 +197,37 @@ async function cancelExpiredActiveAttempts(orderId, session) {
     { $set: { status: PAYMENT_STATUS.CANCELLED, failureReason: 'session_expired' } },
     { session }
   );
+
+  const systemActor = auditService.buildSystemActor();
+  for (const exp of expiredPayments) {
+    await auditService.record({
+      action: AUDIT_ACTION.PAYMENT_CANCELLED,
+      actor: systemActor,
+      target: {
+        targetType: AUDIT_TARGET_TYPE.PAYMENT,
+        targetId: exp._id.toString(),
+      },
+      outcome: AUDIT_OUTCOME.SUCCESS,
+      source: AUDIT_SOURCE.OSMS_BACKEND,
+      eventId: `audit-payment-cancelled-expired-${exp._id}`,
+      metadata: {
+        orderId: exp.orderId.toString(),
+        reason: 'session_expired',
+      },
+      session,
+    });
+  }
+
+  return result;
 }
 
-async function initiatePayment({ customerId, orderId, billingInput = {}, now = new Date() }) {
+async function initiatePayment({
+  customerId,
+  orderId,
+  billingInput = {},
+  now = new Date(),
+  auditContext = null,
+}) {
   if (!mongoose.isValidObjectId(customerId) || !mongoose.isValidObjectId(orderId)) {
     throw new ValidationError('Payment identifiers are invalid.');
   }
@@ -250,6 +294,36 @@ async function initiatePayment({ customerId, orderId, billingInput = {}, now = n
         paymentDocument.providerOrderId = `PAY-${paymentDocument._id}`;
         await paymentDocument.save({ session });
         payment = paymentDocument;
+
+        // Record PAYMENT_INITIATED audit event (AC22, AC29, AC45)
+        const actor =
+          auditContext?.actor ||
+          (auditContext?.user
+            ? auditService.buildUserActor(auditContext.user)
+            : customerId
+              ? auditService.buildUserActor({ userId: customerId, role: 'CUSTOMER' })
+              : auditService.buildSystemActor());
+
+        await auditService.record({
+          action: AUDIT_ACTION.PAYMENT_INITIATED,
+          actor,
+          target: {
+            targetType: AUDIT_TARGET_TYPE.PAYMENT,
+            targetId: payment._id.toString(),
+          },
+          outcome: AUDIT_OUTCOME.SUCCESS,
+          correlationId: auditContext?.correlationId || null,
+          eventId: `audit-payment-init-${payment._id}`,
+          metadata: {
+            orderId: payment.orderId.toString(),
+            amount: payment.amount,
+            currency: payment.currency,
+            method: payment.method,
+            provider: payment.provider,
+            providerOrderId: payment.providerOrderId,
+          },
+          session,
+        });
       }
       customer = customerDocument;
     });
@@ -435,6 +509,28 @@ async function processVerifiedNotification(fields) {
       }
       await lockOrderPaymentState(currentPayment.orderId, session);
 
+      const callbackActor = auditService.buildExternalProviderActor(AUDIT_SOURCE.PAYHERE_GATEWAY);
+      await auditService.record({
+        action: AUDIT_ACTION.PAYMENT_PROVIDER_CALLBACK_VERIFIED,
+        actor: callbackActor,
+        target: {
+          targetType: AUDIT_TARGET_TYPE.PAYMENT,
+          targetId: currentPayment._id.toString(),
+        },
+        outcome: AUDIT_OUTCOME.SUCCESS,
+        source: AUDIT_SOURCE.PAYHERE_GATEWAY,
+        eventId: `audit-payhere-callback-${eventKey}`,
+        metadata: {
+          providerOrderId: fields.order_id,
+          providerTransactionId: fields.payment_id || null,
+          statusCode: fields.status_code,
+          payhereAmount: fields.payhere_amount,
+          payhereCurrency: fields.payhere_currency,
+          method: providerPaymentMethod,
+        },
+        session,
+      });
+
       if (fields.status_code === PAYHERE_STATUS_CODE.CHARGEBACK) {
         result = await markReconciliation(
           currentPayment,
@@ -540,6 +636,7 @@ async function processVerifiedNotification(fields) {
           );
           return;
         }
+        const previousStatus = currentPayment.status;
         const paymentUpdate = await Payment.updateOne(
           { _id: currentPayment._id, status: { $in: ACTIVE_PAYMENT_STATUSES } },
           {
@@ -577,6 +674,45 @@ async function processVerifiedNotification(fields) {
         }
         await PaymentEvent.create([eventData(currentPayment, fields, 'applied')], { session });
         completedOrder = order;
+
+        await auditService.record({
+          action: AUDIT_ACTION.PAYMENT_STATUS_CHANGED,
+          actor: callbackActor,
+          target: {
+            targetType: AUDIT_TARGET_TYPE.PAYMENT,
+            targetId: currentPayment._id.toString(),
+          },
+          outcome: AUDIT_OUTCOME.SUCCESS,
+          source: AUDIT_SOURCE.PAYHERE_GATEWAY,
+          eventId: `audit-payment-status-${currentPayment._id}-${PAYMENT_STATUS.COMPLETED}`,
+          metadata: {
+            previousStatus,
+            newStatus: PAYMENT_STATUS.COMPLETED,
+            orderId: currentPayment.orderId.toString(),
+          },
+          session,
+        });
+
+        await auditService.record({
+          action: AUDIT_ACTION.PAYMENT_COMPLETED,
+          actor: callbackActor,
+          target: {
+            targetType: AUDIT_TARGET_TYPE.PAYMENT,
+            targetId: currentPayment._id.toString(),
+          },
+          outcome: AUDIT_OUTCOME.SUCCESS,
+          source: AUDIT_SOURCE.PAYHERE_GATEWAY,
+          eventId: `audit-payment-completed-${currentPayment._id}`,
+          metadata: {
+            orderId: currentPayment.orderId.toString(),
+            amount: currentPayment.amount,
+            currency: currentPayment.currency,
+            providerTransactionId: fields.payment_id,
+            providerPaymentMethod,
+          },
+          session,
+        });
+
         result = { action: 'applied', successBoundary: true };
         return;
       }
@@ -596,6 +732,7 @@ async function processVerifiedNotification(fields) {
         return;
       }
 
+      const previousStatus = currentPayment.status;
       const update = {
         status: targetStatus,
         providerTransactionId: fields.payment_id,
@@ -604,6 +741,62 @@ async function processVerifiedNotification(fields) {
       if (targetStatus === PAYMENT_STATUS.FAILED) update.failureReason = 'PAYHERE_PAYMENT_FAILED';
       await Payment.updateOne({ _id: currentPayment._id }, { $set: update }, { session });
       await PaymentEvent.create([eventData(currentPayment, fields, 'applied')], { session });
+
+      await auditService.record({
+        action: AUDIT_ACTION.PAYMENT_STATUS_CHANGED,
+        actor: callbackActor,
+        target: {
+          targetType: AUDIT_TARGET_TYPE.PAYMENT,
+          targetId: currentPayment._id.toString(),
+        },
+        outcome: AUDIT_OUTCOME.SUCCESS,
+        source: AUDIT_SOURCE.PAYHERE_GATEWAY,
+        eventId: `audit-payment-status-${currentPayment._id}-${targetStatus}`,
+        metadata: {
+          previousStatus,
+          newStatus: targetStatus,
+          orderId: currentPayment.orderId.toString(),
+        },
+        session,
+      });
+
+      if (targetStatus === PAYMENT_STATUS.FAILED) {
+        await auditService.record({
+          action: AUDIT_ACTION.PAYMENT_FAILED,
+          actor: callbackActor,
+          target: {
+            targetType: AUDIT_TARGET_TYPE.PAYMENT,
+            targetId: currentPayment._id.toString(),
+          },
+          outcome: AUDIT_OUTCOME.FAILURE,
+          source: AUDIT_SOURCE.PAYHERE_GATEWAY,
+          eventId: `audit-payment-failed-${currentPayment._id}`,
+          metadata: {
+            orderId: currentPayment.orderId.toString(),
+            failureReason: 'PAYHERE_PAYMENT_FAILED',
+            providerTransactionId: fields.payment_id || null,
+          },
+          session,
+        });
+      } else if (targetStatus === PAYMENT_STATUS.CANCELLED) {
+        await auditService.record({
+          action: AUDIT_ACTION.PAYMENT_CANCELLED,
+          actor: callbackActor,
+          target: {
+            targetType: AUDIT_TARGET_TYPE.PAYMENT,
+            targetId: currentPayment._id.toString(),
+          },
+          outcome: AUDIT_OUTCOME.SUCCESS,
+          source: AUDIT_SOURCE.PAYHERE_GATEWAY,
+          eventId: `audit-payment-cancelled-${currentPayment._id}`,
+          metadata: {
+            orderId: currentPayment.orderId.toString(),
+            providerTransactionId: fields.payment_id || null,
+          },
+          session,
+        });
+      }
+
       result = { action: 'applied', successBoundary: false };
     });
   } catch (error) {

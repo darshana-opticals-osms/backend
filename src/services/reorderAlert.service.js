@@ -8,6 +8,8 @@ const {
   REMINDER_CONFIG,
 } = require('../constants/inventoryAlert.constants');
 const { AppError, ValidationError } = require('../errors/AppError');
+const auditService = require('./audit.service');
+const { AUDIT_ACTION, AUDIT_TARGET_TYPE, AUDIT_OUTCOME } = require('../constants/audit');
 
 const REORDER_THRESHOLD_KEY = 'REORDER_THRESHOLD';
 
@@ -18,7 +20,7 @@ const REORDER_THRESHOLD_KEY = 'REORDER_THRESHOLD';
  */
 async function getGlobalReorderThreshold(session = null) {
   const query = InventoryConfig.findOne({ key: REORDER_THRESHOLD_KEY });
-  if (session) {
+  if (query && session && typeof query.session === 'function') {
     query.session(session);
   }
   const config = await query;
@@ -38,7 +40,12 @@ async function getGlobalReorderThreshold(session = null) {
  * @param {import('mongoose').ClientSession|null} [externalSession=null]
  * @returns {Promise<{ threshold: number, reconciliation: { totalEvaluated: number } }>}
  */
-async function setGlobalReorderThreshold(newThreshold, updatedBy = null, externalSession = null) {
+async function setGlobalReorderThreshold(
+  newThreshold,
+  updatedBy = null,
+  externalSession = null,
+  auditContext = null
+) {
   if (typeof newThreshold !== 'number' || !Number.isFinite(newThreshold) || newThreshold < 0) {
     throw new ValidationError('Reorder threshold must be a non-negative number.', {
       field: 'threshold',
@@ -47,6 +54,8 @@ async function setGlobalReorderThreshold(newThreshold, updatedBy = null, externa
 
   // 1. Caller-provided session: execute within caller's transaction
   if (externalSession) {
+    const previousThreshold = await getGlobalReorderThreshold(externalSession);
+
     await InventoryConfig.findOneAndUpdate(
       { key: REORDER_THRESHOLD_KEY },
       { $set: { value: newThreshold, updatedBy } },
@@ -54,6 +63,25 @@ async function setGlobalReorderThreshold(newThreshold, updatedBy = null, externa
     );
 
     const reconciliation = await reconcileAllInventories(newThreshold, externalSession);
+
+    if (auditContext && (auditContext.actor || auditContext.user)) {
+      const actor = auditContext.actor || auditService.buildUserActor(auditContext.user);
+      await auditService.record({
+        action: AUDIT_ACTION.INVENTORY_REORDER_CONFIG_CHANGED,
+        actor,
+        target: {
+          targetType: AUDIT_TARGET_TYPE.INVENTORY,
+          targetId: 'GLOBAL_CONFIG',
+        },
+        outcome: AUDIT_OUTCOME.SUCCESS,
+        correlationId: auditContext.correlationId || null,
+        metadata: {
+          previousThreshold,
+          newThreshold,
+        },
+        session: externalSession,
+      });
+    }
 
     return {
       threshold: newThreshold,
@@ -104,6 +132,8 @@ async function setGlobalReorderThreshold(newThreshold, updatedBy = null, externa
   try {
     let result;
     await session.withTransaction(async () => {
+      const previousThreshold = await getGlobalReorderThreshold(session);
+
       await InventoryConfig.findOneAndUpdate(
         { key: REORDER_THRESHOLD_KEY },
         { $set: { value: newThreshold, updatedBy } },
@@ -111,6 +141,25 @@ async function setGlobalReorderThreshold(newThreshold, updatedBy = null, externa
       );
 
       const reconciliation = await reconcileAllInventories(newThreshold, session);
+
+      if (auditContext && (auditContext.actor || auditContext.user)) {
+        const actor = auditContext.actor || auditService.buildUserActor(auditContext.user);
+        await auditService.record({
+          action: AUDIT_ACTION.INVENTORY_REORDER_CONFIG_CHANGED,
+          actor,
+          target: {
+            targetType: AUDIT_TARGET_TYPE.INVENTORY,
+            targetId: 'GLOBAL_CONFIG',
+          },
+          outcome: AUDIT_OUTCOME.SUCCESS,
+          correlationId: auditContext.correlationId || null,
+          metadata: {
+            previousThreshold,
+            newThreshold,
+          },
+          session,
+        });
+      }
 
       result = {
         threshold: newThreshold,

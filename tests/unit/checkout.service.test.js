@@ -16,6 +16,23 @@ jest.mock('../../src/services/reorderAlert.service', () => ({
   evaluateReorderAlert: jest.fn().mockResolvedValue(null),
 }));
 
+jest.mock('../../src/services/audit.service', () => ({
+  record: jest.fn().mockResolvedValue({ _id: 'mock-audit-id' }),
+  buildSystemActor: jest.fn().mockReturnValue({
+    actorType: 'SYSTEM',
+    actorId: 'OSMS_BACKEND',
+    actorRole: 'OSMS_BACKEND',
+  }),
+  buildUserActor: jest.fn().mockReturnValue({
+    actorType: 'USER',
+    actorId: '507f1f77bcf86cd799439011',
+    actorRole: 'CUSTOMER',
+  }),
+  AUDIT_ACTION: {
+    INVENTORY_CHECKOUT_STOCK_DEDUCTED: 'INVENTORY_CHECKOUT_STOCK_DEDUCTED',
+  },
+}));
+
 jest.mock('../../src/models/cart.model', () => ({
   findOne: jest.fn(),
   deleteOne: jest.fn(),
