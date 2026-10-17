@@ -55,7 +55,9 @@ describe('OrderNotificationTemplateService (ADR-013 Section 13, AC31-AC36)', () 
     it('builds canonical order tracking link using env base URL', () => {
       process.env.TRACKING_PORTAL_BASE_URL = 'https://tracking.darshanaopticals.lk';
       const url = buildTrackingUrl('670c538f9b1e2a001f3e4b11');
-      expect(url).toBe('https://tracking.darshanaopticals.lk/orders/670c538f9b1e2a001f3e4b11/track');
+      expect(url).toBe(
+        'https://tracking.darshanaopticals.lk/orders/670c538f9b1e2a001f3e4b11/track'
+      );
     });
 
     it('handles trailing slash in environment URL gracefully', () => {

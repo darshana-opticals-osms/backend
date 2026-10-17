@@ -37,10 +37,7 @@ describe('OrderNotificationService (ADR-013, Issue #60 AC1-AC30)', () => {
         )
       ).toBe(true);
       expect(
-        getNotificationMilestone(
-          ORDER_STATUS_VALUES.ORDER_CREATED,
-          ORDER_STATUS_VALUES.PROCESSING
-        )
+        getNotificationMilestone(ORDER_STATUS_VALUES.ORDER_CREATED, ORDER_STATUS_VALUES.PROCESSING)
       ).toBe(ORDER_NOTIFICATION_MILESTONES.MILESTONE_1_CONFIRMATION);
     });
 
@@ -76,16 +73,10 @@ describe('OrderNotificationService (ADR-013, Issue #60 AC1-AC30)', () => {
 
     it('approves Milestone 3: PICKED_UP -> COMPLETED', () => {
       expect(
-        isNotifiableStatusTransition(
-          ORDER_STATUS_VALUES.PICKED_UP,
-          ORDER_STATUS_VALUES.COMPLETED
-        )
+        isNotifiableStatusTransition(ORDER_STATUS_VALUES.PICKED_UP, ORDER_STATUS_VALUES.COMPLETED)
       ).toBe(true);
       expect(
-        getNotificationMilestone(
-          ORDER_STATUS_VALUES.PICKED_UP,
-          ORDER_STATUS_VALUES.COMPLETED
-        )
+        getNotificationMilestone(ORDER_STATUS_VALUES.PICKED_UP, ORDER_STATUS_VALUES.COMPLETED)
       ).toBe(ORDER_NOTIFICATION_MILESTONES.MILESTONE_3_FULFILLED);
     });
 
@@ -97,25 +88,16 @@ describe('OrderNotificationService (ADR-013, Issue #60 AC1-AC30)', () => {
         )
       ).toBe(true);
       expect(
-        getNotificationMilestone(
-          ORDER_STATUS_VALUES.ORDER_CREATED,
-          ORDER_STATUS_VALUES.CANCELLED
-        )
+        getNotificationMilestone(ORDER_STATUS_VALUES.ORDER_CREATED, ORDER_STATUS_VALUES.CANCELLED)
       ).toBe(ORDER_NOTIFICATION_MILESTONES.MILESTONE_4_CANCELLED_UNPAID);
     });
 
     it('approves Milestone 5: PROCESSING -> CANCELLED', () => {
       expect(
-        isNotifiableStatusTransition(
-          ORDER_STATUS_VALUES.PROCESSING,
-          ORDER_STATUS_VALUES.CANCELLED
-        )
+        isNotifiableStatusTransition(ORDER_STATUS_VALUES.PROCESSING, ORDER_STATUS_VALUES.CANCELLED)
       ).toBe(true);
       expect(
-        getNotificationMilestone(
-          ORDER_STATUS_VALUES.PROCESSING,
-          ORDER_STATUS_VALUES.CANCELLED
-        )
+        getNotificationMilestone(ORDER_STATUS_VALUES.PROCESSING, ORDER_STATUS_VALUES.CANCELLED)
       ).toBe(ORDER_NOTIFICATION_MILESTONES.MILESTONE_5_CANCELLED_PAID);
     });
 
@@ -127,16 +109,10 @@ describe('OrderNotificationService (ADR-013, Issue #60 AC1-AC30)', () => {
         )
       ).toBe(false);
       expect(
-        isNotifiableStatusTransition(
-          ORDER_STATUS_VALUES.COMPLETED,
-          ORDER_STATUS_VALUES.PROCESSING
-        )
+        isNotifiableStatusTransition(ORDER_STATUS_VALUES.COMPLETED, ORDER_STATUS_VALUES.PROCESSING)
       ).toBe(false);
       expect(
-        isNotifiableStatusTransition(
-          ORDER_STATUS_VALUES.CANCELLED,
-          ORDER_STATUS_VALUES.PROCESSING
-        )
+        isNotifiableStatusTransition(ORDER_STATUS_VALUES.CANCELLED, ORDER_STATUS_VALUES.PROCESSING)
       ).toBe(false);
     });
   });

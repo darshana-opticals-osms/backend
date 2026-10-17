@@ -78,7 +78,10 @@ async function processOrderNotification(params, options = {}) {
 
   // 4. Duplicate Check (ADR-013 Section 10.2, AC21, AC22)
   const existing = await OrderNotification.findOne({ idempotencyKey }).lean();
-  if (existing && [DELIVERY_STATUS.SENT, DELIVERY_STATUS.PENDING].includes(existing.deliveryStatus)) {
+  if (
+    existing &&
+    [DELIVERY_STATUS.SENT, DELIVERY_STATUS.PENDING].includes(existing.deliveryStatus)
+  ) {
     console.info(`[OrderNotification] Duplicate notification suppressed for ${idempotencyKey}`);
     return {
       handled: true,
