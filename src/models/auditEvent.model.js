@@ -18,9 +18,8 @@ const {
 // Storage rule: records must be retained for a minimum of seven years.
 // DO NOT add a TTL index to this collection.
 //
-// Tamper-evidence: ADR-012 selects application-level append-only controls for
-// the current scope. Cryptographic hash chaining is explicitly excluded from v1
-// scope by ADR-012 and must not be invented independently.
+// Tamper-evidence: Enforces multi-layer immutability controls including
+// Mongoose append-only middleware hooks and ADR-012 §10.2 SHA-256 hash chaining.
 
 const auditEventSchema = new mongoose.Schema(
   {
@@ -206,6 +205,32 @@ const auditEventSchema = new mongoose.Schema(
      */
     metadata: {
       type: mongoose.Schema.Types.Mixed,
+      default: null,
+      immutable: true,
+    },
+
+    // ── Cryptographic Integrity (ADR-012 §10.2 / Hash Chaining) ─────────────
+
+    /**
+     * SHA-256 cryptographic hash chaining for tamper evidence (ADR-012 §10.2).
+     * eventHash = SHA256(prevEventHash + payloadString)
+     */
+    integrity: {
+      type: new mongoose.Schema(
+        {
+          eventHash: {
+            type: String,
+            required: [true, 'integrity.eventHash is required.'],
+            immutable: true,
+          },
+          prevEventHash: {
+            type: String,
+            required: [true, 'integrity.prevEventHash is required.'],
+            immutable: true,
+          },
+        },
+        { _id: false }
+      ),
       default: null,
       immutable: true,
     },

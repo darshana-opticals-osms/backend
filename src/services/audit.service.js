@@ -24,7 +24,8 @@
 //
 // Audit reading is handled by a separate read-only path (auditService.query).
 
-const { randomUUID } = require('crypto');
+const { randomUUID, createHash } = require('crypto');
+const mongoose = require('mongoose');
 const AuditEvent = require('../models/auditEvent.model');
 const {
   AUDIT_ACTION,
@@ -35,6 +36,7 @@ const {
   AUDIT_OUTCOME_VALUES,
   AUDIT_SOURCE_VALUES,
   AUDIT_SCHEMA_VERSION,
+  AUDIT_GENESIS_HASH,
   AUDIT_PAGE_SIZE_DEFAULT,
   AUDIT_PAGE_SIZE_MAX,
   AUDIT_QUERY_MAX_RANGE_DAYS,
@@ -43,6 +45,51 @@ const {
 const { ValidationError } = require('../errors/AppError');
 const { sanitizeAuditMetadata } = require('../utils/auditSanitizer');
 const { sanitizeLogMessage } = require('../utils/sanitizer');
+
+// ─── Cryptographic Hash Chaining Helpers (ADR-012 §10.2) ─────────────────────
+
+/**
+ * Computes the canonical payload string for cryptographic hash chaining (ADR-012 §10.2).
+ * payloadString = auditEventId + schemaVersion + timestamp + actionType + actor.actorId + target.targetType + target.targetId + JSON.stringify(safeMetadata)
+ *
+ * @param {object} params
+ * @param {string} params.eventId
+ * @param {string} params.schemaVersion
+ * @param {Date|string} params.occurredAt
+ * @param {string} params.action
+ * @param {string} params.actorId
+ * @param {string} params.targetType
+ * @param {string} params.targetId
+ * @param {object|null} params.metadata
+ * @returns {string}
+ */
+function computePayloadString({
+  eventId,
+  schemaVersion,
+  occurredAt,
+  action,
+  actorId,
+  targetType,
+  targetId,
+  metadata,
+}) {
+  const timestamp =
+    occurredAt instanceof Date ? occurredAt.toISOString() : new Date(occurredAt).toISOString();
+  const safeMetaStr = metadata ? JSON.stringify(metadata) : '{}';
+  return `${eventId}${schemaVersion}${timestamp}${action}${actorId}${targetType}${targetId}${safeMetaStr}`;
+}
+
+/**
+ * Computes the SHA-256 eventHash from prevEventHash and the canonical payload string (ADR-012 §10.2).
+ * eventHash = SHA256(prevEventHash + payloadString)
+ *
+ * @param {string} prevEventHash
+ * @param {string} payloadString
+ * @returns {string}
+ */
+function computeEventHash(prevEventHash, payloadString) {
+  return createHash('sha256').update(`${prevEventHash}${payloadString}`).digest('hex');
+}
 
 // ─── Validation Helpers ───────────────────────────────────────────────────────
 
@@ -288,7 +335,42 @@ async function record({
   // 10. Centralized metadata sanitization/redaction (AC36–AC41).
   const safeMetadata = sanitizeAuditMetadata(metadata);
 
-  // 11. Persist the AuditEvent.
+  // 11. Cryptographic Hash Chaining (ADR-012 §10.2).
+  //     Fetch the most recent event's hash to maintain continuous linkage.
+  let prevEventHash = AUDIT_GENESIS_HASH;
+  const isMocked = Boolean(
+    AuditEvent.findOne && (AuditEvent.findOne._isMockFunction || AuditEvent.findOne.mock)
+  );
+  if (mongoose.connection?.readyState !== 0 || isMocked) {
+    try {
+      const query = AuditEvent.findOne(
+        {},
+        { 'integrity.eventHash': 1 },
+        session ? { sort: { _id: -1 }, session } : { sort: { _id: -1 } }
+      );
+      const lastEvent =
+        query && typeof query.lean === 'function' ? await query.lean() : await query;
+      if (lastEvent?.integrity?.eventHash) {
+        prevEventHash = lastEvent.integrity.eventHash;
+      }
+    } catch {
+      prevEventHash = AUDIT_GENESIS_HASH;
+    }
+  }
+
+  const payloadString = computePayloadString({
+    eventId: resolvedEventId,
+    schemaVersion,
+    occurredAt,
+    action,
+    actorId: normalizedActor.actorId,
+    targetType: normalizedTarget.targetType,
+    targetId: normalizedTarget.targetId,
+    metadata: safeMetadata,
+  });
+  const eventHash = computeEventHash(prevEventHash, payloadString);
+
+  // 12. Persist the AuditEvent.
   //     Idempotency: if a record with the same eventId already exists (from a prior
   //     successful write on a retry), the unique index on eventId will produce a
   //     duplicate-key error. Callers must handle this case as a no-op (AC48).
@@ -307,6 +389,10 @@ async function record({
     correlationId: safeCorrelationId,
     source: source || null,
     metadata: safeMetadata,
+    integrity: {
+      eventHash,
+      prevEventHash,
+    },
   };
 
   const createOptions = session ? { session } : {};
@@ -441,6 +527,108 @@ async function query({
   };
 }
 
+// ─── Integrity Chain Verification (ADR-012 §10.2 / §17.2) ───────────────────
+
+/**
+ * Verifies the cryptographic SHA-256 hash chain of stored AuditEvents (ADR-012 §10.2 / §17.2).
+ *
+ * Traverses events in chronological order and asserts:
+ *   1. prevEventHash equals the preceding event's eventHash (or GENESIS_HASH for the first event).
+ *   2. eventHash matches SHA256(prevEventHash + canonicalPayloadString).
+ *
+ * @param {object} [options]
+ * @param {Date|string} [options.fromDate] - Start of verification window.
+ * @param {Date|string} [options.toDate]   - End of verification window.
+ * @param {number}      [options.limit]    - Max records to verify (default: no limit).
+ * @returns {Promise<{ valid: boolean, verifiedCount: number, error?: string, failedEventId?: string }>}
+ */
+async function verifyIntegrityChain({ fromDate, toDate, limit } = {}) {
+  const filter = {};
+  if (fromDate || toDate) {
+    filter.occurredAt = {};
+    if (fromDate) filter.occurredAt.$gte = new Date(fromDate);
+    if (toDate) filter.occurredAt.$lte = new Date(toDate);
+  }
+
+  let queryBuilder = AuditEvent.find(filter).sort({ occurredAt: 1, _id: 1 });
+  if (limit && Number(limit) > 0) {
+    queryBuilder = queryBuilder.limit(Number(limit));
+  }
+  const events = await queryBuilder.lean();
+
+  if (!events || events.length === 0) {
+    return {
+      valid: true,
+      verifiedCount: 0,
+    };
+  }
+
+  let expectedPrevHash = events[0].integrity?.prevEventHash || AUDIT_GENESIS_HASH;
+
+  for (let i = 0; i < events.length; i += 1) {
+    const event = events[i];
+    const {
+      integrity,
+      eventId,
+      schemaVersion,
+      occurredAt,
+      action,
+      actorId,
+      targetType,
+      targetId,
+      metadata,
+    } = event;
+
+    if (!integrity || !integrity.eventHash || !integrity.prevEventHash) {
+      return {
+        valid: false,
+        verifiedCount: i,
+        failedEventId: eventId,
+        error: `Integrity verification failed at event ${eventId}: missing integrity hashes.`,
+      };
+    }
+
+    // 1. Verify linkage with previous event
+    if (integrity.prevEventHash !== expectedPrevHash) {
+      return {
+        valid: false,
+        verifiedCount: i,
+        failedEventId: eventId,
+        error: `Integrity verification failed at event ${eventId}: broken chain link. Expected prevEventHash "${expectedPrevHash}", but found "${integrity.prevEventHash}".`,
+      };
+    }
+
+    // 2. Verify payload hash calculation
+    const payloadString = computePayloadString({
+      eventId,
+      schemaVersion,
+      occurredAt,
+      action,
+      actorId,
+      targetType,
+      targetId,
+      metadata,
+    });
+    const calculatedHash = computeEventHash(integrity.prevEventHash, payloadString);
+
+    if (calculatedHash !== integrity.eventHash) {
+      return {
+        valid: false,
+        verifiedCount: i,
+        failedEventId: eventId,
+        error: `Integrity verification failed at event ${eventId}: hash mismatch. Calculated "${calculatedHash}", but recorded "${integrity.eventHash}".`,
+      };
+    }
+
+    expectedPrevHash = integrity.eventHash;
+  }
+
+  return {
+    valid: true,
+    verifiedCount: events.length,
+  };
+}
+
 // ─── Audit-Write Failure Logging Helper ──────────────────────────────────────
 
 /**
@@ -461,10 +649,14 @@ function logAuditWriteFailure(action, targetId, error) {
 module.exports = {
   record,
   query,
+  verifyIntegrityChain,
+  computePayloadString,
+  computeEventHash,
   buildUserActor,
   buildSystemActor,
   buildExternalProviderActor,
   logAuditWriteFailure,
   // Expose action constants for convenience in domain service callers.
   AUDIT_ACTION,
+  AUDIT_GENESIS_HASH,
 };

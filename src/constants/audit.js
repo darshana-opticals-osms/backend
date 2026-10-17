@@ -200,10 +200,16 @@ const AUDIT_RETENTION_YEARS = 7;
 /** Maximum date range in days permitted for a single audit query (ADR-012 §14.3). */
 const AUDIT_QUERY_MAX_RANGE_DAYS = 90;
 
+// ─── Cryptographic Hash Chaining ──────────────────────────────────────────────
+
+/** Canonical 64-character SHA-256 genesis hash for the initial audit event (ADR-012 §10.2). */
+const AUDIT_GENESIS_HASH = '0000000000000000000000000000000000000000000000000000000000000000';
+
 // ─── Exports ──────────────────────────────────────────────────────────────────
 
 module.exports = {
   AUDIT_SCHEMA_VERSION,
+  AUDIT_GENESIS_HASH,
   AUDIT_ACTION,
   AUDIT_ACTION_VALUES,
   AUDIT_ACTOR_TYPE,

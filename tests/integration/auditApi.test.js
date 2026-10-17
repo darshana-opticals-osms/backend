@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const { createApp } = require('../../src/app');
 const AuditEvent = require('../../src/models/auditEvent.model');
+const auditService = require('../../src/services/audit.service');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 const {
   AUDIT_ACTION,
@@ -297,6 +298,61 @@ describe('Audit Events Retrieval API (GET /api/audit-events) - ADR-012 AC53-AC58
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
       expect(response.body.data).toHaveLength(3);
+    });
+  });
+
+  describe('Cryptographic Hash Chain Continuity & Tamper Evidence (ADR-012 §10.2, §17.2 Requirement 4)', () => {
+    it('generates 10 sequential audit events with valid cryptographic linkages and detects tampering', async () => {
+      // 1. Sequentially record 10 events via auditService.record()
+      const recordedEvents = [];
+      for (let i = 0; i < 10; i += 1) {
+        const event = await auditService.record({
+          action: AUDIT_ACTION.INVENTORY_QUANTITY_ADJUSTED,
+          actor: {
+            actorType: AUDIT_ACTOR_TYPE.USER,
+            actorId: `user-mgr-${i}`,
+            actorRole: ROLE_VALUES.BRANCH_MANAGER,
+          },
+          target: {
+            targetType: AUDIT_TARGET_TYPE.INVENTORY,
+            targetId: `item-${i}`,
+          },
+          outcome: AUDIT_OUTCOME.SUCCESS,
+          metadata: { sequenceIndex: i },
+        });
+        recordedEvents.push(event);
+      }
+
+      expect(recordedEvents).toHaveLength(10);
+
+      // Verify the genesis event points to AUDIT_GENESIS_HASH
+      expect(recordedEvents[0].integrity.prevEventHash).toBe(auditService.AUDIT_GENESIS_HASH);
+
+      // Verify each subsequent event points to the predecessor's eventHash
+      for (let i = 1; i < 10; i += 1) {
+        expect(recordedEvents[i].integrity.prevEventHash).toBe(
+          recordedEvents[i - 1].integrity.eventHash
+        );
+      }
+
+      // 2. Run automated integrity chain verification -> must be valid
+      const initialVerification = await auditService.verifyIntegrityChain();
+      expect(initialVerification.valid).toBe(true);
+      expect(initialVerification.verifiedCount).toBe(10);
+
+      // 3. Simulate an adversarial direct database modification (tampering with metadata in event 5)
+      // Bypasses Mongoose middleware via native collection driver to simulate direct DB intrusion
+      const tamperedEvent = recordedEvents[4];
+      await AuditEvent.collection.updateOne(
+        { _id: tamperedEvent._id },
+        { $set: { 'metadata.sequenceIndex': 999999 } }
+      );
+
+      // 4. Run automated integrity chain verification -> must detect tampering!
+      const tamperedVerification = await auditService.verifyIntegrityChain();
+      expect(tamperedVerification.valid).toBe(false);
+      expect(tamperedVerification.failedEventId).toBe(tamperedEvent.eventId);
+      expect(tamperedVerification.error).toMatch(/hash mismatch/i);
     });
   });
 });

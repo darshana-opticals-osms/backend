@@ -485,4 +485,215 @@ describe('auditService (Unit Tests)', () => {
       consoleErrorSpy.mockRestore();
     });
   });
+
+  describe('Cryptographic Hash Chaining & Integrity (ADR-012 §10.2 / §17.2)', () => {
+    describe('computePayloadString()', () => {
+      it('should compute canonical concatenated payload string', () => {
+        const payload = auditService.computePayloadString({
+          eventId: 'evt-001',
+          schemaVersion: '1.0',
+          occurredAt: new Date('2026-10-17T10:00:00.000Z'),
+          action: AUDIT_ACTION.INVENTORY_PRICE_UPDATED,
+          actorId: 'usr-123',
+          targetType: AUDIT_TARGET_TYPE.INVENTORY,
+          targetId: 'inv-456',
+          metadata: { previousPrice: 100, newPrice: 150 },
+        });
+
+        expect(payload).toBe(
+          'evt-0011.02026-10-17T10:00:00.000ZINVENTORY_PRICE_UPDATEDusr-123INVENTORYinv-456{"previousPrice":100,"newPrice":150}'
+        );
+      });
+    });
+
+    describe('computeEventHash()', () => {
+      it('should generate a 64-character SHA-256 hex digest', () => {
+        const hash = auditService.computeEventHash(
+          auditService.AUDIT_GENESIS_HASH,
+          'samplePayloadString'
+        );
+        expect(hash).toHaveLength(64);
+        expect(hash).toMatch(/^[a-f0-9]{64}$/);
+      });
+    });
+
+    describe('verifyIntegrityChain()', () => {
+      it('should return valid for empty collection', async () => {
+        jest.spyOn(AuditEvent, 'find').mockReturnValue({
+          sort: () => ({
+            lean: async () => [],
+          }),
+        });
+
+        const result = await auditService.verifyIntegrityChain();
+        expect(result.valid).toBe(true);
+        expect(result.verifiedCount).toBe(0);
+
+        jest.restoreAllMocks();
+      });
+
+      it('should verify valid cryptographic linkages across events', async () => {
+        const date1 = new Date('2026-10-17T10:00:00.000Z');
+        const payload1 = auditService.computePayloadString({
+          eventId: 'evt-1',
+          schemaVersion: '1.0',
+          occurredAt: date1,
+          action: AUDIT_ACTION.INVENTORY_QUANTITY_ADJUSTED,
+          actorId: 'usr-1',
+          targetType: AUDIT_TARGET_TYPE.INVENTORY,
+          targetId: 'inv-1',
+          metadata: { delta: 5 },
+        });
+        const hash1 = auditService.computeEventHash(auditService.AUDIT_GENESIS_HASH, payload1);
+
+        const date2 = new Date('2026-10-17T10:01:00.000Z');
+        const payload2 = auditService.computePayloadString({
+          eventId: 'evt-2',
+          schemaVersion: '1.0',
+          occurredAt: date2,
+          action: AUDIT_ACTION.PAYMENT_COMPLETED,
+          actorId: 'usr-2',
+          targetType: AUDIT_TARGET_TYPE.PAYMENT,
+          targetId: 'pay-2',
+          metadata: { amount: 5000 },
+        });
+        const hash2 = auditService.computeEventHash(hash1, payload2);
+
+        const mockEvents = [
+          {
+            eventId: 'evt-1',
+            schemaVersion: '1.0',
+            occurredAt: date1,
+            action: AUDIT_ACTION.INVENTORY_QUANTITY_ADJUSTED,
+            actorId: 'usr-1',
+            targetType: AUDIT_TARGET_TYPE.INVENTORY,
+            targetId: 'inv-1',
+            metadata: { delta: 5 },
+            integrity: {
+              eventHash: hash1,
+              prevEventHash: auditService.AUDIT_GENESIS_HASH,
+            },
+          },
+          {
+            eventId: 'evt-2',
+            schemaVersion: '1.0',
+            occurredAt: date2,
+            action: AUDIT_ACTION.PAYMENT_COMPLETED,
+            actorId: 'usr-2',
+            targetType: AUDIT_TARGET_TYPE.PAYMENT,
+            targetId: 'pay-2',
+            metadata: { amount: 5000 },
+            integrity: {
+              eventHash: hash2,
+              prevEventHash: hash1,
+            },
+          },
+        ];
+
+        jest.spyOn(AuditEvent, 'find').mockReturnValue({
+          sort: () => ({
+            lean: async () => mockEvents,
+          }),
+        });
+
+        const result = await auditService.verifyIntegrityChain();
+        expect(result.valid).toBe(true);
+        expect(result.verifiedCount).toBe(2);
+
+        jest.restoreAllMocks();
+      });
+
+      it('should detect broken chain link when prevEventHash does not match previous eventHash', async () => {
+        const date1 = new Date('2026-10-17T10:00:00.000Z');
+        const payload1 = auditService.computePayloadString({
+          eventId: 'evt-1',
+          schemaVersion: '1.0',
+          occurredAt: date1,
+          action: AUDIT_ACTION.INVENTORY_QUANTITY_ADJUSTED,
+          actorId: 'usr-1',
+          targetType: AUDIT_TARGET_TYPE.INVENTORY,
+          targetId: 'inv-1',
+          metadata: {},
+        });
+        const hash1 = auditService.computeEventHash(auditService.AUDIT_GENESIS_HASH, payload1);
+
+        const mockEvents = [
+          {
+            eventId: 'evt-1',
+            schemaVersion: '1.0',
+            occurredAt: date1,
+            action: AUDIT_ACTION.INVENTORY_QUANTITY_ADJUSTED,
+            actorId: 'usr-1',
+            targetType: AUDIT_TARGET_TYPE.INVENTORY,
+            targetId: 'inv-1',
+            metadata: {},
+            integrity: {
+              eventHash: hash1,
+              prevEventHash: auditService.AUDIT_GENESIS_HASH,
+            },
+          },
+          {
+            eventId: 'evt-2',
+            schemaVersion: '1.0',
+            occurredAt: new Date('2026-10-17T10:01:00.000Z'),
+            action: AUDIT_ACTION.PAYMENT_COMPLETED,
+            actorId: 'usr-2',
+            targetType: AUDIT_TARGET_TYPE.PAYMENT,
+            targetId: 'pay-2',
+            metadata: {},
+            integrity: {
+              eventHash: 'hash-2-valid',
+              prevEventHash: 'tampered-prev-hash-broken',
+            },
+          },
+        ];
+
+        jest.spyOn(AuditEvent, 'find').mockReturnValue({
+          sort: () => ({
+            lean: async () => mockEvents,
+          }),
+        });
+
+        const result = await auditService.verifyIntegrityChain();
+        expect(result.valid).toBe(false);
+        expect(result.failedEventId).toBe('evt-2');
+        expect(result.error).toMatch(/broken chain link/i);
+
+        jest.restoreAllMocks();
+      });
+
+      it('should detect tampered payload when computed hash differs from eventHash', async () => {
+        const date1 = new Date('2026-10-17T10:00:00.000Z');
+        const mockEvents = [
+          {
+            eventId: 'evt-1',
+            schemaVersion: '1.0',
+            occurredAt: date1,
+            action: AUDIT_ACTION.INVENTORY_QUANTITY_ADJUSTED,
+            actorId: 'usr-1',
+            targetType: AUDIT_TARGET_TYPE.INVENTORY,
+            targetId: 'inv-1',
+            metadata: { delta: 99999 }, // Tampered metadata!
+            integrity: {
+              eventHash: 'forged-hash-does-not-match',
+              prevEventHash: auditService.AUDIT_GENESIS_HASH,
+            },
+          },
+        ];
+
+        jest.spyOn(AuditEvent, 'find').mockReturnValue({
+          sort: () => ({
+            lean: async () => mockEvents,
+          }),
+        });
+
+        const result = await auditService.verifyIntegrityChain();
+        expect(result.valid).toBe(false);
+        expect(result.failedEventId).toBe('evt-1');
+        expect(result.error).toMatch(/hash mismatch/i);
+
+        jest.restoreAllMocks();
+      });
+    });
+  });
 });
