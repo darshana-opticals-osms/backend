@@ -432,11 +432,24 @@ describe('Loyalty earning and real atomic refund reversal', () => {
   it('rolls back Order completion, audit history and balance if ledger persistence fails', async () => {
     const source = await classifiedFixture();
     const before = await snapshot();
-    jest
+    const insertSpy = jest
       .spyOn(LoyaltyTransaction.collection, 'insertOne')
       .mockRejectedValueOnce(new Error('ledger insert unavailable'));
     await expect(complete(source)).rejects.toThrow('ledger insert unavailable');
     expect(await snapshot()).toEqual(before);
+    insertSpy.mockRestore();
+
+    const completed = await complete(source);
+    const after = await snapshot();
+    expect(completed.status).toBe('COMPLETED');
+    expect(await readBalance(source)).toBe('2.01');
+    expect(await LoyaltyTransaction.countDocuments({ eventType: TYPE.EARN_PURCHASE })).toBe(1);
+    expect(after.orders).toHaveLength(1);
+    expect(after.payments).toEqual(before.payments);
+    expect(after.inventory).toEqual(before.inventory);
+    expect(
+      after.orders[0].statusHistory.filter((entry) => entry.status === 'COMPLETED')
+    ).toHaveLength(1);
   });
   it('allows only one concurrent completion and one award while preserving terminal state rules', async () => {
     const source = await classifiedFixture();
@@ -788,16 +801,41 @@ describe('Loyalty earning and real atomic refund reversal', () => {
       await session.endSession();
     }
   });
-  it('holds legacy uninitialized balances and balance/history inconsistencies without silently backfilling', async () => {
+  it.each([
+    ['missing', { $unset: { loyaltyBalance: '' } }],
+    ['null', { $set: { loyaltyBalance: null } }],
+  ])('holds a legacy %s balance on earning without silently backfilling', async (_case, update) => {
     resolvedContracts();
     const source = await fixture();
-    await Customer.collection.updateOne(
-      { _id: source.customer._id },
-      { $unset: { loyaltyBalance: '' } }
-    );
+    await Customer.collection.updateOne({ _id: source.customer._id }, update);
+    const before = await snapshot();
+
     await expect(earnPurchasePoints(args(source))).rejects.toMatchObject({
+      statusCode: 409,
       errorCode: 'LOYALTY_BALANCE_UNINITIALIZED',
     });
+    expect(await snapshot()).toEqual(before);
+  });
+  it('holds a legacy null balance at the reversal boundary without changing stored state', async () => {
+    resolvedContracts();
+    const source = await fixture();
+    await earnPurchasePoints(args(source));
+    const input = await refunded(source);
+    await Customer.collection.updateOne(
+      { _id: source.customer._id },
+      { $set: { loyaltyBalance: null } }
+    );
+    const before = await snapshot();
+
+    await expect(reverseFullRefundPoints(input)).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: 'LOYALTY_BALANCE_UNINITIALIZED',
+    });
+    expect(await snapshot()).toEqual(before);
+  });
+  it('holds balance/history inconsistencies without silently backfilling', async () => {
+    resolvedContracts();
+    const source = await fixture();
     await Customer.collection.updateOne(
       { _id: source.customer._id },
       { $set: { loyaltyBalance: mongoose.Types.Decimal128.fromString('10.00') } }

@@ -352,11 +352,11 @@ sections 8/12 expiry/retry boundary. The section 13 earning-trigger discrepancy 
 ADR-005 section 14 remains documented; earning follows successful Payment **and Order
 COMPLETED**. No ADR is edited in this backend repository.
 
-PR #80 closes payment issue #53 and only partially implements loyalty issue #54.
-The shared loyalty core/refund-reversal prerequisites remain included; #54 stays
-open for customer ownership-scoped loyalty reads, manager read-only loyalty APIs,
-their Swagger/security tests and remaining issue acceptance criteria. This is not
-a claim that all payment reviewer requirements or all loyalty scope are complete.
+PR #80 closes payment issue #53. The backend API implementation for the currently
+supported loyalty workflow now includes customer ownership-scoped reads,
+`BRANCH_MANAGER` read-only monitoring, and their Swagger/security tests. Issue #54
+still requires the remaining business approvals and verification identified below;
+this is not a claim that all loyalty Definition of Done items are complete.
 
 ### Management payment monitoring
 
@@ -525,10 +525,11 @@ This proposed path is deliberately not registered or advertised as an available 
 ### Final loyalty and manual full-refund integration (current behavior)
 
 This section supersedes the historical phase descriptions below and the previously
-inactive refund proposal above. The approved integration uses ADR-005 section 14:
-a verified completed Payment **and** the authorized Order transition to COMPLETED.
-ADR-011 section 13 still describes earlier earning at PROCESSING; that discrepancy
-is recorded here, not implemented or edited in either accepted ADR.
+inactive refund proposal above. The current backend integration follows the ADR-005
+section 14 boundary: a verified successful Payment **and** the authorized Order
+transition to COMPLETED. ADR-011 section 13 still describes earlier earning at
+PROCESSING; that discrepancy is recorded here, not implemented or edited in either
+accepted ADR.
 
 - Inventory `itemClassification` is explicitly `UNKNOWN` (default), `MERCHANDISE`
   or `CLINICAL`. Existing manager inventory create/update permissions apply;
@@ -543,10 +544,26 @@ is recorded here, not implemented or edited in either accepted ADR.
 - Eligible spend sums snapshotted merchandise prices times quantities using integer
   cents. Clinical eye-test/examination fees are excluded. Unknown, missing or
   inconsistent classification/amounts hold processing rather than substitute totals.
-  Divide the aggregate spend by 100, rounding final points once with ROUND_HALF_UP.
+  The earning formula is `eligible merchandise spend / 100`. The implementation
+  rounds the final aggregate once using `ROUND_HALF_UP`; ADR-005 requires a defined
+  deterministic two-decimal convention but does not explicitly select `HALF_UP`, so
+  approval of that convention remains pending.
 - Order completion, verified-source earning ledger and Customer balance commit in
   one transaction. A failure rolls back completion and its audit history as well.
   No points are awarded by payment IPNs or the PROCESSING transition.
+- Customer balances use Decimal128 with two-decimal precision. A dedicated
+  append-only `LoyaltyTransaction` history records source-linked awards and reversals.
+  Unique source/Payment indexes, transactional writes, optimistic balance matching
+  and retry handling protect against duplicate awards and concurrent divergence.
+- Authenticated `CUSTOMER` users can call `GET /api/loyalty/me`. Identity comes only
+  from the verified JWT; the endpoint accepts `page` and `limit`, returns the current
+  balance and the caller's paginated history as exact two-decimal strings, and never
+  accepts a Customer ID or loyalty value from the client.
+- Authenticated `BRANCH_MANAGER` users can call `GET /api/loyalty` for read-only
+  monitoring. It accepts validated `page`, `limit`, `customerId`, `orderId`,
+  `paymentId`, `eventType` and `sortOrder` parameters, uses deterministic
+  `createdAt`/`_id` ordering, and returns a minimal DTO without Customer PII or
+  payment-provider secrets. Other roles cannot use this monitoring endpoint.
 - `POST /api/payments/:paymentId/refunds` is now active for BRANCH_MANAGER only.
   Required header: `Idempotency-Key` (1-120 characters, no controls). Body:
   `{ amount, currency: "LKR", refundChannel?, refundReference? }`; the amount must
@@ -563,11 +580,23 @@ is recorded here, not implemented or edited in either accepted ADR.
 
 Reconciliation, missing awards for completed Orders, incomplete lifecycle history,
 legacy uninitialized balances and unsafe negative-balance deductions remain 409 holds.
+Missing or null legacy balances are never initialized or migrated automatically.
 Missing ledger entries alone never establish a zero-point award. Explicit clinical-only
 sales can record a calculated zero award
 and its linked compensating reversal. No reconciliation resolution, redemption,
 arbitrary adjustment, partial/automatic refund or automatic inventory restoration
-is activated. Existing review patches and accepted ADRs are unchanged.
+is activated. Full-refund reversal is supported only through the approved manual
+full-refund evidence workflow described above; partial-refund processing is not
+implemented. There is no Customer balance-adjustment API, loyalty redemption, tier,
+voucher or discount functionality. Points and balances remain backend-authoritative,
+and clients cannot submit awarded points, balance replacements or conversion rates.
+
+The backend API work is complete for this currently supported workflow. Full Issue
+#54 closure still depends on explicit approval of the implemented `HALF_UP` convention,
+an approved decision and separate implementation scope for partial refunds, Swagger
+UI/manual workflow verification, CI, peer review and the remaining PR/issue lifecycle
+checks. No production verification is claimed here. Existing review patches and
+accepted ADRs are unchanged.
 
 ### Phase 6 Part 1: loyalty core and refund reversal infrastructure (historical)
 
