@@ -254,11 +254,19 @@ describe('Swagger documentation integrity', () => {
 
   it('documents the CUSTOMER-only own-loyalty read contract and safe DTO', () => {
     const operation = swaggerSpec.paths['/loyalty/me'].get;
+    expect(Object.keys(swaggerSpec.paths['/loyalty/me'])).toEqual(['get']);
     expect(operation.tags).toEqual(['Loyalty']);
     expect(operation.security).toEqual([{ bearerAuth: [] }]);
     expect(operation.description).toMatch(/CUSTOMER only/);
     expect(operation.description).toMatch(/derived exclusively from the verified JWT/);
     expect(operation.description).toMatch(/read-only/);
+    expect(operation.description).toMatch(/backend-authoritative/);
+    expect(operation.description).toMatch(/cannot submit balances, awarded points/);
+    expect(operation.description).toMatch(/Arbitrary adjustment is prohibited/);
+    expect(operation.description).toMatch(
+      /redemption and partial-refund processing are not available/
+    );
+    expect(operation.requestBody).toBeUndefined();
     expect(operation.responses).toEqual(
       expect.objectContaining({
         200: expect.any(Object),
@@ -276,6 +284,7 @@ describe('Swagger documentation integrity', () => {
       default: 1,
     });
     expect(operation.parameters[1].schema).toMatchObject({ minimum: 1, maximum: 100, default: 25 });
+    expect(operation.parameters.map((parameter) => parameter.name)).toEqual(['page', 'limit']);
 
     const transaction = swaggerSpec.components.schemas.LoyaltyTransaction;
     expect(transaction.additionalProperties).toBe(false);
@@ -289,6 +298,10 @@ describe('Swagger documentation integrity', () => {
     ]);
     expect(transaction.properties.pointsDelta.type).toBe('string');
     expect(transaction.properties.balanceAfter.type).toBe('string');
+    expect(swaggerSpec.components.schemas.OwnLoyaltyData.properties.balance).toMatchObject({
+      type: 'string',
+      pattern: '^\\d+\\.\\d{2}$',
+    });
     for (const forbidden of [
       'customerId',
       'paymentId',
@@ -303,10 +316,18 @@ describe('Swagger documentation integrity', () => {
 
   it('documents BRANCH_MANAGER-only loyalty monitoring with exact safe fields', () => {
     const operation = swaggerSpec.paths['/loyalty'].get;
+    expect(Object.keys(swaggerSpec.paths['/loyalty'])).toEqual(['get']);
     expect(operation.tags).toEqual(['Loyalty']);
     expect(operation.security).toEqual([{ bearerAuth: [] }]);
     expect(operation.description).toMatch(/BRANCH_MANAGER only/);
     expect(operation.description).toMatch(/Read-only/);
+    expect(operation.description).toMatch(/backend-authoritative/);
+    expect(operation.description).toMatch(/cannot submit balances or awarded points/);
+    expect(operation.description).toMatch(/arbitrary adjustment is prohibited/);
+    expect(operation.description).toMatch(
+      /redemption\s+and partial-refund processing are not available/
+    );
+    expect(operation.requestBody).toBeUndefined();
     expect(operation.responses).toEqual(
       expect.objectContaining({
         200: expect.any(Object),

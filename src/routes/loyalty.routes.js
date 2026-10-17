@@ -16,16 +16,25 @@ const router = express.Router();
  * /loyalty/me:
  *   get:
  *     summary: Retrieve the authenticated Customer's loyalty balance and history
- *     description: CUSTOMER only. Customer identity is derived exclusively from the verified JWT; client-supplied Customer identifiers are rejected. This endpoint is read-only and returns a minimal loyalty DTO with fixed two-decimal point strings. A legacy Customer without an initialized loyalty balance receives a 409 conflict and is not silently backfilled.
+ *     description: >
+ *       CUSTOMER only. Customer identity is derived exclusively from the verified JWT;
+ *       no Customer ID is accepted from the client. This read-only endpoint returns the
+ *       backend-authoritative balance and paginated own history as exact two-decimal strings.
+ *       Clients cannot submit balances, awarded points or conversion rates. Arbitrary
+ *       adjustment is prohibited; redemption and partial-refund processing are not
+ *       available. A legacy Customer with a missing or null balance receives 409 and is
+ *       not silently initialized, migrated or backfilled.
  *     tags: [Loyalty]
  *     security:
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: page
+ *         description: One-based history page.
  *         schema: { type: integer, minimum: 1, maximum: 10000, default: 1 }
  *       - in: query
  *         name: limit
+ *         description: History records per page.
  *         schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
  *     responses:
  *       200:
@@ -53,31 +62,45 @@ router.get(
  * /loyalty:
  *   get:
  *     summary: Monitor loyalty transaction history
- *     description: BRANCH_MANAGER only. Read-only monitoring of persisted loyalty transactions using exact allowlisted filters. Customer profiles are not populated and responses exclude Customer PII, provider references, source-event identifiers, credentials and internal metadata. Results sort by createdAt and then _id for deterministic pagination.
+ *     description: >
+ *       BRANCH_MANAGER only. Read-only monitoring of backend-authoritative persisted
+ *       loyalty transactions using the documented allowlisted filters. Customer profiles
+ *       are not populated, and the minimal response excludes Customer PII, payment-provider
+ *       secrets and references, source-event identifiers, credentials and internal metadata.
+ *       Results sort by createdAt and then _id for deterministic pagination. Clients cannot
+ *       submit balances or awarded points; arbitrary adjustment is prohibited, and redemption
+ *       and partial-refund processing are not available.
  *     tags: [Loyalty]
  *     security:
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: page
+ *         description: One-based monitoring page.
  *         schema: { type: integer, minimum: 1, maximum: 10000, default: 1 }
  *       - in: query
  *         name: limit
+ *         description: Transactions per page.
  *         schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
  *       - in: query
  *         name: customerId
+ *         description: Exact Customer ObjectId filter.
  *         schema: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
  *       - in: query
  *         name: orderId
+ *         description: Exact Order ObjectId filter.
  *         schema: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
  *       - in: query
  *         name: paymentId
+ *         description: Exact Payment ObjectId filter.
  *         schema: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
  *       - in: query
  *         name: eventType
+ *         description: Exact persisted loyalty event category filter.
  *         schema: { type: string, enum: [EARN_PURCHASE, REFUND_REVERSAL, REDEMPTION_DEDUCTION] }
  *       - in: query
  *         name: sortOrder
+ *         description: Direction for createdAt and _id sorting.
  *         schema: { type: string, enum: [asc, desc], default: desc }
  *     responses:
  *       200:

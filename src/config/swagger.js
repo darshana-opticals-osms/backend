@@ -26,6 +26,8 @@ const options = {
       schemas: {
         LoyaltyTransaction: {
           type: 'object',
+          description:
+            'Backend-authored, append-only loyalty history item returned to its owning Customer.',
           additionalProperties: false,
           required: ['id', 'type', 'pointsDelta', 'balanceAfter', 'orderId', 'createdAt'],
           properties: {
@@ -33,15 +35,20 @@ const options = {
             type: {
               type: 'string',
               enum: ['EARN_PURCHASE', 'REFUND_REVERSAL', 'REDEMPTION_DEDUCTION'],
+              description:
+                'Persisted event category. The schema category does not make redemption functionality available.',
             },
             pointsDelta: {
               type: 'string',
               pattern: '^-?\\d+\\.\\d{2}$',
+              description: 'Backend-calculated point change as an exact two-decimal string.',
               example: '10.00',
             },
             balanceAfter: {
               type: 'string',
               pattern: '^-?\\d+\\.\\d{2}$',
+              description:
+                'Backend-authoritative balance after this event as an exact two-decimal string.',
               example: '12.50',
             },
             orderId: { type: 'string', pattern: '^[a-fA-F0-9]{24}$' },
@@ -89,6 +96,8 @@ const options = {
         },
         ManagementLoyaltyTransaction: {
           type: 'object',
+          description:
+            'Safe read-only monitoring DTO without Customer PII, provider secrets or internal source metadata.',
           additionalProperties: false,
           required: [
             'id',
@@ -108,15 +117,20 @@ const options = {
             type: {
               type: 'string',
               enum: ['EARN_PURCHASE', 'REFUND_REVERSAL', 'REDEMPTION_DEDUCTION'],
+              description:
+                'Persisted event category. The schema category does not make redemption functionality available.',
             },
             pointsDelta: {
               type: 'string',
               pattern: '^-?\\d+\\.\\d{2}$',
+              description: 'Backend-calculated point change as an exact two-decimal string.',
               example: '10.00',
             },
             balanceAfter: {
               type: 'string',
               pattern: '^-?\\d+\\.\\d{2}$',
+              description:
+                'Backend-authoritative balance after this event as an exact two-decimal string.',
               example: '12.50',
             },
             createdAt: { type: 'string', format: 'date-time' },
