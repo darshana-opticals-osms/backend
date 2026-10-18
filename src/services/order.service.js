@@ -16,7 +16,7 @@ const {
 } = require('../constants/orderStatuses');
 const { domainEvents, ORDER_EVENTS } = require('../utils/domainEvents');
 const { cancelUnpaidReservation } = require('./orderReservation.service');
-const { NotFoundError, ValidationError, ConflictError } = require('../errors/AppError');
+const { NotFoundError, ValidationError, ConflictError, ForbiddenError } = require('../errors/AppError');
 
 const ORDER_NOT_FOUND = 'ORDER_NOT_FOUND';
 
@@ -87,6 +87,7 @@ function shapeOrderSummary(order, options = {}) {
   return {
     id: order._id.toString(),
     customerId: order.customerId.toString(),
+    branchId: order.branchId ? order.branchId.toString() : null,
     orderDate: order.orderDate,
     orderAmount: order.orderAmount,
     status: order.status,
@@ -132,7 +133,7 @@ function shapeOrderDetail(order, items, options = {}) {
  * @param {string} params.role   - Authenticated user's canonical role
  * @returns {Promise<object[]>} Safe shaped order summaries
  */
-async function getOrders({ userId, role }) {
+async function getOrders({ userId, role, branchId = null }) {
   if (role === ROLE_VALUES.CUSTOMER) {
     if (!mongoose.isValidObjectId(userId)) {
       throw new ValidationError('Authenticated customer identity is invalid.');
@@ -142,7 +143,16 @@ async function getOrders({ userId, role }) {
   }
 
   if (ORDER_TRACKING_VIEW_ROLES.includes(role)) {
-    const orders = await Order.find({}).sort({ createdAt: -1 }).lean();
+    let filter = {};
+    if (branchId && mongoose.isValidObjectId(branchId)) {
+      filter = {
+        $or: [
+          { status: ORDER_STATUS_VALUES.ORDER_CREATED },
+          { branchId: new mongoose.Types.ObjectId(branchId) },
+        ],
+      };
+    }
+    const orders = await Order.find(filter).sort({ createdAt: -1 }).lean();
     return orders.map((order) => shapeOrderSummary(order, { isStaff: true }));
   }
 
@@ -175,7 +185,7 @@ async function getCustomerOrders(authenticatedCustomerId) {
  * @param {string} params.role    - Authenticated user's canonical role
  * @returns {Promise<object>} Safe shaped order-detail response with items
  */
-async function getOrderById({ orderId, userId, role }) {
+async function getOrderById({ orderId, userId, role, branchId = null }) {
   if (!mongoose.isValidObjectId(orderId)) {
     throw new ValidationError(
       'Order ID must be a valid identifier.',
@@ -196,6 +206,19 @@ async function getOrderById({ orderId, userId, role }) {
     }).lean();
   } else if (isStaff) {
     order = await Order.findById(orderId).lean();
+    if (
+      order &&
+      order.branchId &&
+      branchId &&
+      mongoose.isValidObjectId(branchId) &&
+      order.branchId.toString() !== branchId.toString()
+    ) {
+      throw new ForbiddenError(
+        'You are not authorized to view orders assigned to another branch.',
+        null,
+        'BRANCH_ACCESS_DENIED'
+      );
+    }
   } else {
     throw new ValidationError('Role not authorized for order tracking retrieval.');
   }
@@ -242,7 +265,9 @@ async function getCustomerOrderById(authenticatedCustomerId, orderId) {
  * @param {string} staffUserId     - Authenticated staff user ID from JWT context
  * @returns {Promise<object>} Safe shaped order detail with items
  */
-async function updateOrderStatus(orderId, requestedStatus, staffUserId) {
+async function updateOrderStatus(orderId, requestedStatus, staffUserId, options = {}) {
+  const { branchId: staffBranchId = null } = options;
+
   if (!mongoose.isValidObjectId(orderId)) {
     throw new ValidationError(
       'Order ID must be a valid identifier.',
@@ -298,6 +323,20 @@ async function updateOrderStatus(orderId, requestedStatus, staffUserId) {
         },
       ],
       'INVALID_STATUS_TRANSITION'
+    );
+  }
+
+  // Branch isolation guard: If order is already assigned to a branch, verify caller belongs to that branch
+  if (
+    order.branchId &&
+    staffBranchId &&
+    mongoose.isValidObjectId(staffBranchId) &&
+    order.branchId.toString() !== staffBranchId.toString()
+  ) {
+    throw new ForbiddenError(
+      'You are not authorized to update orders assigned to another branch.',
+      null,
+      'BRANCH_ACCESS_DENIED'
     );
   }
 
@@ -388,6 +427,21 @@ async function updateOrderStatus(orderId, requestedStatus, staffUserId) {
     return shapeOrderDetail(outcome.order, items, { isStaff: true });
   }
 
+  const updateSet = {
+    status: trimmedStatus,
+    statusUpdatedAt: now,
+  };
+
+  // When transitioning from ORDER_CREATED to PROCESSING, claim the order for the staff member's branch
+  if (
+    previousStatus === ORDER_STATUS_VALUES.ORDER_CREATED &&
+    trimmedStatus === ORDER_STATUS_VALUES.PROCESSING &&
+    staffBranchId &&
+    mongoose.isValidObjectId(staffBranchId)
+  ) {
+    updateSet.branchId = new mongoose.Types.ObjectId(staffBranchId);
+  }
+
   // Atomic conditional update to protect against concurrent updates (Comment 1)
   const updatedOrder = await Order.findOneAndUpdate(
     {
@@ -396,10 +450,7 @@ async function updateOrderStatus(orderId, requestedStatus, staffUserId) {
       statusUpdatedAt: order.statusUpdatedAt,
     },
     {
-      $set: {
-        status: trimmedStatus,
-        statusUpdatedAt: now,
-      },
+      $set: updateSet,
       $push: {
         statusHistory: {
           status: trimmedStatus,

@@ -27,7 +27,7 @@ const {
   shapeOrderSummary,
   shapeHistoryEntry,
 } = require('../../src/services/order.service');
-const { NotFoundError, ValidationError } = require('../../src/errors/AppError');
+const { NotFoundError, ValidationError, ForbiddenError } = require('../../src/errors/AppError');
 const { ORDER_STATUS_VALUES } = require('../../src/constants/orderStatuses');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 const { domainEvents, ORDER_EVENTS } = require('../../src/utils/domainEvents');
@@ -765,5 +765,117 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
         ).rejects.toThrow(ValidationError);
       }
     );
+  });
+
+  describe('Branch Claiming and Scoped Order Visibility', () => {
+    const BRANCH_A_ID = new mongoose.Types.ObjectId();
+    const BRANCH_A_STR = BRANCH_A_ID.toString();
+    const BRANCH_B_ID = new mongoose.Types.ObjectId();
+    const BRANCH_B_STR = BRANCH_B_ID.toString();
+
+    it('filters orders by unassigned status (ORDER_CREATED) and assigned branchId for staff', async () => {
+      const mockOrders = [makeOrder()];
+      Order.find.mockReturnValue({
+        sort: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(mockOrders) }),
+      });
+
+      const results = await getOrders({
+        userId: STAFF_ID_STR,
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: BRANCH_A_STR,
+      });
+
+      expect(Order.find).toHaveBeenCalledWith({
+        $or: [
+          { status: ORDER_STATUS_VALUES.ORDER_CREATED },
+          { branchId: new mongoose.Types.ObjectId(BRANCH_A_STR) },
+        ],
+      });
+      expect(results).toHaveLength(1);
+    });
+
+    it('allows staff of assigned branch to view single order', async () => {
+      const assignedOrder = makeOrder({ branchId: BRANCH_A_ID, status: ORDER_STATUS_VALUES.PROCESSING });
+      Order.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(assignedOrder) });
+      OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([makeItem()]) });
+
+      const result = await getOrderById({
+        orderId: ORDER_ID_STR,
+        userId: STAFF_ID_STR,
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
+        branchId: BRANCH_A_STR,
+      });
+
+      expect(result.id).toBe(ORDER_ID_STR);
+      expect(result.branchId).toBe(BRANCH_A_STR);
+    });
+
+    it('allows any branch staff to view unassigned ORDER_CREATED order', async () => {
+      const unassignedOrder = makeOrder({ branchId: null, status: ORDER_STATUS_VALUES.ORDER_CREATED });
+      Order.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(unassignedOrder) });
+      OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([makeItem()]) });
+
+      const result = await getOrderById({
+        orderId: ORDER_ID_STR,
+        userId: STAFF_ID_STR,
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
+        branchId: BRANCH_A_STR,
+      });
+
+      expect(result.id).toBe(ORDER_ID_STR);
+      expect(result.branchId).toBeNull();
+    });
+
+    it('denies staff from Branch B from viewing an order assigned to Branch A with ForbiddenError', async () => {
+      const assignedOrder = makeOrder({ branchId: BRANCH_A_ID, status: ORDER_STATUS_VALUES.PROCESSING });
+      Order.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(assignedOrder) });
+
+      await expect(
+        getOrderById({
+          orderId: ORDER_ID_STR,
+          userId: STAFF_ID_STR,
+          role: ROLE_VALUES.BRANCH_ASSISTANT,
+          branchId: BRANCH_B_STR,
+        })
+      ).rejects.toThrow(ForbiddenError);
+    });
+
+    it('assigns branchId when staff transitions ORDER_CREATED to PROCESSING', async () => {
+      const order = makeOrder({ status: ORDER_STATUS_VALUES.ORDER_CREATED, branchId: null });
+      Order.findById.mockResolvedValue(order);
+      Payment.exists.mockResolvedValue({ _id: new mongoose.Types.ObjectId() });
+      Order.findOneAndUpdate.mockResolvedValue(
+        makeOrder({ status: ORDER_STATUS_VALUES.PROCESSING, branchId: BRANCH_A_ID })
+      );
+      OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([makeItem()]) });
+
+      await updateOrderStatus(
+        ORDER_ID_STR,
+        ORDER_STATUS_VALUES.PROCESSING,
+        STAFF_ID_STR,
+        { branchId: BRANCH_A_STR }
+      );
+
+      const updateCall = Order.findOneAndUpdate.mock.calls[0];
+      expect(updateCall[1].$set).toHaveProperty('branchId', new mongoose.Types.ObjectId(BRANCH_A_STR));
+      expect(updateCall[1].$set).toHaveProperty('status', ORDER_STATUS_VALUES.PROCESSING);
+    });
+
+    it('rejects update if staff from Branch B attempts to update order assigned to Branch A', async () => {
+      const assignedOrder = makeOrder({
+        status: ORDER_STATUS_VALUES.PROCESSING,
+        branchId: BRANCH_A_ID,
+      });
+      Order.findById.mockResolvedValue(assignedOrder);
+
+      await expect(
+        updateOrderStatus(
+          ORDER_ID_STR,
+          ORDER_STATUS_VALUES.READY_FOR_PICKUP,
+          STAFF_ID_STR,
+          { branchId: BRANCH_B_STR }
+        )
+      ).rejects.toThrow(ForbiddenError);
+    });
   });
 });

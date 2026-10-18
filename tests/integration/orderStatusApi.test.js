@@ -14,8 +14,11 @@ const { ORDER_STATUS_VALUES } = require('../../src/constants/orderStatuses');
 const JWT_SECRET = 'order-api-test-secret';
 const PASSWORD_HASH = `$2b$12$${'a'.repeat(53)}`;
 
-const createToken = ({ userId, role } = {}) =>
-  jwt.sign({ userId, role }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '1h' });
+const createToken = ({ userId, role, branchId } = {}) => {
+  const payload = { userId, role };
+  if (branchId) payload.branchId = branchId;
+  return jwt.sign(payload, JWT_SECRET, { algorithm: 'HS256', expiresIn: '1h' });
+};
 
 const createCustomer = (email = 'ordercustomer@example.com') =>
   Customer.create({
@@ -619,6 +622,106 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
         finalOrder.status
       );
       expect(finalOrder.statusHistory).toHaveLength(2);
+    });
+  });
+
+  describe('Branch Claiming and Isolation (End-to-End API)', () => {
+    it('claims order for branch at PROCESSING and enforces isolation against other branches', async () => {
+      const customer = await createCustomer('branchclaim@example.com');
+      const order = await Order.create({
+        customerId: customer._id,
+        orderDate: new Date(),
+        orderAmount: 10000,
+        status: ORDER_STATUS_VALUES.ORDER_CREATED,
+        statusUpdatedAt: new Date(),
+        statusHistory: [
+          {
+            status: ORDER_STATUS_VALUES.ORDER_CREATED,
+            changedAt: new Date(),
+            changedBy: customer._id,
+          },
+        ],
+      });
+      await Payment.create({
+        orderId: order._id,
+        amount: order.orderAmount,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+      });
+
+      const colomboBranchId = new mongoose.Types.ObjectId().toString();
+      const kandyBranchId = new mongoose.Types.ObjectId().toString();
+
+      const colomboStaffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: colomboBranchId,
+      });
+
+      const kandyStaffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
+        branchId: kandyBranchId,
+      });
+
+      // Before claiming: both branches can see the unassigned ORDER_CREATED order
+      const preListColombo = await request(app)
+        .get('/api/orders')
+        .set('Authorization', `Bearer ${colomboStaffToken}`);
+      const preListKandy = await request(app)
+        .get('/api/orders')
+        .set('Authorization', `Bearer ${kandyStaffToken}`);
+
+      expect(preListColombo.body.data.some((o) => o.id === order._id.toString())).toBe(true);
+      expect(preListKandy.body.data.some((o) => o.id === order._id.toString())).toBe(true);
+
+      // Colombo branch claims the order into PROCESSING
+      const claimRes = await request(app)
+        .patch(`/api/orders/${order._id}/status`)
+        .set('Authorization', `Bearer ${colomboStaffToken}`)
+        .send({ status: ORDER_STATUS_VALUES.PROCESSING });
+
+      expect(claimRes.status).toBe(200);
+      expect(claimRes.body.data.status).toBe(ORDER_STATUS_VALUES.PROCESSING);
+      expect(claimRes.body.data.branchId).toBe(colomboBranchId);
+
+      // Verify database record has branchId set to Colombo
+      const dbOrder = await Order.findById(order._id);
+      expect(dbOrder.branchId.toString()).toBe(colomboBranchId);
+
+      // After claiming: Colombo can see the order, Kandy CANNOT see the order
+      const postListColombo = await request(app)
+        .get('/api/orders')
+        .set('Authorization', `Bearer ${colomboStaffToken}`);
+      const postListKandy = await request(app)
+        .get('/api/orders')
+        .set('Authorization', `Bearer ${kandyStaffToken}`);
+
+      expect(postListColombo.body.data.some((o) => o.id === order._id.toString())).toBe(true);
+      expect(postListKandy.body.data.some((o) => o.id === order._id.toString())).toBe(false);
+
+      // Kandy attempts to GET single order -> 403 Forbidden
+      const kandyGetRes = await request(app)
+        .get(`/api/orders/${order._id}`)
+        .set('Authorization', `Bearer ${kandyStaffToken}`);
+      expect(kandyGetRes.status).toBe(403);
+      expect(kandyGetRes.body.success).toBe(false);
+
+      // Kandy attempts to update status -> 403 Forbidden
+      const kandyPatchRes = await request(app)
+        .patch(`/api/orders/${order._id}/status`)
+        .set('Authorization', `Bearer ${kandyStaffToken}`)
+        .send({ status: ORDER_STATUS_VALUES.READY_FOR_PICKUP });
+      expect(kandyPatchRes.status).toBe(403);
+      expect(kandyPatchRes.body.success).toBe(false);
+
+      // Colombo updates status -> 200 OK
+      const colomboPatchRes = await request(app)
+        .patch(`/api/orders/${order._id}/status`)
+        .set('Authorization', `Bearer ${colomboStaffToken}`)
+        .send({ status: ORDER_STATUS_VALUES.READY_FOR_PICKUP });
+      expect(colomboPatchRes.status).toBe(200);
+      expect(colomboPatchRes.body.data.status).toBe(ORDER_STATUS_VALUES.READY_FOR_PICKUP);
     });
   });
 });
