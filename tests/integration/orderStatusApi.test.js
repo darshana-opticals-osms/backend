@@ -5,8 +5,11 @@ const { MongoMemoryServer } = require('mongodb-memory-server');
 const { createApp } = require('../../src/app');
 const Order = require('../../src/models/order.model');
 const OrderItem = require('../../src/models/orderItem.model');
+const Inventory = require('../../src/models/inventory.model');
 const Customer = require('../../src/models/customer.model');
 const Payment = require('../../src/models/payment.model');
+const Cart = require('../../src/models/cart.model');
+const Branch = require('../../src/models/branch.model');
 const { PAYMENT_STATUS, PAYMENT_METHOD } = require('../../src/constants/payment');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 const { ORDER_STATUS_VALUES } = require('../../src/constants/orderStatuses');
@@ -14,8 +17,19 @@ const { ORDER_STATUS_VALUES } = require('../../src/constants/orderStatuses');
 const JWT_SECRET = 'order-api-test-secret';
 const PASSWORD_HASH = `$2b$12$${'a'.repeat(53)}`;
 
-const createToken = ({ userId, role } = {}) =>
-  jwt.sign({ userId, role }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '1h' });
+const DEFAULT_STAFF_BRANCH_ID = new mongoose.Types.ObjectId().toString();
+
+const createToken = ({ userId, role, branchId, omitBranch = false } = {}) => {
+  const payload = { userId, role };
+  if (!omitBranch) {
+    if (branchId) {
+      payload.branchId = branchId;
+    } else if (role && role !== ROLE_VALUES.CUSTOMER) {
+      payload.branchId = DEFAULT_STAFF_BRANCH_ID;
+    }
+  }
+  return jwt.sign(payload, JWT_SECRET, { algorithm: 'HS256', expiresIn: '1h' });
+};
 
 const createCustomer = (email = 'ordercustomer@example.com') =>
   Customer.create({
@@ -57,7 +71,10 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       Payment.deleteMany({}),
       Order.deleteMany({}),
       OrderItem.collection.deleteMany({}),
+      Inventory.deleteMany({}),
       Customer.deleteMany({}),
+      Cart.deleteMany({}),
+      Branch.deleteMany({}),
     ]);
   });
 
@@ -307,8 +324,18 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
         ],
       });
 
+      const inv = await Inventory.create({
+        branchId: DEFAULT_STAFF_BRANCH_ID,
+        itemName: 'Prescription Glasses',
+        category: 'FRAMES',
+        brand: 'Darshana',
+        price: 15000,
+        quantity: 10,
+      });
+
       await OrderItem.create({
         orderId: order._id,
+        inventoryId: inv._id,
         itemName: 'Prescription Glasses',
         price: 15000,
         quantity: 1,
@@ -619,6 +646,821 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
         finalOrder.status
       );
       expect(finalOrder.statusHistory).toHaveLength(2);
+    });
+  });
+
+  describe('Branch Claiming and Isolation (End-to-End API)', () => {
+    it('claims order for branch at PROCESSING and enforces isolation against other branches', async () => {
+      const customer = await createCustomer('branchclaim@example.com');
+      const order = await Order.create({
+        customerId: customer._id,
+        orderDate: new Date(),
+        orderAmount: 10000,
+        status: ORDER_STATUS_VALUES.ORDER_CREATED,
+        statusUpdatedAt: new Date(),
+        statusHistory: [
+          {
+            status: ORDER_STATUS_VALUES.ORDER_CREATED,
+            changedAt: new Date(),
+            changedBy: customer._id,
+          },
+        ],
+      });
+      await Payment.create({
+        orderId: order._id,
+        amount: order.orderAmount,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+      });
+
+      const colomboBranchId = new mongoose.Types.ObjectId().toString();
+      const kandyBranchId = new mongoose.Types.ObjectId().toString();
+
+      const colomboStaffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: colomboBranchId,
+      });
+
+      const kandyStaffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
+        branchId: kandyBranchId,
+      });
+
+      // Before claiming: both branches can see the unassigned ORDER_CREATED order
+      const preListColombo = await request(app)
+        .get('/api/orders')
+        .set('Authorization', `Bearer ${colomboStaffToken}`);
+      const preListKandy = await request(app)
+        .get('/api/orders')
+        .set('Authorization', `Bearer ${kandyStaffToken}`);
+
+      expect(preListColombo.body.data.some((o) => o.id === order._id.toString())).toBe(true);
+      expect(preListKandy.body.data.some((o) => o.id === order._id.toString())).toBe(true);
+
+      // Colombo branch claims the order into PROCESSING
+      const claimRes = await request(app)
+        .patch(`/api/orders/${order._id}/status`)
+        .set('Authorization', `Bearer ${colomboStaffToken}`)
+        .send({ status: ORDER_STATUS_VALUES.PROCESSING });
+
+      expect(claimRes.status).toBe(200);
+      expect(claimRes.body.data.status).toBe(ORDER_STATUS_VALUES.PROCESSING);
+      expect(claimRes.body.data.branchId).toBe(colomboBranchId);
+
+      // Verify database record has branchId set to Colombo
+      const dbOrder = await Order.findById(order._id);
+      expect(dbOrder.branchId.toString()).toBe(colomboBranchId);
+
+      // After claiming: Colombo can see the order, Kandy CANNOT see the order
+      const postListColombo = await request(app)
+        .get('/api/orders')
+        .set('Authorization', `Bearer ${colomboStaffToken}`);
+      const postListKandy = await request(app)
+        .get('/api/orders')
+        .set('Authorization', `Bearer ${kandyStaffToken}`);
+
+      expect(postListColombo.body.data.some((o) => o.id === order._id.toString())).toBe(true);
+      expect(postListKandy.body.data.some((o) => o.id === order._id.toString())).toBe(false);
+
+      // Kandy attempts to GET single order -> 403 Forbidden
+      const kandyGetRes = await request(app)
+        .get(`/api/orders/${order._id}`)
+        .set('Authorization', `Bearer ${kandyStaffToken}`);
+      expect(kandyGetRes.status).toBe(403);
+      expect(kandyGetRes.body.success).toBe(false);
+
+      // Kandy attempts to update status -> 403 Forbidden
+      const kandyPatchRes = await request(app)
+        .patch(`/api/orders/${order._id}/status`)
+        .set('Authorization', `Bearer ${kandyStaffToken}`)
+        .send({ status: ORDER_STATUS_VALUES.READY_FOR_PICKUP });
+      expect(kandyPatchRes.status).toBe(403);
+      expect(kandyPatchRes.body.success).toBe(false);
+
+      // Colombo updates status -> 200 OK
+      const colomboPatchRes = await request(app)
+        .patch(`/api/orders/${order._id}/status`)
+        .set('Authorization', `Bearer ${colomboStaffToken}`)
+        .send({ status: ORDER_STATUS_VALUES.READY_FOR_PICKUP });
+      expect(colomboPatchRes.status).toBe(200);
+      expect(colomboPatchRes.body.data.status).toBe(ORDER_STATUS_VALUES.READY_FOR_PICKUP);
+    });
+
+    it('prevents double stock deduction when claiming branch is original checkout branch, and restores upon cancellation', async () => {
+      const customer = await createCustomer('branchstock@example.com');
+      const colomboBranchId = new mongoose.Types.ObjectId();
+
+      // Colombo original inventory: checkout deduction previously occurred (10 -> 8)
+      const colomboInventory = await Inventory.create({
+        branchId: colomboBranchId,
+        itemName: 'Designer Sunglasses',
+        category: 'SUNGLASSES',
+        brand: 'Ray-Ban',
+        price: 15000,
+        quantity: 8,
+      });
+
+      const order = await Order.create({
+        customerId: customer._id,
+        orderDate: new Date(),
+        orderAmount: 30000,
+        status: ORDER_STATUS_VALUES.ORDER_CREATED,
+        statusUpdatedAt: new Date(),
+        statusHistory: [
+          {
+            status: ORDER_STATUS_VALUES.ORDER_CREATED,
+            changedAt: new Date(),
+            changedBy: customer._id,
+          },
+        ],
+      });
+
+      await OrderItem.create({
+        orderId: order._id,
+        inventoryId: colomboInventory._id,
+        itemName: 'Designer Sunglasses',
+        price: 15000,
+        quantity: 2,
+      });
+
+      await Payment.create({
+        orderId: order._id,
+        amount: order.orderAmount,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+      });
+
+      const colomboStaffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: colomboBranchId.toString(),
+      });
+
+      // Colombo claims the order into PROCESSING
+      const claimRes = await request(app)
+        .patch(`/api/orders/${order._id}/status`)
+        .set('Authorization', `Bearer ${colomboStaffToken}`)
+        .send({ status: ORDER_STATUS_VALUES.PROCESSING });
+
+      expect(claimRes.status).toBe(200);
+
+      // Verify Colombo inventory was NOT deducted again (consumed reservation, remains 8)
+      const updatedColomboInv = await Inventory.findById(colomboInventory._id);
+      expect(updatedColomboInv.quantity).toBe(8);
+
+      // Now cancel the order from PROCESSING
+      const cancelRes = await request(app)
+        .patch(`/api/orders/${order._id}/status`)
+        .set('Authorization', `Bearer ${colomboStaffToken}`)
+        .send({ status: ORDER_STATUS_VALUES.CANCELLED });
+
+      expect(cancelRes.status).toBe(200);
+
+      // Verify Colombo inventory restored: 8 + 2 = 10 (returns to exact initial stock)
+      const restoredColomboInv = await Inventory.findById(colomboInventory._id);
+      expect(restoredColomboInv.quantity).toBe(10);
+    });
+
+    it('fails closed with UNSUPPORTED_CROSS_BRANCH_ALLOCATION when claiming branch differs from checkout branch', async () => {
+      const customer = await createCustomer('crossbranchfail@example.com');
+      const originBranchId = new mongoose.Types.ObjectId();
+      const colomboBranchId = new mongoose.Types.ObjectId();
+
+      const originInventory = await Inventory.create({
+        branchId: originBranchId,
+        itemName: 'Progressive Lens UV400',
+        category: 'LENSES',
+        brand: 'Essilor',
+        price: 20000,
+        quantity: 8,
+      });
+
+      const order = await Order.create({
+        customerId: customer._id,
+        orderDate: new Date(),
+        orderAmount: 40000,
+        status: ORDER_STATUS_VALUES.PROCESSING,
+        statusUpdatedAt: new Date(),
+      });
+
+      await OrderItem.create({
+        orderId: order._id,
+        inventoryId: originInventory._id,
+        itemName: 'Progressive Lens UV400',
+        price: 20000,
+        quantity: 2,
+      });
+
+      await Payment.create({
+        orderId: order._id,
+        amount: order.orderAmount,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+      });
+
+      const colomboStaffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: colomboBranchId.toString(),
+      });
+
+      const claimRes = await request(app)
+        .patch(`/api/orders/${order._id}/claim`)
+        .set('Authorization', `Bearer ${colomboStaffToken}`);
+
+      expect(claimRes.status).toBe(409);
+      expect(claimRes.body.error.code).toBe('UNSUPPORTED_CROSS_BRANCH_ALLOCATION');
+
+      // Origin inventory remains untouched
+      const checkOrigin = await Inventory.findById(originInventory._id);
+      expect(checkOrigin.quantity).toBe(8);
+    });
+  });
+
+  describe('Review Findings Regression Tests (PR #88)', () => {
+    // ─── Finding 3: Real Checkout -> Verified Payment -> Branch Claim -> Cancellation Flow ───
+    it('executes real application flow: real checkout -> reservation -> verified payment -> same-branch claim -> cancellation restoring exact inventory', async () => {
+      const customer = await createCustomer('realcheckout@example.com');
+      const branchId = new mongoose.Types.ObjectId();
+
+      // Initial inventory: 10 units
+      const inventory = await Inventory.create({
+        branchId,
+        itemName: 'Progressive Lens UV400',
+        category: 'Lenses',
+        brand: 'Essilor',
+        price: 20000,
+        quantity: 10,
+      });
+
+      // 1. Add item to Customer Cart
+      await Cart.create({
+        customerId: customer._id,
+        items: [{ inventoryId: inventory._id, quantity: 2 }],
+      });
+
+      const customerToken = createToken({
+        userId: customer._id.toString(),
+        role: ROLE_VALUES.CUSTOMER,
+      });
+
+      // 2. Real checkout: deducts inventory from 10 -> 8
+      const checkoutRes = await request(app)
+        .post('/api/checkout')
+        .set('Authorization', `Bearer ${customerToken}`)
+        .send();
+
+      expect(checkoutRes.status).toBe(201);
+      const orderId = checkoutRes.body.data.order.id;
+
+      // Verify physical stock deduction occurred at checkout: 10 -> 8
+      const invAfterCheckout = await Inventory.findById(inventory._id);
+      expect(invAfterCheckout.quantity).toBe(8);
+
+      // 3. Payment verification: transitions order to PROCESSING
+      await Payment.create({
+        orderId,
+        amount: 40000,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+        providerTransactionId: 'PAYHERE_REAL_TXN_888',
+        paidAt: new Date(),
+      });
+
+      await Order.findByIdAndUpdate(orderId, {
+        $set: { status: ORDER_STATUS_VALUES.PROCESSING, statusUpdatedAt: new Date() },
+      });
+
+      // 4. Same-branch staff claims the order for fulfillment
+      const staffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branchId.toString(),
+      });
+
+      const claimRes = await request(app)
+        .patch(`/api/orders/${orderId}/claim`)
+        .set('Authorization', `Bearer ${staffToken}`);
+
+      expect(claimRes.status).toBe(200);
+      expect(claimRes.body.data.branchId).toBe(branchId.toString());
+
+      // Verify stock was NOT deducted again (consumed checkout reservation, remains 8)
+      const invAfterClaim = await Inventory.findById(inventory._id);
+      expect(invAfterClaim.quantity).toBe(8);
+
+      // 5. Order cancellation: stock is restored to exact initial quantity (8 -> 10)
+      const cancelRes = await request(app)
+        .patch(`/api/orders/${orderId}/status`)
+        .set('Authorization', `Bearer ${staffToken}`)
+        .send({ status: ORDER_STATUS_VALUES.CANCELLED });
+
+      expect(cancelRes.status).toBe(200);
+
+      const invAfterCancel = await Inventory.findById(inventory._id);
+      expect(invAfterCancel.quantity).toBe(10);
+    });
+
+    // ─── Comment 2: Atomic Rollback & Competing Branches ────────────────────
+    it('Comment 2a: multi-item allocation rolls back completely when cross-branch fulfillment is attempted', async () => {
+      const customer = await createCustomer('rollback@example.com');
+      const originBranchId = new mongoose.Types.ObjectId();
+      const claimingBranchId = new mongoose.Types.ObjectId();
+
+      const itemA = await Inventory.create({
+        branchId: originBranchId,
+        itemName: 'Lens Cleaner Spray',
+        category: 'ACCESSORIES',
+        brand: 'OptiClean',
+        price: 1500,
+        quantity: 10,
+      });
+
+      const itemB = await Inventory.create({
+        branchId: originBranchId,
+        itemName: 'Microfiber Cleaning Cloth',
+        category: 'ACCESSORIES',
+        brand: 'OptiClean',
+        price: 500,
+        quantity: 1,
+      });
+
+      const order = await Order.create({
+        customerId: customer._id,
+        branchId: null,
+        orderDate: new Date(),
+        orderAmount: 4500,
+        status: ORDER_STATUS_VALUES.PROCESSING,
+        statusUpdatedAt: new Date(),
+      });
+
+      await OrderItem.create([
+        {
+          orderId: order._id,
+          inventoryId: itemA._id,
+          itemName: 'Lens Cleaner Spray',
+          price: 1500,
+          quantity: 2,
+          classificationSnapshot: {
+            source: 'Inventory',
+            sourceInventoryId: itemA._id,
+            category: 'ACCESSORIES',
+            itemClassification: 'UNKNOWN',
+            loyaltyEligibility: 'UNKNOWN',
+          },
+        },
+        {
+          orderId: order._id,
+          inventoryId: itemB._id,
+          itemName: 'Microfiber Cleaning Cloth',
+          price: 500,
+          quantity: 3,
+          classificationSnapshot: {
+            source: 'Inventory',
+            sourceInventoryId: itemB._id,
+            category: 'ACCESSORIES',
+            itemClassification: 'UNKNOWN',
+            loyaltyEligibility: 'UNKNOWN',
+          },
+        },
+      ]);
+
+      await Payment.create({
+        orderId: order._id,
+        amount: order.orderAmount,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+      });
+
+      const staffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: claimingBranchId.toString(),
+      });
+
+      const claimRes = await request(app)
+        .patch(`/api/orders/${order._id}/claim`)
+        .set('Authorization', `Bearer ${staffToken}`);
+
+      expect(claimRes.status).toBe(409);
+      expect(claimRes.body.error.code).toBe('UNSUPPORTED_CROSS_BRANCH_ALLOCATION');
+
+      // Verify itemA was NOT deducted (atomic rollback preserved quantity 10)
+      const checkItemA = await Inventory.findById(itemA._id);
+      expect(checkItemA.quantity).toBe(10);
+
+      // Order branchId remains unassigned
+      const checkOrder = await Order.findById(order._id);
+      expect(checkOrder.branchId).toBeNull();
+    });
+
+    it('Comment 2b: competing branches attempting concurrent claim results in single winner and clean conflict', async () => {
+      const customer = await createCustomer('competing@example.com');
+      const branchAId = new mongoose.Types.ObjectId();
+      const branchBId = new mongoose.Types.ObjectId();
+
+      const invA = await Inventory.create({
+        branchId: branchAId,
+        itemName: 'Titanium Frame Model X',
+        category: 'FRAMES',
+        brand: 'Titan',
+        price: 25000,
+        quantity: 5,
+      });
+
+      await Inventory.create({
+        branchId: branchBId,
+        itemName: 'Titanium Frame Model X',
+        category: 'FRAMES',
+        brand: 'Titan',
+        price: 25000,
+        quantity: 5,
+      });
+
+      const order = await Order.create({
+        customerId: customer._id,
+        branchId: null,
+        orderDate: new Date(),
+        orderAmount: 25000,
+        status: ORDER_STATUS_VALUES.PROCESSING,
+        statusUpdatedAt: new Date(),
+      });
+
+      await OrderItem.create({
+        orderId: order._id,
+        inventoryId: invA._id,
+        itemName: 'Titanium Frame Model X',
+        price: 25000,
+        quantity: 1,
+        classificationSnapshot: {
+          source: 'Inventory',
+          sourceInventoryId: invA._id,
+          category: 'FRAMES',
+          itemClassification: 'UNKNOWN',
+          loyaltyEligibility: 'UNKNOWN',
+        },
+      });
+
+      await Payment.create({
+        orderId: order._id,
+        amount: order.orderAmount,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+      });
+
+      const tokenA = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branchAId.toString(),
+      });
+
+      const tokenB = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branchBId.toString(),
+      });
+
+      const [resA, resB] = await Promise.all([
+        request(app)
+          .patch(`/api/orders/${order._id}/claim`)
+          .set('Authorization', `Bearer ${tokenA}`),
+        request(app)
+          .patch(`/api/orders/${order._id}/claim`)
+          .set('Authorization', `Bearer ${tokenB}`),
+      ]);
+
+      const statuses = [resA.status, resB.status].sort();
+      expect(statuses).toEqual([200, 409]);
+
+      // Winning branch is recorded on order
+      const claimedOrder = await Order.findById(order._id);
+      expect([branchAId.toString(), branchBId.toString()]).toContain(
+        claimedOrder.branchId.toString()
+      );
+    });
+
+    // ─── Comment 3: Fail-Closed Branch Authorization ────────────────────────
+    it('Comment 3: rejects staff request with missing or invalid branch claim with 403 Forbidden', async () => {
+      const orderId = new mongoose.Types.ObjectId();
+
+      // Token without branchId
+      const noBranchToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
+        omitBranch: true,
+      });
+
+      const getListRes = await request(app)
+        .get('/api/orders')
+        .set('Authorization', `Bearer ${noBranchToken}`);
+      expect(getListRes.status).toBe(403);
+
+      const getSingleRes = await request(app)
+        .get(`/api/orders/${orderId}`)
+        .set('Authorization', `Bearer ${noBranchToken}`);
+      expect(getSingleRes.status).toBe(403);
+
+      const patchRes = await request(app)
+        .patch(`/api/orders/${orderId}/status`)
+        .set('Authorization', `Bearer ${noBranchToken}`)
+        .send({ status: ORDER_STATUS_VALUES.PROCESSING });
+      expect(patchRes.status).toBe(403);
+    });
+
+    // ─── Comment 4: Authoritative Identity & Unresolved Legacy References ────
+    it('Comment 4: fails allocation with ConflictError on unresolved legacy inventory reference', async () => {
+      const customer = await createCustomer('unresolved@example.com');
+      const branchId = new mongoose.Types.ObjectId();
+      const ghostInventoryId = new mongoose.Types.ObjectId(); // does not exist in Inventory collection
+
+      const order = await Order.create({
+        customerId: customer._id,
+        branchId: null,
+        orderDate: new Date(),
+        orderAmount: 12000,
+        status: ORDER_STATUS_VALUES.PROCESSING,
+        statusUpdatedAt: new Date(),
+      });
+
+      await OrderItem.create({
+        orderId: order._id,
+        inventoryId: ghostInventoryId,
+        itemName: 'Vintage Sunglasses',
+        price: 12000,
+        quantity: 1,
+        classificationSnapshot: {
+          source: 'Inventory',
+          sourceInventoryId: ghostInventoryId,
+          category: 'SUNGLASSES',
+          itemClassification: 'UNKNOWN',
+          loyaltyEligibility: 'UNKNOWN',
+        },
+      });
+
+      await Payment.create({
+        orderId: order._id,
+        amount: order.orderAmount,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+      });
+
+      const staffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branchId.toString(),
+      });
+
+      const claimRes = await request(app)
+        .patch(`/api/orders/${order._id}/claim`)
+        .set('Authorization', `Bearer ${staffToken}`);
+
+      expect(claimRes.status).toBe(409);
+      expect(claimRes.body.success).toBe(false);
+    });
+
+    // ─── Second Re-Review Finding 2: Unclaimed PROCESSING Order Cancellation ────
+    it('restores checkout inventory when an unclaimed PROCESSING order is cancelled and blocks invalid advancement', async () => {
+      const branch = await Branch.create({
+        codeName: 'UNCLAIMED_RESTORE_BRANCH',
+        address: '10 Main St',
+        contactNumber: '+94112345678',
+      });
+      const inv = await Inventory.create({
+        branchId: branch._id,
+        itemName: 'Prescription Glasses',
+        category: 'FRAMES',
+        brand: 'Darshana',
+        price: 15000,
+        quantity: 10,
+      });
+      const customer = await createCustomer('unclaimed-cancel@example.com');
+      const customerToken = createToken({
+        userId: customer._id.toString(),
+        role: ROLE_VALUES.CUSTOMER,
+      });
+
+      // 1. Add item to cart and checkout
+      await Cart.create({
+        customerId: customer._id,
+        items: [{ inventoryId: inv._id, quantity: 2 }],
+      });
+
+      const checkoutRes = await request(app)
+        .post('/api/checkout')
+        .set('Authorization', `Bearer ${customerToken}`)
+        .send();
+
+      expect(checkoutRes.status).toBe(201);
+      const orderId = checkoutRes.body.data.order.id;
+
+      // Verify physical checkout deduction (10 -> 8)
+      const invAfterCheckout = await Inventory.findById(inv._id);
+      expect(invAfterCheckout.quantity).toBe(8);
+
+      // 2. Verified PayHere payment transitions order to PROCESSING (unclaimed, branchId: null)
+      await Payment.create({
+        orderId,
+        amount: 30000,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+        providerTransactionId: 'PAYHERE_UNCLAIMED_TXN_1',
+        paidAt: new Date(),
+      });
+      await Order.findByIdAndUpdate(orderId, {
+        $set: { status: ORDER_STATUS_VALUES.PROCESSING, branchId: null },
+      });
+
+      const staffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
+        branchId: branch._id.toString(),
+      });
+
+      // 3. Unauthorized advancement without branch claim is blocked
+      const advanceRes = await request(app)
+        .patch(`/api/orders/${orderId}/status`)
+        .set('Authorization', `Bearer ${staffToken}`)
+        .send({ status: ORDER_STATUS_VALUES.READY_FOR_PICKUP });
+
+      expect(advanceRes.status).toBe(422);
+      expect(advanceRes.body.error.code).toBe('UNCLAIMED_ORDER_FULFILLMENT_BLOCKED');
+
+      // Stock must still be 8
+      const invAfterBlockedAdvance = await Inventory.findById(inv._id);
+      expect(invAfterBlockedAdvance.quantity).toBe(8);
+
+      // 4. Cancel the unclaimed PROCESSING order
+      const cancelRes = await request(app)
+        .patch(`/api/orders/${orderId}/status`)
+        .set('Authorization', `Bearer ${staffToken}`)
+        .send({ status: ORDER_STATUS_VALUES.CANCELLED });
+
+      expect(cancelRes.status).toBe(200);
+      expect(cancelRes.body.data.status).toBe(ORDER_STATUS_VALUES.CANCELLED);
+
+      // Verify stock is restored to original quantity (8 -> 10)
+      const invAfterCancel = await Inventory.findById(inv._id);
+      expect(invAfterCancel.quantity).toBe(10);
+
+      // 5. Repeated cancellation attempt returns 422 TERMINAL_STATUS and does not double-restore
+      const repeatCancelRes = await request(app)
+        .patch(`/api/orders/${orderId}/status`)
+        .set('Authorization', `Bearer ${staffToken}`)
+        .send({ status: ORDER_STATUS_VALUES.CANCELLED });
+
+      expect(repeatCancelRes.status).toBe(422);
+      expect(repeatCancelRes.body.error.code).toBe('TERMINAL_STATUS');
+
+      const invAfterRepeatCancel = await Inventory.findById(inv._id);
+      expect(invAfterRepeatCancel.quantity).toBe(10);
+    });
+
+    // ─── Second Re-Review Finding 5: Rejection of Name-Based Matching Fallback ──
+    it('rejects legacy OrderItem with unresolved inventory reference even if matching name exists at branch', async () => {
+      const branch = await Branch.create({
+        codeName: 'NAME_MATCH_BRANCH',
+        address: '20 Second St',
+        contactNumber: '+94112345679',
+      });
+      const inv = await Inventory.create({
+        branchId: branch._id,
+        itemName: 'Coincidental Name Match',
+        category: 'FRAMES',
+        brand: 'Darshana',
+        price: 8000,
+        quantity: 10,
+      });
+
+      const customer = await createCustomer('legacy-name-reject@example.com');
+      const order = await Order.create({
+        customerId: customer._id,
+        branchId: null,
+        orderDate: new Date(),
+        orderAmount: 8000,
+        status: ORDER_STATUS_VALUES.PROCESSING,
+        statusUpdatedAt: new Date(),
+      });
+
+      // OrderItem without inventory reference
+      await OrderItem.create({
+        orderId: order._id,
+        inventoryId: null,
+        itemName: 'Coincidental Name Match',
+        price: 8000,
+        quantity: 1,
+      });
+
+      await Payment.create({
+        orderId: order._id,
+        amount: order.orderAmount,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+      });
+
+      const staffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branch._id.toString(),
+      });
+
+      const claimRes = await request(app)
+        .patch(`/api/orders/${order._id}/claim`)
+        .set('Authorization', `Bearer ${staffToken}`);
+
+      expect(claimRes.status).toBe(409);
+      expect(claimRes.body.error.code).toBe('UNRESOLVED_INVENTORY_REFERENCE');
+
+      // Branch inventory must remain untouched
+      const invAfterAttempt = await Inventory.findById(inv._id);
+      expect(invAfterAttempt.quantity).toBe(10);
+    });
+
+    // ─── Third Re-Review Finding 6: Cross-Branch Cancellation Guard on Unclaimed Orders ──
+    it('Third Re-Review Finding 6: rejects cross-branch cancellation of unclaimed PROCESSING orders by branch staff', async () => {
+      const branchA = await Branch.create({
+        codeName: 'CANCEL_SOURCE_BRANCH',
+        address: '10 Alpha Way',
+        contactNumber: '+94112223344',
+      });
+      const branchB = await Branch.create({
+        codeName: 'CANCEL_ATTACK_BRANCH',
+        address: '20 Beta Road',
+        contactNumber: '+94112223355',
+      });
+
+      const invA = await Inventory.create({
+        branchId: branchA._id,
+        itemName: 'Branch A Frame Item',
+        category: 'FRAMES',
+        brand: 'Darshana',
+        price: 12000,
+        quantity: 8, // already decremented 10 -> 8 at checkout
+      });
+
+      const customer = await createCustomer('cross-cancel@example.com');
+      const order = await Order.create({
+        customerId: customer._id,
+        branchId: null, // Unclaimed online order
+        orderDate: new Date(),
+        orderAmount: 24000,
+        status: ORDER_STATUS_VALUES.PROCESSING,
+        statusUpdatedAt: new Date(),
+      });
+
+      await OrderItem.create({
+        orderId: order._id,
+        inventoryId: invA._id,
+        itemName: 'Branch A Frame Item',
+        price: 12000,
+        quantity: 2,
+      });
+
+      await Payment.create({
+        orderId: order._id,
+        amount: 24000,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+      });
+
+      // Staff from Branch B attempts to cancel Branch A's unclaimed order
+      const staffBToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
+        branchId: branchB._id.toString(),
+      });
+
+      const crossCancelRes = await request(app)
+        .patch(`/api/orders/${order._id}/status`)
+        .set('Authorization', `Bearer ${staffBToken}`)
+        .send({ status: ORDER_STATUS_VALUES.CANCELLED });
+
+      expect(crossCancelRes.status).toBe(403);
+      expect(crossCancelRes.body.error.code).toBe('BRANCH_ACCESS_DENIED');
+
+      // Stock must not have been modified
+      const invAfterForbiddenCancel = await Inventory.findById(invA._id);
+      expect(invAfterForbiddenCancel.quantity).toBe(8);
+
+      // Staff from Branch A cancels: authorized and succeeds!
+      const staffAToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
+        branchId: branchA._id.toString(),
+      });
+
+      const authorizedCancelRes = await request(app)
+        .patch(`/api/orders/${order._id}/status`)
+        .set('Authorization', `Bearer ${staffAToken}`)
+        .send({ status: ORDER_STATUS_VALUES.CANCELLED });
+
+      expect(authorizedCancelRes.status).toBe(200);
+      expect(authorizedCancelRes.body.data.status).toBe(ORDER_STATUS_VALUES.CANCELLED);
+
+      // Stock successfully restored to Branch A (8 -> 10)
+      const invAfterAuthorizedCancel = await Inventory.findById(invA._id);
+      expect(invAfterAuthorizedCancel.quantity).toBe(10);
     });
   });
 });

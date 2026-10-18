@@ -3,6 +3,7 @@ const {
   getOrders: getOrdersService,
   getOrderById: getOrderByIdService,
   updateOrderStatus: updateOrderStatusService,
+  claimOrder: claimOrderService,
 } = require('../services/order.service');
 
 /**
@@ -19,6 +20,7 @@ const getOrders = catchAsync(async (req, res) => {
   const orders = await getOrdersService({
     userId: req.auth.userId,
     role: req.auth.role,
+    branchId: req.auth.branchId,
   });
   return res.status(200).json({ success: true, data: orders });
 });
@@ -28,8 +30,9 @@ const getOrders = catchAsync(async (req, res) => {
  *
  * Returns a single Order with its OrderItems:
  * - CUSTOMER: Enforces customer ownership (scoped lookup to prevent IDOR).
- * - Staff (BRANCH_ASSISTANT):
+ * - Staff (BRANCH_ASSISTANT, BRANCH_MANAGER):
  *   Returns tracking information and line items for the requested order.
+ *   Enforces branch isolation if order is claimed by another branch.
  *
  * AC3, AC4, AC5, AC6, AC9, ADR-004 §12, §13.
  */
@@ -38,6 +41,7 @@ const getOrderById = catchAsync(async (req, res) => {
     orderId: req.params.id,
     userId: req.auth.userId,
     role: req.auth.role,
+    branchId: req.auth.branchId,
   });
   return res.status(200).json({ success: true, data: order });
 });
@@ -46,8 +50,9 @@ const getOrderById = catchAsync(async (req, res) => {
  * PATCH /api/orders/:id/status
  *
  * Updates an Order's canonical tracking status by authorized staff.
- * Caller identity is derived from the JWT (req.auth.userId).
+ * Caller identity and branchId are derived from the JWT (req.auth).
  * Staff role authorization is enforced at route level via middleware.
+ * Assigns order to staff's branch when transitioning to PROCESSING.
  *
  * ADR-004 §9, §10, §11, §15, §16, §17.
  */
@@ -55,9 +60,25 @@ const updateOrderStatus = catchAsync(async (req, res) => {
   const updatedOrder = await updateOrderStatusService(
     req.params.id,
     req.body.status,
-    req.auth.userId
+    req.auth.userId,
+    {
+      branchId: req.auth.branchId,
+      role: req.auth.role,
+    }
   );
   return res.status(200).json({ success: true, data: updatedOrder });
+});
+
+/**
+ * POST /api/orders/:id/claim
+ * PATCH /api/orders/:id/claim
+ *
+ * Claims an already-PROCESSING online order for the calling staff member's branch
+ * and allocates inventory atomically.
+ */
+const claimOrder = catchAsync(async (req, res) => {
+  const claimedOrder = await claimOrderService(req.params.id, req.auth.branchId, req.auth.userId);
+  return res.status(200).json({ success: true, data: claimedOrder });
 });
 
 module.exports = {
@@ -66,4 +87,5 @@ module.exports = {
   getMyOrders: getOrders,
   getMyOrderById: getOrderById,
   updateOrderStatus,
+  claimOrder,
 };

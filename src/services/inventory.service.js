@@ -786,11 +786,20 @@ async function deductInventoryStock(items, session = null, auditContext = null) 
 
     // Audit checkout stock deduction (AC19, AC20, AC43, AC45)
     if (auditContext && (auditContext.actor || auditContext.user || auditContext.system)) {
-      const actor =
-        auditContext.actor ||
-        (auditContext.user
-          ? auditService.buildUserActor(auditContext.user)
-          : auditService.buildSystemActor());
+      let actor = auditContext.actor;
+      if (!actor) {
+        if (auditContext.user && (auditContext.user.role || auditContext.user.userRole)) {
+          actor = auditService.buildUserActor(auditContext.user);
+        } else if (auditContext.user && (auditContext.user.userId || auditContext.user._id)) {
+          actor = {
+            actorType: 'USER',
+            actorId: String(auditContext.user.userId || auditContext.user._id),
+            actorRole: auditContext.user.role || 'STAFF',
+          };
+        } else {
+          actor = auditService.buildSystemActor();
+        }
+      }
 
       const eventId =
         auditContext.eventId ||
@@ -820,6 +829,83 @@ async function deductInventoryStock(items, session = null, auditContext = null) 
   return updatedRecords;
 }
 
+/**
+ * Authoritative stock restoration helper used when orders are cancelled or reservations released.
+ * Safely increments stock and evaluates reorder alert state within the session.
+ * Records immutable audit event per ADR-006 & ADR-012.
+ * @param {Array<{ inventoryId: string|mongoose.Types.ObjectId, quantity: number }>} items
+ * @param {import('mongoose').ClientSession|null} [session=null]
+ * @param {object|null} [auditContext=null]
+ * @returns {Promise<Array<object>>} Updated inventory records
+ */
+async function restoreInventoryStock(items, session = null, auditContext = null) {
+  const updatedRecords = [];
+
+  for (const item of items) {
+    const { inventoryId, quantity } = item;
+    validateInventoryId(inventoryId);
+
+    if (typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity <= 0) {
+      throw new ValidationError('Restoration quantity must be a positive number.');
+    }
+
+    const updated = await Inventory.findByIdAndUpdate(
+      inventoryId,
+      { $inc: { quantity } },
+      { new: true, session }
+    );
+
+    if (!updated) {
+      throw new NotFoundError('Inventory item not found.');
+    }
+
+    await reorderAlertService.evaluateReorderAlert(updated, null, session);
+    updatedRecords.push(updated);
+
+    if (auditContext && (auditContext.actor || auditContext.user || auditContext.system)) {
+      let actor = auditContext.actor;
+      if (!actor) {
+        if (auditContext.user && (auditContext.user.role || auditContext.user.userRole)) {
+          actor = auditService.buildUserActor(auditContext.user);
+        } else if (auditContext.user && (auditContext.user.userId || auditContext.user._id)) {
+          actor = {
+            actorType: 'USER',
+            actorId: String(auditContext.user.userId || auditContext.user._id),
+            actorRole: auditContext.user.role || 'BRANCH_MANAGER',
+          };
+        } else {
+          actor = auditService.buildSystemActor();
+        }
+      }
+
+      const eventId =
+        auditContext.eventId ||
+        (auditContext.orderId ? `audit-restore-${auditContext.orderId}-${updated._id}` : null);
+
+      await auditService.record({
+        action: AUDIT_ACTION.INVENTORY_STOCK_RESERVATION_RELEASE,
+        actor,
+        target: {
+          targetType: AUDIT_TARGET_TYPE.INVENTORY,
+          targetId: updated._id.toString(),
+        },
+        outcome: AUDIT_OUTCOME.SUCCESS,
+        branchId: updated.branchId ? updated.branchId.toString() : null,
+        correlationId: auditContext.correlationId || null,
+        eventId,
+        metadata: {
+          restoredQuantity: quantity,
+          remainingQuantity: updated.quantity,
+          orderId: auditContext.orderId || null,
+        },
+        session,
+      });
+    }
+  }
+
+  return updatedRecords;
+}
+
 module.exports = {
   INVALID_BRANCH_REFERENCE,
   INVALID_INVENTORY_REFERENCE,
@@ -831,4 +917,5 @@ module.exports = {
   removeInventoryImage,
   updateInventoryQuantity,
   deductInventoryStock,
+  restoreInventoryStock,
 };

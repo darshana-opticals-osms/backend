@@ -984,6 +984,12 @@ const options = {
               description: 'MongoDB ObjectId of the owning Customer.',
               example: '507f1f77bcf86cd799439011',
             },
+            branchId: {
+              type: 'string',
+              nullable: true,
+              description: 'MongoDB ObjectId of the branch fulfilling the Order.',
+              example: '507f1f77bcf86cd799439031',
+            },
             orderDate: {
               type: 'string',
               format: 'date-time',

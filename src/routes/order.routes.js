@@ -10,7 +10,12 @@ const {
   ORDER_STATUSES,
   isValidOrderStatus,
 } = require('../constants/orderStatuses');
-const { getOrders, getOrderById, updateOrderStatus } = require('../controllers/order.controller');
+const {
+  getOrders,
+  getOrderById,
+  updateOrderStatus,
+  claimOrder,
+} = require('../controllers/order.controller');
 
 const ALL_ORDER_VIEW_ROLES = [ROLE_VALUES.CUSTOMER, ...ORDER_TRACKING_VIEW_ROLES];
 
@@ -257,6 +262,112 @@ router.patch(
   authorizeRoles(...ORDER_STATUS_UPDATE_ROLES),
   validate(validateUpdateOrderStatus),
   updateOrderStatus
+);
+
+/**
+ * @openapi
+ * /orders/{id}/claim:
+ *   patch:
+ *     summary: Claim an order for fulfillment by an assigned branch
+ *     description: >
+ *       Authorized branch staff only (BRANCH_ASSISTANT, BRANCH_MANAGER).
+ *       Transitions an order in PROCESSING state to READY_FOR_PICKUP and sets the fulfilling branch.
+ *       If the claiming branch matches the checkout branch, existing stock reservation is consumed
+ *       without double deducting inventory. If fulfillment transfer between branches lacks a
+ *       stable product SKU identity, the operation fails closed with a 409 Conflict.
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           pattern: '^[a-fA-F0-9]{24}$'
+ *         description: MongoDB ObjectId of the Order.
+ *         example: '507f1f77bcf86cd799439021'
+ *     responses:
+ *       200:
+ *         description: Order claimed successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [success, data]
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/OrderDetail'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       409:
+ *         description: Conflict if order is not in PROCESSING state or cross-branch allocation is unsupported.
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
+ *   post:
+ *     summary: Claim an order for fulfillment by an assigned branch (POST alias)
+ *     description: POST alias for PATCH /orders/{id}/claim.
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           pattern: '^[a-fA-F0-9]{24}$'
+ *         description: MongoDB ObjectId of the Order.
+ *     responses:
+ *       200:
+ *         description: Order claimed successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [success, data]
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/OrderDetail'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       409:
+ *         description: Conflict if order is not in PROCESSING state or cross-branch allocation is unsupported.
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
+ */
+router.patch(
+  '/orders/:id/claim',
+  authenticate,
+  authorizeRoles(...ORDER_STATUS_UPDATE_ROLES),
+  validate(validateOrderId),
+  claimOrder
+);
+
+router.post(
+  '/orders/:id/claim',
+  authenticate,
+  authorizeRoles(...ORDER_STATUS_UPDATE_ROLES),
+  validate(validateOrderId),
+  claimOrder
 );
 
 module.exports = router;

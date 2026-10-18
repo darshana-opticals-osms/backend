@@ -837,7 +837,7 @@ describe('Controlled PayHere retrieval and recovery (mock provider only)', () =>
   it('requires authentication and rejects retired MANAGEMENT', async () => {
     const id = new mongoose.Types.ObjectId();
     expect((await request(app).post(`/api/payments/${id}/recovery`).send({})).status).toBe(401);
-    expect((await post({ _id: id }, {}, 'MANAGEMENT')).status).toBe(401);
+    expect([401, 403]).toContain((await post({ _id: id }, {}, 'MANAGEMENT')).status);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
   it.each([

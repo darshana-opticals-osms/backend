@@ -59,6 +59,24 @@ const paymentSchema = new mongoose.Schema(
       required: true,
     },
 
+    paidAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+
+    refundedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+
+    refundAmount: {
+      type: Number,
+      default: 0,
+      min: [0, 'Refund amount cannot be negative.'],
+    },
+
     provider: {
       type: String,
       enum: Object.values(PAYMENT_PROVIDER),
