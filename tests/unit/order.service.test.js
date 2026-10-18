@@ -98,6 +98,7 @@ const ORDER_ID = new mongoose.Types.ObjectId();
 const ORDER_ID_STR = ORDER_ID.toString();
 const ITEM_ID_1 = new mongoose.Types.ObjectId();
 const ITEM_ID_2 = new mongoose.Types.ObjectId();
+const DEFAULT_BRANCH_ID = new mongoose.Types.ObjectId();
 
 const now = new Date('2024-05-01T10:00:00.000Z');
 const laterNow = new Date('2024-05-01T11:00:00.000Z');
@@ -442,6 +443,7 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
     const doc = {
       _id: ORDER_ID,
       customerId: CUSTOMER_ID,
+      branchId: DEFAULT_BRANCH_ID,
       orderDate: now,
       orderAmount: 26500.5,
       status,

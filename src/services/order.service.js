@@ -295,26 +295,7 @@ async function getCustomerOrderById(authenticatedCustomerId, orderId) {
 async function resolveClaimingBranchInventory(item, branchObjectId, session) {
   const sourceInventoryId = item.classificationSnapshot?.sourceInventoryId || item.inventoryId;
 
-  if (sourceInventoryId && mongoose.isValidObjectId(sourceInventoryId)) {
-    const sourceRecord = await Inventory.findById(sourceInventoryId)
-      .session(session || null)
-      .lean();
-
-    if (sourceRecord && sourceRecord.branchId.toString() === branchObjectId.toString()) {
-      // Claiming branch IS the original checkout branch — authoritative same-branch match!
-      return sourceRecord;
-    }
-
-    if (sourceRecord) {
-      // Review Finding 5: Cross-branch matching lacks a globally stable product/SKU identity.
-      // Fail closed rather than guessing by mutable attributes (itemName, brand, category).
-      throw new ConflictError(
-        `Cross-branch fulfillment is unsupported: item '${sourceRecord.itemName}' originated from branch '${sourceRecord.branchId}' and cannot be allocated safely to branch '${branchObjectId}' without a shared SKU identity.`,
-        null,
-        'UNSUPPORTED_CROSS_BRANCH_ALLOCATION'
-      );
-    }
-
+  if (!sourceInventoryId || !mongoose.isValidObjectId(sourceInventoryId)) {
     throw new ConflictError(
       `Unresolved inventory reference for '${item.itemName}'. Cannot allocate safely without authoritative product reference.`,
       null,
@@ -322,29 +303,29 @@ async function resolveClaimingBranchInventory(item, branchObjectId, session) {
     );
   }
 
-  // Legacy fallback: if item has no inventoryId, check if claiming branch has an unambiguous match
-  const legacyCandidates = await Inventory.find({
-    branchId: branchObjectId,
-    itemName: item.itemName,
-  })
+  const sourceRecord = await Inventory.findById(sourceInventoryId)
     .session(session || null)
     .lean();
 
-  if (legacyCandidates.length === 0) {
+  if (!sourceRecord) {
     throw new ConflictError(
-      `No inventory record found for '${item.itemName}' at this branch.`,
+      `Unresolved inventory reference for '${item.itemName}'. Cannot allocate safely without authoritative product reference.`,
       null,
-      'INVENTORY_NOT_FOUND_AT_BRANCH'
+      'UNRESOLVED_INVENTORY_REFERENCE'
     );
   }
-  if (legacyCandidates.length > 1) {
-    throw new ConflictError(
-      `Ambiguous inventory match for '${item.itemName}' at this branch. Cannot allocate safely without a product reference.`,
-      null,
-      'AMBIGUOUS_INVENTORY_MATCH'
-    );
+
+  if (sourceRecord.branchId.toString() === branchObjectId.toString()) {
+    // Claiming branch IS the original checkout branch — authoritative same-branch match!
+    return sourceRecord;
   }
-  return legacyCandidates[0];
+
+  // Cross-branch fulfillment without globally stable SKU identity fails closed per ADR-014 / Review Item 4
+  throw new ConflictError(
+    `Cross-branch fulfillment is unsupported: item '${sourceRecord.itemName}' originated from branch '${sourceRecord.branchId}' and cannot be allocated safely to branch '${branchObjectId}' without a shared SKU identity.`,
+    null,
+    'UNSUPPORTED_CROSS_BRANCH_ALLOCATION'
+  );
 }
 
 /**
@@ -462,12 +443,10 @@ async function allocateBranchInventoryForOrder(order, branchId, session, auditUs
  * @param {object|null} [auditUser=null]
  */
 async function restoreBranchInventoryForOrder(order, session, auditUser = null) {
-  if (!order.branchId) return;
-
   const items = await resolveMongooseQuery(OrderItem.find({ orderId: order._id }), session);
   if (!items || items.length === 0) return;
 
-  const orderBranchIdStr = order.branchId.toString();
+  const orderBranchIdStr = order.branchId ? order.branchId.toString() : null;
 
   for (const item of items) {
     const targetInvId = item.fulfilledInventoryId || item.inventoryId;
@@ -488,7 +467,7 @@ async function restoreBranchInventoryForOrder(order, session, auditUser = null) 
       );
     }
 
-    if (targetInventory.branchId.toString() !== orderBranchIdStr) {
+    if (orderBranchIdStr && targetInventory.branchId.toString() !== orderBranchIdStr) {
       throw new ConflictError(
         `Fulfillment inventory belongs to branch '${targetInventory.branchId}' but order was fulfilled by branch '${orderBranchIdStr}'. Cannot restore safely.`,
         null,
@@ -758,6 +737,19 @@ async function updateOrderStatus(orderId, requestedStatus, staffUserId, options 
       'You are not authorized to update orders assigned to another branch.',
       null,
       'BRANCH_ACCESS_DENIED'
+    );
+  }
+
+  // Prevent an unclaimed PROCESSING order from advancing to downstream fulfillment without branch claiming
+  if (
+    order.status === ORDER_STATUS_VALUES.PROCESSING &&
+    !order.branchId &&
+    trimmedStatus !== ORDER_STATUS_VALUES.CANCELLED
+  ) {
+    throw new ValidationError(
+      'Order must be claimed by a branch before advancing to fulfillment.',
+      [{ field: 'branchId', message: 'A branch claim is required before advancing order status.' }],
+      'UNCLAIMED_ORDER_FULFILLMENT_BLOCKED'
     );
   }
 

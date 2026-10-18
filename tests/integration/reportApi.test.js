@@ -862,5 +862,61 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
         res.body.error?.message;
       expect(errorField).toMatch(/orderStatus/i);
     });
+
+    it('Second Re-Review Finding 6: SM-04 attributes operational volume to Order.createdAt while revenue follows Payment.paidAt', async () => {
+      const orderDate = new Date('2024-05-01T10:00:00.000Z');
+      const paymentDate = new Date('2024-05-15T10:00:00.000Z');
+
+      const order = await Order.create({
+        customerId: customerA._id,
+        branchId: branchA._id,
+        orderDate,
+        createdAt: orderDate,
+        orderAmount: 25000,
+        status: 'PROCESSING',
+      });
+
+      await Payment.create({
+        orderId: order._id,
+        amount: 25000,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+        paidAt: paymentDate,
+        createdAt: paymentDate,
+      });
+
+      // Window 1: Covers order creation date (May 01 - May 05)
+      const resPeriod1 = await request(app)
+        .get('/api/reports/sales')
+        .query({ preset: 'custom', startDate: '2024-05-01', endDate: '2024-05-05' })
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(resPeriod1.status).toBe(200);
+      expect(resPeriod1.body.data.summary.totalOrders).toBe(1); // SM-04 operational order created
+      expect(resPeriod1.body.data.summary.grossRevenue).toBe(0); // Paid in later period
+      expect(resPeriod1.body.data.summary.averageOrderValue).toBe(0);
+
+      // Window 2: Covers payment date (May 14 - May 16)
+      const resPeriod2 = await request(app)
+        .get('/api/reports/sales')
+        .query({ preset: 'custom', startDate: '2024-05-14', endDate: '2024-05-16' })
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(resPeriod2.status).toBe(200);
+      expect(resPeriod2.body.data.summary.totalOrders).toBe(0); // Created in earlier period
+      expect(resPeriod2.body.data.summary.grossRevenue).toBe(25000); // Financial revenue realized
+      expect(resPeriod2.body.data.summary.averageOrderValue).toBe(0);
+
+      // Window 3: Covers both dates (May 01 - May 20)
+      const resFullPeriod = await request(app)
+        .get('/api/reports/sales')
+        .query({ preset: 'custom', startDate: '2024-05-01', endDate: '2024-05-20' })
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(resFullPeriod.status).toBe(200);
+      expect(resFullPeriod.body.data.summary.totalOrders).toBe(1);
+      expect(resFullPeriod.body.data.summary.grossRevenue).toBe(25000);
+      expect(resFullPeriod.body.data.summary.averageOrderValue).toBe(25000);
+    });
   });
 });

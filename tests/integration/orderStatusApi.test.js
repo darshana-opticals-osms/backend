@@ -9,6 +9,7 @@ const Inventory = require('../../src/models/inventory.model');
 const Customer = require('../../src/models/customer.model');
 const Payment = require('../../src/models/payment.model');
 const Cart = require('../../src/models/cart.model');
+const Branch = require('../../src/models/branch.model');
 const { PAYMENT_STATUS, PAYMENT_METHOD } = require('../../src/constants/payment');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 const { ORDER_STATUS_VALUES } = require('../../src/constants/orderStatuses');
@@ -73,6 +74,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       Inventory.deleteMany({}),
       Customer.deleteMany({}),
       Cart.deleteMany({}),
+      Branch.deleteMany({}),
     ]);
   });
 
@@ -322,7 +324,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
         ],
       });
 
-      await Inventory.create({
+      const inv = await Inventory.create({
         branchId: DEFAULT_STAFF_BRANCH_ID,
         itemName: 'Prescription Glasses',
         category: 'FRAMES',
@@ -333,6 +335,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
 
       await OrderItem.create({
         orderId: order._id,
+        inventoryId: inv._id,
         itemName: 'Prescription Glasses',
         price: 15000,
         quantity: 1,
@@ -1215,6 +1218,163 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
 
       expect(claimRes.status).toBe(409);
       expect(claimRes.body.success).toBe(false);
+    });
+
+    // ─── Second Re-Review Finding 2: Unclaimed PROCESSING Order Cancellation ────
+    it('restores checkout inventory when an unclaimed PROCESSING order is cancelled and blocks invalid advancement', async () => {
+      const branch = await Branch.create({
+        codeName: 'UNCLAIMED_RESTORE_BRANCH',
+        address: '10 Main St',
+        contactNumber: '+94112345678',
+      });
+      const inv = await Inventory.create({
+        branchId: branch._id,
+        itemName: 'Prescription Glasses',
+        category: 'FRAMES',
+        brand: 'Darshana',
+        price: 15000,
+        quantity: 10,
+      });
+      const customer = await createCustomer('unclaimed-cancel@example.com');
+      const customerToken = createToken({
+        userId: customer._id.toString(),
+        role: ROLE_VALUES.CUSTOMER,
+      });
+
+      // 1. Add item to cart and checkout
+      await Cart.create({
+        customerId: customer._id,
+        items: [{ inventoryId: inv._id, quantity: 2 }],
+      });
+
+      const checkoutRes = await request(app)
+        .post('/api/checkout')
+        .set('Authorization', `Bearer ${customerToken}`)
+        .send();
+
+      expect(checkoutRes.status).toBe(201);
+      const orderId = checkoutRes.body.data.order.id;
+
+      // Verify physical checkout deduction (10 -> 8)
+      const invAfterCheckout = await Inventory.findById(inv._id);
+      expect(invAfterCheckout.quantity).toBe(8);
+
+      // 2. Verified PayHere payment transitions order to PROCESSING (unclaimed, branchId: null)
+      await Payment.create({
+        orderId,
+        amount: 30000,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+        providerTransactionId: 'PAYHERE_UNCLAIMED_TXN_1',
+        paidAt: new Date(),
+      });
+      await Order.findByIdAndUpdate(orderId, {
+        $set: { status: ORDER_STATUS_VALUES.PROCESSING, branchId: null },
+      });
+
+      const staffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
+        branchId: branch._id.toString(),
+      });
+
+      // 3. Unauthorized advancement without branch claim is blocked
+      const advanceRes = await request(app)
+        .patch(`/api/orders/${orderId}/status`)
+        .set('Authorization', `Bearer ${staffToken}`)
+        .send({ status: ORDER_STATUS_VALUES.READY_FOR_PICKUP });
+
+      expect(advanceRes.status).toBe(422);
+      expect(advanceRes.body.error.code).toBe('UNCLAIMED_ORDER_FULFILLMENT_BLOCKED');
+
+      // Stock must still be 8
+      const invAfterBlockedAdvance = await Inventory.findById(inv._id);
+      expect(invAfterBlockedAdvance.quantity).toBe(8);
+
+      // 4. Cancel the unclaimed PROCESSING order
+      const cancelRes = await request(app)
+        .patch(`/api/orders/${orderId}/status`)
+        .set('Authorization', `Bearer ${staffToken}`)
+        .send({ status: ORDER_STATUS_VALUES.CANCELLED });
+
+      expect(cancelRes.status).toBe(200);
+      expect(cancelRes.body.data.status).toBe(ORDER_STATUS_VALUES.CANCELLED);
+
+      // Verify stock is restored to original quantity (8 -> 10)
+      const invAfterCancel = await Inventory.findById(inv._id);
+      expect(invAfterCancel.quantity).toBe(10);
+
+      // 5. Repeated cancellation attempt returns 422 TERMINAL_STATUS and does not double-restore
+      const repeatCancelRes = await request(app)
+        .patch(`/api/orders/${orderId}/status`)
+        .set('Authorization', `Bearer ${staffToken}`)
+        .send({ status: ORDER_STATUS_VALUES.CANCELLED });
+
+      expect(repeatCancelRes.status).toBe(422);
+      expect(repeatCancelRes.body.error.code).toBe('TERMINAL_STATUS');
+
+      const invAfterRepeatCancel = await Inventory.findById(inv._id);
+      expect(invAfterRepeatCancel.quantity).toBe(10);
+    });
+
+    // ─── Second Re-Review Finding 5: Rejection of Name-Based Matching Fallback ──
+    it('rejects legacy OrderItem with unresolved inventory reference even if matching name exists at branch', async () => {
+      const branch = await Branch.create({
+        codeName: 'NAME_MATCH_BRANCH',
+        address: '20 Second St',
+        contactNumber: '+94112345679',
+      });
+      const inv = await Inventory.create({
+        branchId: branch._id,
+        itemName: 'Coincidental Name Match',
+        category: 'FRAMES',
+        brand: 'Darshana',
+        price: 8000,
+        quantity: 10,
+      });
+
+      const customer = await createCustomer('legacy-name-reject@example.com');
+      const order = await Order.create({
+        customerId: customer._id,
+        branchId: null,
+        orderDate: new Date(),
+        orderAmount: 8000,
+        status: ORDER_STATUS_VALUES.PROCESSING,
+        statusUpdatedAt: new Date(),
+      });
+
+      // OrderItem without inventory reference
+      await OrderItem.create({
+        orderId: order._id,
+        inventoryId: null,
+        itemName: 'Coincidental Name Match',
+        price: 8000,
+        quantity: 1,
+      });
+
+      await Payment.create({
+        orderId: order._id,
+        amount: order.orderAmount,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+      });
+
+      const staffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branch._id.toString(),
+      });
+
+      const claimRes = await request(app)
+        .patch(`/api/orders/${order._id}/claim`)
+        .set('Authorization', `Bearer ${staffToken}`);
+
+      expect(claimRes.status).toBe(409);
+      expect(claimRes.body.error.code).toBe('UNRESOLVED_INVENTORY_REFERENCE');
+
+      // Branch inventory must remain untouched
+      const invAfterAttempt = await Inventory.findById(inv._id);
+      expect(invAfterAttempt.quantity).toBe(10);
     });
   });
 });

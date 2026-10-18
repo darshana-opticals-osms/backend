@@ -117,57 +117,93 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
     },
   ];
 
-  // 2. Fetch sales payments, refunds, and cancellations in parallel
-  const [salesRecords, refundsAggregation, cancellationsAggregation] = await Promise.all([
-    Payment.aggregate(salesPipeline),
+  // 2. Fetch sales payments, refunds, cancellations, and qualifying orders in parallel
+  const [salesRecords, refundsAggregation, cancellationsAggregation, qualifyingOrdersAggregation] =
+    await Promise.all([
+      Payment.aggregate(salesPipeline),
 
-    // Refund deductions query
-    Payment.aggregate([
-      { $match: buildRefundMatch({ startUtc, endUtc }) },
-      {
-        $lookup: {
-          from: 'orders',
-          localField: 'orderId',
-          foreignField: '_id',
-          as: 'order',
+      // Refund deductions query
+      Payment.aggregate([
+        { $match: buildRefundMatch({ startUtc, endUtc }) },
+        {
+          $lookup: {
+            from: 'orders',
+            localField: 'orderId',
+            foreignField: '_id',
+            as: 'order',
+          },
         },
-      },
-      { $unwind: { path: '$order', preserveNullAndEmptyArrays: true } },
-      ...(targetBranchObjectId ? [{ $match: { 'order.branchId': targetBranchObjectId } }] : []),
-      {
-        $group: {
-          _id: null,
-          totalRefundDeductions: {
-            $sum: {
-              $cond: [
-                { $gt: ['$refundAmount', 0] },
-                '$refundAmount',
-                { $cond: [{ $eq: ['$status', REFUNDED_PAYMENT_STATUS] }, '$amount', 0] },
-              ],
+        { $unwind: { path: '$order', preserveNullAndEmptyArrays: true } },
+        ...(targetBranchObjectId ? [{ $match: { 'order.branchId': targetBranchObjectId } }] : []),
+        {
+          $group: {
+            _id: null,
+            totalRefundDeductions: {
+              $sum: {
+                $cond: [
+                  { $gt: ['$refundAmount', 0] },
+                  '$refundAmount',
+                  { $cond: [{ $eq: ['$status', REFUNDED_PAYMENT_STATUS] }, '$amount', 0] },
+                ],
+              },
             },
           },
         },
-      },
-    ]),
+      ]),
 
-    // Cancelled orders query (SM-10)
-    Order.aggregate([
-      {
-        $match: {
-          status: CANCELLED_ORDER_STATUS,
-          updatedAt: { $gte: startUtc, $lte: endUtc },
-          ...(targetBranchObjectId ? { branchId: targetBranchObjectId } : {}),
+      // Cancelled orders query (SM-10)
+      Order.aggregate([
+        {
+          $match: {
+            status: CANCELLED_ORDER_STATUS,
+            updatedAt: { $gte: startUtc, $lte: endUtc },
+            ...(targetBranchObjectId ? { branchId: targetBranchObjectId } : {}),
+          },
         },
-      },
-      {
-        $group: {
-          _id: null,
-          cancelledCount: { $sum: 1 },
-          cancelledValue: { $sum: '$orderAmount' },
+        {
+          $group: {
+            _id: null,
+            cancelledCount: { $sum: 1 },
+            cancelledValue: { $sum: '$orderAmount' },
+          },
         },
-      },
-    ]),
-  ]);
+      ]),
+
+      // Operational qualifying orders query (SM-04 per ADR-014: Order.createdAt within [startUtc, endUtc])
+      Order.aggregate([
+        {
+          $match: {
+            status: { $in: QUALIFYING_ORDER_STATUSES },
+            $expr: {
+              $and: [
+                { $gte: [{ $ifNull: ['$createdAt', '$orderDate'] }, startUtc] },
+                { $lte: [{ $ifNull: ['$createdAt', '$orderDate'] }, endUtc] },
+              ],
+            },
+            ...(targetBranchObjectId ? { branchId: targetBranchObjectId } : {}),
+          },
+        },
+        {
+          $lookup: {
+            from: 'payments',
+            localField: '_id',
+            foreignField: 'orderId',
+            as: 'payments',
+          },
+        },
+        {
+          $match: {
+            'payments.status': { $in: QUALIFYING_PAYMENT_STATUSES },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalQualifyingOrders: { $sum: 1 },
+          },
+        },
+      ]),
+    ]);
 
   // Compute SM-01, SM-04, distinct qualifying order IDs
   let grossRevenue = 0;
@@ -306,8 +342,8 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
     .sort((a, b) => a.period.localeCompare(b.period));
 
   const totalRefundDeductions = roundToTwo(refundsAggregation[0]?.totalRefundDeductions || 0);
-  // Reconciled qualifying order count: identical recognized population as Gross Revenue
-  const totalQualifyingOrders = distinctOrderIds.size;
+  // SM-04 per ADR-014: Operational qualifying orders attributed to Order.createdAt within the window
+  const totalQualifyingOrders = qualifyingOrdersAggregation[0]?.totalQualifyingOrders || 0;
   const netRevenue = roundToTwo(grossRevenue - totalRefundDeductions);
   const averageOrderValue =
     totalQualifyingOrders > 0 ? roundToTwo(grossRevenue / totalQualifyingOrders) : 0;

@@ -261,6 +261,7 @@ describe('Order Status Notification Integration Tests (ADR-013, Issue #60 AC1-AC
         orderDate: new Date(),
         orderAmount: 9000,
         status: ORDER_STATUS_VALUES.PROCESSING,
+        branchId: DEFAULT_BRANCH_ID,
       });
 
       const res = await request(app)
