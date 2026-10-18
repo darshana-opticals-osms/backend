@@ -219,6 +219,7 @@ async function getInventoryReport({ branchId = null, category = null, reorderSta
  * @param {number} [options.limit=20]
  * @param {string} [options.sortBy='quantity']
  * @param {string} [options.sortOrder='desc']
+ * @param {boolean} [options.isExport=false]
  * @returns {Promise<Object>}
  */
 async function getInventoryItemsList({
@@ -229,6 +230,7 @@ async function getInventoryItemsList({
   limit = PAGINATION_LIMITS.DEFAULT_LIMIT,
   sortBy = 'quantity',
   sortOrder = 'desc',
+  isExport = false,
 } = {}) {
   const threshold = await getGlobalReorderThreshold();
 
@@ -259,10 +261,12 @@ async function getInventoryItemsList({
   };
 
   const numericPage = Math.max(1, parseInt(page, 10) || 1);
-  const numericLimit = Math.min(
-    PAGINATION_LIMITS.MAX_LIMIT,
-    Math.max(1, parseInt(limit, 10) || PAGINATION_LIMITS.DEFAULT_LIMIT)
-  );
+  const numericLimit = isExport
+    ? Math.min(10000, Math.max(1, parseInt(limit, 10) || 10000))
+    : Math.min(
+        PAGINATION_LIMITS.MAX_LIMIT,
+        Math.max(1, parseInt(limit, 10) || PAGINATION_LIMITS.DEFAULT_LIMIT)
+      );
   const skip = (numericPage - 1) * numericLimit;
 
   const sortDirection = sortOrder === 'asc' ? 1 : -1;

@@ -82,6 +82,9 @@ const AUDIT_ACTION = Object.freeze({
 
   // ── Audit Access (Meta-Auditing per ADR-012 §14.2) ─────────────────────────
   AUDIT_TRAIL_ACCESSED: 'AUDIT_TRAIL_ACCESSED',
+
+  // ── Reporting Exports (ADR-014 §14.2) ──────────────────────────────────────
+  REPORT_EXPORT_GENERATED: 'REPORT_EXPORT_GENERATED',
 });
 
 /** Flat array of all permitted action type strings — used for Mongoose enum validation. */
@@ -118,6 +121,7 @@ const AUDIT_TARGET_TYPE = Object.freeze({
   USER: 'USER',
   LOYALTY: 'LOYALTY',
   AUDIT_LOG: 'AUDIT_LOG',
+  REPORT: 'REPORT',
 });
 
 const AUDIT_TARGET_TYPE_VALUES = Object.freeze(Object.values(AUDIT_TARGET_TYPE));

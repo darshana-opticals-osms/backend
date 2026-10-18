@@ -352,6 +352,7 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
  * @param {string} [options.sortBy='paidAt']
  * @param {string} [options.sortOrder='desc']
  * @param {string} [options.orderStatus]
+ * @param {boolean} [options.isExport=false]
  * @returns {Promise<Object>}
  */
 async function getSalesOrdersList({
@@ -364,6 +365,7 @@ async function getSalesOrdersList({
   sortBy = 'paidAt',
   sortOrder = 'desc',
   orderStatus,
+  isExport = false,
 }) {
   const dateRange = resolveReportDateRange({ preset, startDate, endDate });
   const { startUtc, endUtc } = dateRange;
@@ -376,10 +378,12 @@ async function getSalesOrdersList({
   const matchPayment = buildQualifyingPaymentMatch({ startUtc, endUtc });
 
   const numericPage = Math.max(1, parseInt(page, 10) || 1);
-  const numericLimit = Math.min(
-    PAGINATION_LIMITS.MAX_LIMIT,
-    Math.max(1, parseInt(limit, 10) || PAGINATION_LIMITS.DEFAULT_LIMIT)
-  );
+  const numericLimit = isExport
+    ? Math.min(10000, Math.max(1, parseInt(limit, 10) || 10000))
+    : Math.min(
+        PAGINATION_LIMITS.MAX_LIMIT,
+        Math.max(1, parseInt(limit, 10) || PAGINATION_LIMITS.DEFAULT_LIMIT)
+      );
   const skip = (numericPage - 1) * numericLimit;
 
   // Pipeline to count and fetch qualifying orders with payments
