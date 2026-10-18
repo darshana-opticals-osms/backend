@@ -27,7 +27,12 @@ const {
   shapeOrderSummary,
   shapeHistoryEntry,
 } = require('../../src/services/order.service');
-const { NotFoundError, ValidationError, ForbiddenError, ConflictError } = require('../../src/errors/AppError');
+const {
+  NotFoundError,
+  ValidationError,
+  ForbiddenError,
+  ConflictError,
+} = require('../../src/errors/AppError');
 const { ORDER_STATUS_VALUES } = require('../../src/constants/orderStatuses');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 const { domainEvents, ORDER_EVENTS } = require('../../src/utils/domainEvents');
@@ -804,7 +809,10 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
     });
 
     it('allows staff of assigned branch to view single order', async () => {
-      const assignedOrder = makeOrder({ branchId: BRANCH_A_ID, status: ORDER_STATUS_VALUES.PROCESSING });
+      const assignedOrder = makeOrder({
+        branchId: BRANCH_A_ID,
+        status: ORDER_STATUS_VALUES.PROCESSING,
+      });
       Order.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(assignedOrder) });
       OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([makeItem()]) });
 
@@ -820,7 +828,10 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
     });
 
     it('allows any branch staff to view unassigned ORDER_CREATED order', async () => {
-      const unassignedOrder = makeOrder({ branchId: null, status: ORDER_STATUS_VALUES.ORDER_CREATED });
+      const unassignedOrder = makeOrder({
+        branchId: null,
+        status: ORDER_STATUS_VALUES.ORDER_CREATED,
+      });
       Order.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(unassignedOrder) });
       OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([makeItem()]) });
 
@@ -836,7 +847,10 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
     });
 
     it('denies staff from Branch B from viewing an order assigned to Branch A with ForbiddenError', async () => {
-      const assignedOrder = makeOrder({ branchId: BRANCH_A_ID, status: ORDER_STATUS_VALUES.PROCESSING });
+      const assignedOrder = makeOrder({
+        branchId: BRANCH_A_ID,
+        status: ORDER_STATUS_VALUES.PROCESSING,
+      });
       Order.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(assignedOrder) });
 
       await expect(
@@ -869,15 +883,15 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
         quantity: 10,
       });
 
-      await updateOrderStatus(
-        ORDER_ID_STR,
-        ORDER_STATUS_VALUES.PROCESSING,
-        STAFF_ID_STR,
-        { branchId: BRANCH_A_STR }
-      );
+      await updateOrderStatus(ORDER_ID_STR, ORDER_STATUS_VALUES.PROCESSING, STAFF_ID_STR, {
+        branchId: BRANCH_A_STR,
+      });
 
       const updateCall = Order.findOneAndUpdate.mock.calls[0];
-      expect(updateCall[1].$set).toHaveProperty('branchId', new mongoose.Types.ObjectId(BRANCH_A_STR));
+      expect(updateCall[1].$set).toHaveProperty(
+        'branchId',
+        new mongoose.Types.ObjectId(BRANCH_A_STR)
+      );
       expect(updateCall[1].$set).toHaveProperty('status', ORDER_STATUS_VALUES.PROCESSING);
 
       // Verify branch stock was decremented
@@ -910,12 +924,9 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
       });
 
       await expect(
-        updateOrderStatus(
-          ORDER_ID_STR,
-          ORDER_STATUS_VALUES.PROCESSING,
-          STAFF_ID_STR,
-          { branchId: BRANCH_A_STR }
-        )
+        updateOrderStatus(ORDER_ID_STR, ORDER_STATUS_VALUES.PROCESSING, STAFF_ID_STR, {
+          branchId: BRANCH_A_STR,
+        })
       ).rejects.toThrow(ConflictError);
     });
 
@@ -930,7 +941,9 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
         makeOrder({ status: ORDER_STATUS_VALUES.CANCELLED, branchId: BRANCH_A_ID })
       );
       OrderItem.find.mockReturnValue({
-        lean: jest.fn().mockResolvedValue([makeItem(ITEM_ID_1, { inventoryId: branchInvId, quantity: 2 })]),
+        lean: jest
+          .fn()
+          .mockResolvedValue([makeItem(ITEM_ID_1, { inventoryId: branchInvId, quantity: 2 })]),
       });
       Inventory.findOne.mockResolvedValue({
         _id: branchInvId,
@@ -939,12 +952,9 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
         quantity: 8,
       });
 
-      await updateOrderStatus(
-        ORDER_ID_STR,
-        ORDER_STATUS_VALUES.CANCELLED,
-        STAFF_ID_STR,
-        { branchId: BRANCH_A_STR }
-      );
+      await updateOrderStatus(ORDER_ID_STR, ORDER_STATUS_VALUES.CANCELLED, STAFF_ID_STR, {
+        branchId: BRANCH_A_STR,
+      });
 
       // Verify branch inventory was restored
       expect(Inventory.findByIdAndUpdate).toHaveBeenCalledWith(
@@ -962,12 +972,9 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
       Order.findById.mockResolvedValue(assignedOrder);
 
       await expect(
-        updateOrderStatus(
-          ORDER_ID_STR,
-          ORDER_STATUS_VALUES.READY_FOR_PICKUP,
-          STAFF_ID_STR,
-          { branchId: BRANCH_B_STR }
-        )
+        updateOrderStatus(ORDER_ID_STR, ORDER_STATUS_VALUES.READY_FOR_PICKUP, STAFF_ID_STR, {
+          branchId: BRANCH_B_STR,
+        })
       ).rejects.toThrow(ForbiddenError);
     });
   });

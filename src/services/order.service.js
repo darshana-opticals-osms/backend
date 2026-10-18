@@ -18,7 +18,12 @@ const {
 } = require('../constants/orderStatuses');
 const { domainEvents, ORDER_EVENTS } = require('../utils/domainEvents');
 const { cancelUnpaidReservation } = require('./orderReservation.service');
-const { NotFoundError, ValidationError, ConflictError, ForbiddenError } = require('../errors/AppError');
+const {
+  NotFoundError,
+  ValidationError,
+  ConflictError,
+  ForbiddenError,
+} = require('../errors/AppError');
 
 const ORDER_NOT_FOUND = 'ORDER_NOT_FOUND';
 
@@ -268,9 +273,10 @@ async function allocateBranchInventoryForOrder(order, branchId, session = null) 
   const branchObjectId = new mongoose.Types.ObjectId(branchId);
   const itemsQuery = OrderItem.find({ orderId: order._id });
   if (session && typeof itemsQuery.session === 'function') itemsQuery.session(session);
-  const items = itemsQuery && typeof itemsQuery.lean === 'function'
-    ? await itemsQuery.lean()
-    : await itemsQuery;
+  const items =
+    itemsQuery && typeof itemsQuery.lean === 'function'
+      ? await itemsQuery.lean()
+      : await itemsQuery;
 
   if (!items || items.length === 0) return;
 
@@ -331,9 +337,10 @@ async function restoreBranchInventoryForOrder(order, session = null) {
 
   const itemsQuery = OrderItem.find({ orderId: order._id });
   if (session && typeof itemsQuery.session === 'function') itemsQuery.session(session);
-  const items = itemsQuery && typeof itemsQuery.lean === 'function'
-    ? await itemsQuery.lean()
-    : await itemsQuery;
+  const items =
+    itemsQuery && typeof itemsQuery.lean === 'function'
+      ? await itemsQuery.lean()
+      : await itemsQuery;
 
   if (!items || items.length === 0) return;
 

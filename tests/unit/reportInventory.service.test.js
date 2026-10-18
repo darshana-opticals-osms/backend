@@ -127,18 +127,14 @@ describe('reportInventory.service (ADR-014 §9 - IM-01 to IM-06)', () => {
 
       // IM-02: Branch breakdown
       expect(report.data.breakdowns.byBranch.length).toBe(2);
-      const bA = report.data.breakdowns.byBranch.find(
-        (b) => b.branchId === branchA._id.toString()
-      );
+      const bA = report.data.breakdowns.byBranch.find((b) => b.branchId === branchA._id.toString());
       expect(bA.branchName).toBe('COLOMBO_CENTRAL');
       expect(bA.totalStock).toBe(10);
       expect(bA.totalRetailValuation).toBe(40000);
 
       // IM-03: Category breakdown
       expect(report.data.breakdowns.byCategory.length).toBe(2);
-      const catFrames = report.data.breakdowns.byCategory.find(
-        (c) => c.category === 'Frames'
-      );
+      const catFrames = report.data.breakdowns.byCategory.find((c) => c.category === 'Frames');
       expect(catFrames.totalStock).toBe(10);
       expect(catFrames.totalRetailValuation).toBe(40000);
     });

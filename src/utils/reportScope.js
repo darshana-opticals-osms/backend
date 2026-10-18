@@ -1,8 +1,5 @@
 const { ROLE_VALUES } = require('../constants/roles');
-const {
-  SALES_VIEW_ROLES,
-  INVENTORY_VIEW_ROLES,
-} = require('../constants/report.constants');
+const { SALES_VIEW_ROLES, INVENTORY_VIEW_ROLES } = require('../constants/report.constants');
 const { ForbiddenError, UnauthorizedError } = require('../errors/AppError');
 
 /**
@@ -47,7 +44,9 @@ function resolveReportScope(req, reportCategory) {
     // If a branchId was explicitly provided, it MUST match the assigned branch
     if (requestedBranchId && requestedBranchId !== 'ALL') {
       if (requestedBranchId.toString() !== assignedBranchStr) {
-        throw new ForbiddenError('Access forbidden: cannot query branch data outside assigned scope.');
+        throw new ForbiddenError(
+          'Access forbidden: cannot query branch data outside assigned scope.'
+        );
       }
     }
 

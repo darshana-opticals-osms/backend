@@ -14,9 +14,7 @@ function isValidIsoDateString(str) {
   const [year, month, day] = str.split('-').map(Number);
   const date = new Date(Date.UTC(year, month - 1, day));
   return (
-    date.getUTCFullYear() === year &&
-    date.getUTCMonth() === month - 1 &&
-    date.getUTCDate() === day
+    date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
   );
 }
 
@@ -53,10 +51,7 @@ function shiftCalendarDays(dateStr, dayDelta) {
  * @param {Date} [referenceDate] - Current reference date (defaults to new Date())
  * @returns {{ startUtc: Date, endUtc: Date, startDateStr: string, endDateStr: string, preset: string }}
  */
-function resolveReportDateRange(
-  { preset, startDate, endDate } = {},
-  referenceDate = new Date()
-) {
+function resolveReportDateRange({ preset, startDate, endDate } = {}, referenceDate = new Date()) {
   const todayColombo = getColomboCalendarDate(referenceDate);
 
   let activePreset = preset;

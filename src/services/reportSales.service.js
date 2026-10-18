@@ -28,16 +28,10 @@ function buildQualifyingPaymentMatch({ startUtc, endUtc }) {
     $expr: {
       $and: [
         {
-          $gte: [
-            { $ifNull: ['$paidAt', '$createdAt'] },
-            startUtc,
-          ],
+          $gte: [{ $ifNull: ['$paidAt', '$createdAt'] }, startUtc],
         },
         {
-          $lte: [
-            { $ifNull: ['$paidAt', '$createdAt'] },
-            endUtc,
-          ],
+          $lte: [{ $ifNull: ['$paidAt', '$createdAt'] }, endUtc],
         },
       ],
     },
@@ -52,23 +46,14 @@ function buildQualifyingPaymentMatch({ startUtc, endUtc }) {
  */
 function buildRefundMatch({ startUtc, endUtc }) {
   return {
-    $or: [
-      { status: { $in: REFUNDED_PAYMENT_STATUSES } },
-      { refundAmount: { $gt: 0 } },
-    ],
+    $or: [{ status: { $in: REFUNDED_PAYMENT_STATUSES } }, { refundAmount: { $gt: 0 } }],
     $expr: {
       $and: [
         {
-          $gte: [
-            { $ifNull: ['$refundedAt', '$updatedAt'] },
-            startUtc,
-          ],
+          $gte: [{ $ifNull: ['$refundedAt', '$updatedAt'] }, startUtc],
         },
         {
-          $lte: [
-            { $ifNull: ['$refundedAt', '$updatedAt'] },
-            endUtc,
-          ],
+          $lte: [{ $ifNull: ['$refundedAt', '$updatedAt'] }, endUtc],
         },
       ],
     },
@@ -193,7 +178,7 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
   // Helper for time grouping format
   const getTimeKey = (date) => {
     // Format date in Asia/Colombo
-    const colomboDate = new Date(date.getTime() + (5.5 * 60 * 60 * 1000));
+    const colomboDate = new Date(date.getTime() + 5.5 * 60 * 60 * 1000);
     const y = colomboDate.getUTCFullYear();
     const m = String(colomboDate.getUTCMonth() + 1).padStart(2, '0');
     const d = String(colomboDate.getUTCDate()).padStart(2, '0');
@@ -220,7 +205,11 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
 
     // Branch breakdown
     const branchKey = record.branchId ? record.branchId.toString() : 'UNASSIGNED';
-    const branchEntry = branchSalesMap.get(branchKey) || { branchId: branchKey, grossRevenue: 0, orderCount: 0 };
+    const branchEntry = branchSalesMap.get(branchKey) || {
+      branchId: branchKey,
+      grossRevenue: 0,
+      orderCount: 0,
+    };
     branchEntry.grossRevenue += amt;
     branchEntry.orderCount += 1;
     branchSalesMap.set(branchKey, branchEntry);
@@ -243,7 +232,9 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
   }
 
   // Calculate items sold quantity (SM-06) and category breakdown (SM-08)
-  const qualifyingOrderObjectIds = Array.from(distinctOrderIds).map((id) => new mongoose.Types.ObjectId(id));
+  const qualifyingOrderObjectIds = Array.from(distinctOrderIds).map(
+    (id) => new mongoose.Types.ObjectId(id)
+  );
 
   let itemsSoldQuantity = 0;
   const categoryBreakdown = [];
@@ -273,13 +264,19 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
   // Enrich branch names
   const branchBreakdown = [];
   const branchIdsToLookup = Array.from(branchSalesMap.keys()).filter((id) => id !== 'UNASSIGNED');
-  const branches = branchIdsToLookup.length > 0 ? await Branch.find({ _id: { $in: branchIdsToLookup } }).lean() : [];
-  const branchNameById = new Map(branches.map((b) => [b._id.toString(), b.codeName || b.name || b.address || 'Unknown Branch']));
+  const branches =
+    branchIdsToLookup.length > 0
+      ? await Branch.find({ _id: { $in: branchIdsToLookup } }).lean()
+      : [];
+  const branchNameById = new Map(
+    branches.map((b) => [b._id.toString(), b.codeName || b.name || b.address || 'Unknown Branch'])
+  );
 
   for (const [bId, entry] of branchSalesMap.entries()) {
     branchBreakdown.push({
       branchId: bId === 'UNASSIGNED' ? null : bId,
-      branchName: bId === 'UNASSIGNED' ? 'Unassigned / Online' : branchNameById.get(bId) || 'Unknown Branch',
+      branchName:
+        bId === 'UNASSIGNED' ? 'Unassigned / Online' : branchNameById.get(bId) || 'Unknown Branch',
       grossRevenue: roundToTwo(entry.grossRevenue),
       orderCount: entry.orderCount,
     });
@@ -304,7 +301,8 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
   const totalRefundDeductions = roundToTwo(refundsAggregation[0]?.totalRefundDeductions || 0);
   const totalQualifyingOrders = distinctOrderIds.size;
   const netRevenue = roundToTwo(grossRevenue - totalRefundDeductions);
-  const averageOrderValue = totalQualifyingOrders > 0 ? roundToTwo(grossRevenue / totalQualifyingOrders) : 0;
+  const averageOrderValue =
+    totalQualifyingOrders > 0 ? roundToTwo(grossRevenue / totalQualifyingOrders) : 0;
 
   const cancelledOrdersCount = cancellationsAggregation[0]?.cancelledCount || 0;
   const cancelledOrdersValue = roundToTwo(cancellationsAggregation[0]?.cancelledValue || 0);
@@ -445,7 +443,10 @@ async function getSalesOrdersList({
         createdAt: '$order.createdAt',
         branchId: '$order.branchId',
         branchName: {
-          $ifNull: ['$branch.codeName', { $ifNull: ['$branch.name', { $ifNull: ['$branch.address', 'Unassigned / Online'] }] }],
+          $ifNull: [
+            '$branch.codeName',
+            { $ifNull: ['$branch.name', { $ifNull: ['$branch.address', 'Unassigned / Online'] }] },
+          ],
         },
         totalItemsCount: { $sum: '$items.quantity' },
         customer: {

@@ -87,7 +87,10 @@ function maskAddress(address) {
     return 'N/A';
   }
 
-  const parts = address.split(',').map((p) => p.trim()).filter(Boolean);
+  const parts = address
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
   if (parts.length === 0) {
     return 'N/A';
   }
@@ -110,7 +113,8 @@ function shapeReportCustomer(customer = {}) {
     };
   }
 
-  const fullName = [customer.firstName, customer.lastName].filter(Boolean).join(' ') || customer.name || '';
+  const fullName =
+    [customer.firstName, customer.lastName].filter(Boolean).join(' ') || customer.name || '';
 
   return {
     name: maskCustomerName(fullName),

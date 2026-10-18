@@ -139,7 +139,10 @@ function validateDateFilters(query) {
 function validateBranchId(branchId) {
   if (branchId === undefined || branchId === 'ALL') return null;
   if (!isObjectId(branchId)) {
-    return { field: 'branchId', message: 'branchId must be a valid 24-character hexadecimal ObjectId or "ALL".' };
+    return {
+      field: 'branchId',
+      message: 'branchId must be a valid 24-character hexadecimal ObjectId or "ALL".',
+    };
   }
   return null;
 }
@@ -147,7 +150,10 @@ function validateBranchId(branchId) {
 function validateNoRequestBody(body) {
   const errors = [];
   if (body && typeof body === 'object' && Object.keys(body).length > 0) {
-    errors.push({ field: 'body', message: 'This read-only endpoint does not accept request body fields.' });
+    errors.push({
+      field: 'body',
+      message: 'This read-only endpoint does not accept request body fields.',
+    });
   }
   return errors;
 }

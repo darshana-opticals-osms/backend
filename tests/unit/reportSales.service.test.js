@@ -4,17 +4,9 @@ const Payment = require('../../src/models/payment.model');
 const OrderItem = require('../../src/models/orderItem.model');
 const Branch = require('../../src/models/branch.model');
 const Customer = require('../../src/models/customer.model');
-const {
-  ORDER_STATUS_VALUES,
-} = require('../../src/constants/orderStatuses');
-const {
-  PAYMENT_STATUS,
-  PAYMENT_METHOD,
-} = require('../../src/constants/payment');
-const {
-  getSalesReport,
-  getSalesOrdersList,
-} = require('../../src/services/reportSales.service');
+const { ORDER_STATUS_VALUES } = require('../../src/constants/orderStatuses');
+const { PAYMENT_STATUS, PAYMENT_METHOD } = require('../../src/constants/payment');
+const { getSalesReport, getSalesOrdersList } = require('../../src/services/reportSales.service');
 
 describe('reportSales.service (ADR-014 §6, §7, §8)', () => {
   let branchA;
@@ -301,7 +293,10 @@ describe('reportSales.service (ADR-014 §6, §7, §8)', () => {
       expect(orgReport.data.breakdowns.byCategory.length).toBe(2);
 
       // 2. Branch A scoped report
-      const branchAReport = await getSalesReport({ preset: 'today', branchId: branchA._id.toString() });
+      const branchAReport = await getSalesReport({
+        preset: 'today',
+        branchId: branchA._id.toString(),
+      });
       expect(branchAReport.data.summary.grossRevenue).toBe(10000);
       expect(branchAReport.data.summary.totalOrders).toBe(1);
       expect(branchAReport.data.breakdowns.byBranch.length).toBe(1);

@@ -603,7 +603,9 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
 
       expect(res.status).toBe(200);
       expect(res.header['content-type']).toContain('text/csv');
-      expect(res.header['content-disposition']).toMatch(/attachment; filename="sales-report-.*\.csv"/);
+      expect(res.header['content-disposition']).toMatch(
+        /attachment; filename="sales-report-.*\.csv"/
+      );
       expect(res.text).toContain('Order ID,Payment ID,Order Date');
       expect(res.text).toContain('K*** P***');
       expect(res.text).toContain('Colombo 03');
@@ -639,7 +641,9 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
 
       expect(res.status).toBe(200);
       expect(res.header['content-type']).toContain('text/csv');
-      expect(res.header['content-disposition']).toMatch(/attachment; filename="inventory-report-.*\.csv"/);
+      expect(res.header['content-disposition']).toMatch(
+        /attachment; filename="inventory-report-.*\.csv"/
+      );
       expect(res.text).toContain('SKU,Item Name,Category,Brand,Quantity,Unit Price (LKR)');
       expect(res.text).toContain('Zeiss Anti-Reflective Lens');
 

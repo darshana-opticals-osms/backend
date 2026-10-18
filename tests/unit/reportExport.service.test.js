@@ -138,9 +138,9 @@ describe('reportExport.service (ADR-014 §11, §14.2 & RFC-4180)', () => {
   describe('exportSalesReportCsv', () => {
     it('throws ForbiddenError when accessed by unauthorized role (BRANCH_ASSISTANT)', async () => {
       const user = { userId: 'u1', role: ROLE_VALUES.BRANCH_ASSISTANT };
-      await expect(
-        exportSalesReportCsv({ preset: 'today', user })
-      ).rejects.toThrow('Access forbidden: insufficient role permissions.');
+      await expect(exportSalesReportCsv({ preset: 'today', user })).rejects.toThrow(
+        'Access forbidden: insufficient role permissions.'
+      );
     });
 
     it('throws ForbiddenError when BRANCH_MANAGER attempts IDOR export on another branch', async () => {
@@ -278,9 +278,9 @@ describe('reportExport.service (ADR-014 §11, §14.2 & RFC-4180)', () => {
   describe('exportInventoryReportCsv', () => {
     it('throws ForbiddenError when accessed by unauthorized role (OPTOMETRIST)', async () => {
       const user = { userId: 'op-1', role: ROLE_VALUES.OPTOMETRIST };
-      await expect(
-        exportInventoryReportCsv({ user })
-      ).rejects.toThrow('Access forbidden: insufficient role permissions.');
+      await expect(exportInventoryReportCsv({ user })).rejects.toThrow(
+        'Access forbidden: insufficient role permissions.'
+      );
     });
 
     it('successfully exports inventory report and records audit event for SYSTEM_ADMIN', async () => {

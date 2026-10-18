@@ -79,10 +79,7 @@ const {
 router.get(
   '/reports/sales',
   authenticate,
-  authorizeRoles(
-    ROLE_VALUES.SYSTEM_ADMIN,
-    ROLE_VALUES.BRANCH_MANAGER
-  ),
+  authorizeRoles(ROLE_VALUES.SYSTEM_ADMIN, ROLE_VALUES.BRANCH_MANAGER),
   validate(validateSalesReportQuery),
   getSalesReport
 );
@@ -161,10 +158,7 @@ router.get(
 router.get(
   '/reports/sales/orders',
   authenticate,
-  authorizeRoles(
-    ROLE_VALUES.SYSTEM_ADMIN,
-    ROLE_VALUES.BRANCH_MANAGER
-  ),
+  authorizeRoles(ROLE_VALUES.SYSTEM_ADMIN, ROLE_VALUES.BRANCH_MANAGER),
   validate(validateSalesOrdersQuery),
   getSalesOrders
 );
@@ -234,10 +228,7 @@ router.get(
 router.get(
   '/reports/sales/export',
   authenticate,
-  authorizeRoles(
-    ROLE_VALUES.SYSTEM_ADMIN,
-    ROLE_VALUES.BRANCH_MANAGER
-  ),
+  authorizeRoles(ROLE_VALUES.SYSTEM_ADMIN, ROLE_VALUES.BRANCH_MANAGER),
   validate(validateSalesExportQuery),
   exportSalesReport
 );
@@ -291,10 +282,7 @@ router.get(
 router.get(
   '/reports/inventory',
   authenticate,
-  authorizeRoles(
-    ROLE_VALUES.SYSTEM_ADMIN,
-    ROLE_VALUES.BRANCH_MANAGER
-  ),
+  authorizeRoles(ROLE_VALUES.SYSTEM_ADMIN, ROLE_VALUES.BRANCH_MANAGER),
   validate(validateInventoryReportQuery),
   getInventoryReport
 );
@@ -362,10 +350,7 @@ router.get(
 router.get(
   '/reports/inventory/items',
   authenticate,
-  authorizeRoles(
-    ROLE_VALUES.SYSTEM_ADMIN,
-    ROLE_VALUES.BRANCH_MANAGER
-  ),
+  authorizeRoles(ROLE_VALUES.SYSTEM_ADMIN, ROLE_VALUES.BRANCH_MANAGER),
   validate(validateInventoryItemsQuery),
   getInventoryItems
 );
@@ -425,10 +410,7 @@ router.get(
 router.get(
   '/reports/inventory/export',
   authenticate,
-  authorizeRoles(
-    ROLE_VALUES.SYSTEM_ADMIN,
-    ROLE_VALUES.BRANCH_MANAGER
-  ),
+  authorizeRoles(ROLE_VALUES.SYSTEM_ADMIN, ROLE_VALUES.BRANCH_MANAGER),
   validate(validateInventoryExportQuery),
   exportInventoryReport
 );

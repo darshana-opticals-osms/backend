@@ -1,9 +1,6 @@
 const mongoose = require('mongoose');
 const Inventory = require('../models/inventory.model');
-const {
-  REPORTING_CURRENCY,
-  PAGINATION_LIMITS,
-} = require('../constants/report.constants');
+const { REPORTING_CURRENCY, PAGINATION_LIMITS } = require('../constants/report.constants');
 const { getGlobalReorderThreshold } = require('./reorderAlert.service');
 
 function roundToTwo(num) {
@@ -41,11 +38,7 @@ async function getInventoryReport({ branchId = null, category = null, reorderSta
       { $eq: ['$quantity', 0] },
       'REORDER_TRIGGERED',
       {
-        $cond: [
-          { $lte: ['$quantity', threshold] },
-          'LOW_STOCK',
-          'OK',
-        ],
+        $cond: [{ $lte: ['$quantity', threshold] }, 'LOW_STOCK', 'OK'],
       },
     ],
   };
@@ -121,7 +114,10 @@ async function getInventoryReport({ branchId = null, category = null, reorderSta
       $project: {
         branchId: '$_id',
         branchName: {
-          $ifNull: ['$branch.codeName', { $ifNull: ['$branch.name', { $ifNull: ['$branch.address', 'Unassigned Branch'] }] }],
+          $ifNull: [
+            '$branch.codeName',
+            { $ifNull: ['$branch.name', { $ifNull: ['$branch.address', 'Unassigned Branch'] }] },
+          ],
         },
         totalStock: 1,
         totalRetailValuation: 1,
@@ -251,11 +247,7 @@ async function getInventoryItemsList({
       { $eq: ['$quantity', 0] },
       'REORDER_TRIGGERED',
       {
-        $cond: [
-          { $lte: ['$quantity', threshold] },
-          'LOW_STOCK',
-          'OK',
-        ],
+        $cond: [{ $lte: ['$quantity', threshold] }, 'LOW_STOCK', 'OK'],
       },
     ],
   };
