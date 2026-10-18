@@ -90,6 +90,12 @@ describe('Swagger documentation integrity', () => {
     'GET /audit-events',
     'GET /loyalty/me',
     'GET /loyalty',
+    'GET /reports/sales',
+    'GET /reports/sales/orders',
+    'GET /reports/sales/export',
+    'GET /reports/inventory',
+    'GET /reports/inventory/items',
+    'GET /reports/inventory/export',
   ];
 
   const normalize = (value) => value.toUpperCase();

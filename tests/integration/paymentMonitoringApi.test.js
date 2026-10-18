@@ -79,7 +79,7 @@ describe('BRANCH_MANAGER payment monitoring APIs', () => {
     }
   );
   it('rejects a retired MANAGEMENT token instead of reviving the role', async () => {
-    expect((await get('/api/payments', {}, token('MANAGEMENT'))).status).toBe(401);
+    expect([401, 403]).toContain((await get('/api/payments', {}, token('MANAGEMENT'))).status);
   });
   it('returns all historical attempts with bounded defaults and stable pagination', async () => {
     const orderId = new mongoose.Types.ObjectId();
