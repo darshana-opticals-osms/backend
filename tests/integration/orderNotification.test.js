@@ -34,8 +34,12 @@ jest.setTimeout(30000);
 const JWT_SECRET = 'notification-integration-secret';
 const PASSWORD_HASH = `$2b$12$${'b'.repeat(53)}`;
 
-function createToken({ userId, role } = {}) {
-  return jwt.sign({ userId, role }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '1h' });
+const DEFAULT_BRANCH_ID = new mongoose.Types.ObjectId().toString();
+
+function createToken({ userId, role, branchId = DEFAULT_BRANCH_ID } = {}) {
+  const payload = { userId, role };
+  if (branchId) payload.branchId = branchId;
+  return jwt.sign(payload, JWT_SECRET, { algorithm: 'HS256', expiresIn: '1h' });
 }
 
 async function waitForNotification(orderId, targetStatus, timeoutMs = 5000) {

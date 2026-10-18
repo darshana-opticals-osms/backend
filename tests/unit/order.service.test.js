@@ -51,6 +51,8 @@ jest.mock('../../src/models/orderItem.model', () => ({
 }));
 jest.mock('../../src/models/inventory.model', () => ({
   findOne: jest.fn(),
+  findById: jest.fn(),
+  find: jest.fn(),
   findByIdAndUpdate: jest.fn().mockResolvedValue({}),
 }));
 jest.mock('../../src/models/customer.model', () => ({
@@ -117,6 +119,22 @@ const makeItem = (id = ITEM_ID_1, overrides = {}) => ({
 const makeQuery = (result) => ({
   sort: jest.fn().mockReturnThis(),
   lean: jest.fn().mockResolvedValue(result),
+});
+
+let mockSession;
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockSession = {
+    withTransaction: jest.fn(async (cb) => cb()),
+    endSession: jest.fn().mockResolvedValue(undefined),
+  };
+  jest.spyOn(mongoose, 'startSession').mockResolvedValue(mockSession);
+});
+
+afterEach(() => {
+  if (mongoose.startSession && mongoose.startSession.mockRestore) {
+    mongoose.startSession.mockRestore();
+  }
 });
 
 // ─── shapeHistoryEntry ────────────────────────────────────────────────────────
@@ -579,7 +597,7 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
             }),
           },
         }),
-        { new: true, runValidators: true }
+        expect.objectContaining({ new: true, runValidators: true })
       );
       expect(result.status).toBe(ORDER_STATUS_VALUES.PROCESSING);
       expect(result.statusHistory).toHaveLength(2);
@@ -665,7 +683,7 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
           statusUpdatedAt: now,
         },
         expect.any(Object),
-        { new: true, runValidators: true }
+        expect.objectContaining({ new: true, runValidators: true })
       );
     });
   });
@@ -701,6 +719,8 @@ describe('updateOrderStatus (ADR-004 §9, §10, §11, §15, §16, §17)', () => 
 describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
   const STAFF_ID = new mongoose.Types.ObjectId();
   const STAFF_ID_STR = STAFF_ID.toString();
+  const STAFF_BRANCH_ID = new mongoose.Types.ObjectId();
+  const STAFF_BRANCH_ID_STR = STAFF_BRANCH_ID.toString();
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -708,7 +728,7 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
 
   describe('getOrders with staff roles', () => {
     it.each([ROLE_VALUES.BRANCH_ASSISTANT, ROLE_VALUES.BRANCH_MANAGER])(
-      'retrieves all orders without customerId filter for %s',
+      'retrieves scoped orders without customerId filter for %s with valid branch',
       async (staffRole) => {
         const mockOrders = [makeOrder()];
         Order.find.mockReturnValue({
@@ -718,27 +738,51 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
         const results = await getOrders({
           userId: STAFF_ID_STR,
           role: staffRole,
+          branchId: STAFF_BRANCH_ID_STR,
         });
 
-        expect(Order.find).toHaveBeenCalledWith({});
+        expect(Order.find).toHaveBeenCalledWith({
+          $or: [
+            { status: ORDER_STATUS_VALUES.ORDER_CREATED },
+            { status: ORDER_STATUS_VALUES.PROCESSING, branchId: null },
+            { branchId: new mongoose.Types.ObjectId(STAFF_BRANCH_ID_STR) },
+          ],
+        });
         expect(results).toHaveLength(1);
         expect(results[0].id).toBe(ORDER_ID_STR);
+      }
+    );
+
+    it.each([ROLE_VALUES.BRANCH_ASSISTANT, ROLE_VALUES.BRANCH_MANAGER])(
+      'rejects staff request with missing or invalid branchId with ForbiddenError (Review Comment 3)',
+      async (staffRole) => {
+        await expect(
+          getOrders({ userId: STAFF_ID_STR, role: staffRole, branchId: null })
+        ).rejects.toThrow(ForbiddenError);
+
+        await expect(
+          getOrders({ userId: STAFF_ID_STR, role: staffRole, branchId: 'invalid-id' })
+        ).rejects.toThrow(ForbiddenError);
       }
     );
 
     it.each([ROLE_VALUES.SYSTEM_ADMIN, ROLE_VALUES.OPTOMETRIST])(
       'rejects unauthorized role %s with ValidationError',
       async (unauthorizedRole) => {
-        await expect(getOrders({ userId: STAFF_ID_STR, role: unauthorizedRole })).rejects.toThrow(
-          ValidationError
-        );
+        await expect(
+          getOrders({
+            userId: STAFF_ID_STR,
+            role: unauthorizedRole,
+            branchId: STAFF_BRANCH_ID_STR,
+          })
+        ).rejects.toThrow(ValidationError);
       }
     );
   });
 
   describe('getOrderById with staff roles', () => {
     it.each([ROLE_VALUES.BRANCH_ASSISTANT, ROLE_VALUES.BRANCH_MANAGER])(
-      'retrieves any order by ID for %s',
+      'retrieves any order by ID for %s with valid branch',
       async (staffRole) => {
         Order.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(makeOrder()) });
         OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([makeItem()]) });
@@ -747,11 +791,26 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
           orderId: ORDER_ID_STR,
           userId: STAFF_ID_STR,
           role: staffRole,
+          branchId: STAFF_BRANCH_ID_STR,
         });
 
         expect(Order.findById).toHaveBeenCalledWith(ORDER_ID_STR);
         expect(result.id).toBe(ORDER_ID_STR);
         expect(result.items).toHaveLength(1);
+      }
+    );
+
+    it.each([ROLE_VALUES.BRANCH_ASSISTANT, ROLE_VALUES.BRANCH_MANAGER])(
+      'rejects staff request without valid branchId with ForbiddenError (Review Comment 3)',
+      async (staffRole) => {
+        await expect(
+          getOrderById({
+            orderId: ORDER_ID_STR,
+            userId: STAFF_ID_STR,
+            role: staffRole,
+            branchId: null,
+          })
+        ).rejects.toThrow(ForbiddenError);
       }
     );
 
@@ -763,6 +822,7 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
           orderId: ORDER_ID_STR,
           userId: STAFF_ID_STR,
           role: ROLE_VALUES.BRANCH_ASSISTANT,
+          branchId: STAFF_BRANCH_ID_STR,
         })
       ).rejects.toThrow(NotFoundError);
     });
@@ -802,6 +862,7 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
       expect(Order.find).toHaveBeenCalledWith({
         $or: [
           { status: ORDER_STATUS_VALUES.ORDER_CREATED },
+          { status: ORDER_STATUS_VALUES.PROCESSING, branchId: null },
           { branchId: new mongoose.Types.ObjectId(BRANCH_A_STR) },
         ],
       });
@@ -876,11 +937,25 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
       });
 
       const branchInvId = new mongoose.Types.ObjectId();
-      Inventory.findOne.mockResolvedValue({
+      const originalRecord = {
+        _id: originalInvId,
+        branchId: new mongoose.Types.ObjectId(), // original branch
+        itemName: 'Optical Frame',
+        quantity: 5,
+      };
+      const branchRecord = {
         _id: branchInvId,
         branchId: BRANCH_A_ID,
         itemName: 'Optical Frame',
         quantity: 10,
+      };
+      Inventory.findById.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue(originalRecord),
+      });
+      Inventory.find.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue([branchRecord]),
       });
 
       await updateOrderStatus(ORDER_ID_STR, ORDER_STATUS_VALUES.PROCESSING, STAFF_ID_STR, {
@@ -898,13 +973,13 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
       expect(Inventory.findByIdAndUpdate).toHaveBeenCalledWith(
         branchInvId,
         { $inc: { quantity: -2 } },
-        { new: true }
+        expect.objectContaining({ new: true })
       );
       // Verify original reservation stock was restored
       expect(Inventory.findByIdAndUpdate).toHaveBeenCalledWith(
         originalInvId,
         { $inc: { quantity: 2 } },
-        {}
+        expect.any(Object)
       );
     });
 
@@ -912,15 +987,93 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
       const order = makeOrder({ status: ORDER_STATUS_VALUES.ORDER_CREATED, branchId: null });
       Order.findById.mockResolvedValue(order);
       Payment.exists.mockResolvedValue({ _id: new mongoose.Types.ObjectId() });
+      const originalInvId = new mongoose.Types.ObjectId();
       OrderItem.find.mockReturnValue({
-        lean: jest.fn().mockResolvedValue([makeItem(ITEM_ID_1, { quantity: 5 })]),
+        lean: jest
+          .fn()
+          .mockResolvedValue([makeItem(ITEM_ID_1, { inventoryId: originalInvId, quantity: 5 })]),
       });
 
-      Inventory.findOne.mockResolvedValue({
+      const originalRecord = {
+        _id: originalInvId,
+        branchId: new mongoose.Types.ObjectId(),
+        itemName: 'Optical Frame',
+        quantity: 5,
+      };
+      const branchRecord = {
         _id: new mongoose.Types.ObjectId(),
         branchId: BRANCH_A_ID,
         itemName: 'Optical Frame',
         quantity: 2, // only 2 in stock, but order needs 5
+      };
+      Inventory.findById.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue(originalRecord),
+      });
+      Inventory.find.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue([branchRecord]),
+      });
+
+      await expect(
+        updateOrderStatus(ORDER_ID_STR, ORDER_STATUS_VALUES.PROCESSING, STAFF_ID_STR, {
+          branchId: BRANCH_A_STR,
+        })
+      ).rejects.toThrow(ConflictError);
+    });
+
+    it('rejects transition to PROCESSING if matching product is ambiguous (Review Comment 4)', async () => {
+      const order = makeOrder({ status: ORDER_STATUS_VALUES.ORDER_CREATED, branchId: null });
+      Order.findById.mockResolvedValue(order);
+      Payment.exists.mockResolvedValue({ _id: new mongoose.Types.ObjectId() });
+      const originalInvId = new mongoose.Types.ObjectId();
+      OrderItem.find.mockReturnValue({
+        lean: jest
+          .fn()
+          .mockResolvedValue([makeItem(ITEM_ID_1, { inventoryId: originalInvId, quantity: 1 })]),
+      });
+
+      const originalRecord = {
+        _id: originalInvId,
+        branchId: new mongoose.Types.ObjectId(),
+        itemName: 'Optical Frame',
+        quantity: 5,
+      };
+      // 2 similarly named/variant records match at branch
+      Inventory.findById.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue(originalRecord),
+      });
+      Inventory.find.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue([
+          { _id: new mongoose.Types.ObjectId(), itemName: 'Optical Frame', quantity: 5 },
+          { _id: new mongoose.Types.ObjectId(), itemName: 'Optical Frame', quantity: 5 },
+        ]),
+      });
+
+      await expect(
+        updateOrderStatus(ORDER_ID_STR, ORDER_STATUS_VALUES.PROCESSING, STAFF_ID_STR, {
+          branchId: BRANCH_A_STR,
+        })
+      ).rejects.toThrow(ConflictError);
+    });
+
+    it('rejects transition to PROCESSING if source inventory is unresolved (Review Comment 4)', async () => {
+      const order = makeOrder({ status: ORDER_STATUS_VALUES.ORDER_CREATED, branchId: null });
+      Order.findById.mockResolvedValue(order);
+      Payment.exists.mockResolvedValue({ _id: new mongoose.Types.ObjectId() });
+      const originalInvId = new mongoose.Types.ObjectId();
+      OrderItem.find.mockReturnValue({
+        lean: jest
+          .fn()
+          .mockResolvedValue([makeItem(ITEM_ID_1, { inventoryId: originalInvId, quantity: 1 })]),
+      });
+
+      // source record not found in DB
+      Inventory.findById.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue(null),
       });
 
       await expect(
@@ -945,11 +1098,19 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
           .fn()
           .mockResolvedValue([makeItem(ITEM_ID_1, { inventoryId: branchInvId, quantity: 2 })]),
       });
-      Inventory.findOne.mockResolvedValue({
+      const branchRecord = {
         _id: branchInvId,
         branchId: BRANCH_A_ID,
         itemName: 'Optical Frame',
         quantity: 8,
+      };
+      Inventory.findById.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue(branchRecord),
+      });
+      Inventory.find.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue([branchRecord]),
       });
 
       await updateOrderStatus(ORDER_ID_STR, ORDER_STATUS_VALUES.CANCELLED, STAFF_ID_STR, {
@@ -960,7 +1121,7 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
       expect(Inventory.findByIdAndUpdate).toHaveBeenCalledWith(
         branchInvId,
         { $inc: { quantity: 2 } },
-        { new: true }
+        expect.objectContaining({ new: true })
       );
     });
 

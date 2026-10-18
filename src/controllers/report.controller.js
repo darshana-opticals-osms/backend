@@ -66,6 +66,9 @@ const exportSalesReport = catchAsync(async (req, res) => {
 
   res.setHeader('Content-Type', result.contentType);
   res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+  res.setHeader('X-Report-Truncated', result.isTruncated ? 'true' : 'false');
+  res.setHeader('X-Report-Total-Count', String(result.totalMatching || result.rowCount));
+  res.setHeader('X-Report-Exported-Count', String(result.exportedCount || result.rowCount));
   return res.status(200).send(result.buffer || result.csvContent);
 });
 
@@ -126,6 +129,9 @@ const exportInventoryReport = catchAsync(async (req, res) => {
 
   res.setHeader('Content-Type', result.contentType);
   res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+  res.setHeader('X-Report-Truncated', result.isTruncated ? 'true' : 'false');
+  res.setHeader('X-Report-Total-Count', String(result.totalMatching || result.rowCount));
+  res.setHeader('X-Report-Exported-Count', String(result.exportedCount || result.rowCount));
   return res.status(200).send(result.buffer || result.csvContent);
 });
 

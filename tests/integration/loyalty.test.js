@@ -29,7 +29,11 @@ const { updateOwnProfile } = require('../../src/services/profile.service');
 describe('Loyalty earning and real atomic refund reversal', () => {
   let server;
   const originalSecret = process.env.JWT_SECRET;
-  const auth = { role: 'BRANCH_MANAGER', userId: new mongoose.Types.ObjectId().toString() };
+  const auth = {
+    role: 'BRANCH_MANAGER',
+    userId: new mongoose.Types.ObjectId().toString(),
+    branchId: new mongoose.Types.ObjectId().toString(),
+  };
   beforeAll(async () => {
     server = await MongoMemoryServer.create({ instance: { replSet: 'rs0' } });
     const uri = server.getUri();

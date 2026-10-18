@@ -3,6 +3,7 @@ const {
   getOrders: getOrdersService,
   getOrderById: getOrderByIdService,
   updateOrderStatus: updateOrderStatusService,
+  claimOrder: claimOrderService,
 } = require('../services/order.service');
 
 /**
@@ -68,10 +69,23 @@ const updateOrderStatus = catchAsync(async (req, res) => {
   return res.status(200).json({ success: true, data: updatedOrder });
 });
 
+/**
+ * POST /api/orders/:id/claim
+ * PATCH /api/orders/:id/claim
+ *
+ * Claims an already-PROCESSING online order for the calling staff member's branch
+ * and allocates inventory atomically.
+ */
+const claimOrder = catchAsync(async (req, res) => {
+  const claimedOrder = await claimOrderService(req.params.id, req.auth.branchId, req.auth.userId);
+  return res.status(200).json({ success: true, data: claimedOrder });
+});
+
 module.exports = {
   getOrders,
   getOrderById,
   getMyOrders: getOrders,
   getMyOrderById: getOrderById,
   updateOrderStatus,
+  claimOrder,
 };

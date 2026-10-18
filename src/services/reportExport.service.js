@@ -1,7 +1,7 @@
 const ExcelJS = require('exceljs');
 const { AUDIT_ACTION, AUDIT_TARGET_TYPE, AUDIT_OUTCOME } = require('../constants/audit');
 const { resolveReportScope } = require('../utils/reportScope');
-const { getSalesOrdersList } = require('./reportSales.service');
+const { getSalesOrdersList, getSalesReport } = require('./reportSales.service');
 const { getInventoryItemsList } = require('./reportInventory.service');
 const auditService = require('./audit.service');
 
@@ -74,19 +74,101 @@ function sanitizeSheetName(name, existingNames = new Set()) {
 }
 
 /**
- * Builds an ExcelJS Workbook with separate sheets per branch for sales orders.
+ * Builds an ExcelJS Workbook with Executive Summary sheet and breakdown sheets per branch.
+ *
+ * Review Comment 6 – Reconciles Excel workbook structure with ADR-014's approved
+ * executive summary and breakdown requirements. Also includes truncation notices
+ * to avoid silently omitting records beyond 10,000.
  *
  * @param {Object} options
  * @param {Array<Object>} options.orders
+ * @param {Object} [options.summary]
  * @param {boolean} options.isOrgWide
+ * @param {boolean} [options.isTruncated=false]
+ * @param {number} [options.totalMatching=0]
  * @returns {Promise<Buffer>}
  */
-async function buildSalesExcelWorkbook({ orders, isOrgWide }) {
+async function buildSalesExcelWorkbook({
+  orders,
+  summary = null,
+  isOrgWide,
+  isTruncated = false,
+  totalMatching = 0,
+}) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'OSMS Darshana Opticals';
   workbook.created = new Date();
 
-  const columns = [
+  const existingSheetNames = new Set();
+
+  // 1. Executive Summary Sheet (ADR-014 §11 requirement, Review Comment 6)
+  const summarySheetName = sanitizeSheetName('Executive Summary', existingSheetNames);
+  const summarySheet = workbook.addWorksheet(summarySheetName);
+  summarySheet.columns = [
+    { header: 'KPI / Metric Description', key: 'metric', width: 36 },
+    { header: 'Reported Value', key: 'value', width: 26 },
+    { header: 'ADR-014 Reference', key: 'refId', width: 20 },
+  ];
+  summarySheet.getRow(1).font = { bold: true };
+  summarySheet.getRow(1).fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFD9E1F2' },
+  };
+
+  if (summary) {
+    summarySheet.addRow({
+      metric: 'Recognized Gross Revenue (LKR)',
+      value: Number(summary.grossRevenue || 0).toFixed(2),
+      refId: 'SM-01',
+    });
+    summarySheet.addRow({
+      metric: 'Refund Deductions (LKR)',
+      value: Number(summary.refundDeductions || 0).toFixed(2),
+      refId: 'SM-02',
+    });
+    summarySheet.addRow({
+      metric: 'Recognized Net Revenue (LKR)',
+      value: Number(summary.netRevenue || 0).toFixed(2),
+      refId: 'SM-03',
+    });
+    summarySheet.addRow({
+      metric: 'Total Qualifying Orders',
+      value: summary.totalOrders ?? 0,
+      refId: 'SM-04',
+    });
+    summarySheet.addRow({
+      metric: 'Average Order Value (LKR)',
+      value: Number(summary.averageOrderValue || 0).toFixed(2),
+      refId: 'SM-05',
+    });
+    summarySheet.addRow({
+      metric: 'Items Sold Quantity',
+      value: summary.itemsSold ?? 0,
+      refId: 'SM-06',
+    });
+    summarySheet.addRow({
+      metric: 'Cancelled Orders Count',
+      value: summary.cancelledOrdersCount ?? 0,
+      refId: 'SM-10',
+    });
+    summarySheet.addRow({
+      metric: 'Cancelled Orders Value (LKR)',
+      value: Number(summary.cancelledOrdersValue || 0).toFixed(2),
+      refId: 'SM-10',
+    });
+  }
+
+  if (isTruncated) {
+    summarySheet.addRow({
+      metric: 'Export Row Limit Notice',
+      value: `Export capped at 10,000 rows. Total matching in database: ${totalMatching}`,
+      refId: 'NOTICE (TRUNCATED)',
+    });
+  }
+
+  // 2. Data Columns for Detailed Orders Sheets
+  const orderColumns = [
     { header: 'Order ID', key: 'orderId', width: 28 },
     { header: 'Payment ID', key: 'paymentId', width: 28 },
     { header: 'Order Date', key: 'orderDate', width: 22 },
@@ -122,7 +204,7 @@ async function buildSalesExcelWorkbook({ orders, isOrgWide }) {
 
   const setupSheet = (sheetName, sheetOrders) => {
     const sheet = workbook.addWorksheet(sheetName);
-    sheet.columns = columns;
+    sheet.columns = orderColumns;
     sheet.getRow(1).font = { bold: true };
     sheet.getRow(1).fill = {
       type: 'pattern',
@@ -132,14 +214,12 @@ async function buildSalesExcelWorkbook({ orders, isOrgWide }) {
     sheetOrders.forEach((o) => sheet.addRow(mapOrderToRow(o)));
   };
 
-  const existingSheetNames = new Set();
-
   if (isOrgWide) {
-    // 1. All Branches Sheet
-    existingSheetNames.add('all branches');
-    setupSheet('All Branches', orders);
+    // All Branches Sheet
+    const allBranchesName = sanitizeSheetName('All Branches', existingSheetNames);
+    setupSheet(allBranchesName, orders);
 
-    // 2. Distinct branch sheets
+    // Distinct branch sheets
     const branchMap = new Map();
     for (const order of orders) {
       const bName = order.branchName || 'Unassigned';
@@ -170,12 +250,33 @@ async function buildSalesExcelWorkbook({ orders, isOrgWide }) {
  * @param {Object} options
  * @param {Array<Object>} options.items
  * @param {boolean} options.isOrgWide
+ * @param {boolean} [options.isTruncated=false]
+ * @param {number} [options.totalMatching=0]
  * @returns {Promise<Buffer>}
  */
-async function buildInventoryExcelWorkbook({ items, isOrgWide }) {
+async function buildInventoryExcelWorkbook({
+  items,
+  isOrgWide,
+  isTruncated = false,
+  totalMatching = 0,
+}) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'OSMS Darshana Opticals';
   workbook.created = new Date();
+
+  const existingSheetNames = new Set();
+
+  if (isTruncated) {
+    const noticeSheet = workbook.addWorksheet(sanitizeSheetName('Notice', existingSheetNames));
+    noticeSheet.columns = [
+      { header: 'Topic', key: 'topic', width: 30 },
+      { header: 'Details', key: 'details', width: 50 },
+    ];
+    noticeSheet.addRow({
+      topic: 'Export Truncation Notice',
+      details: `Export capped at 10,000 items. Total matching in database: ${totalMatching}`,
+    });
+  }
 
   const columns = [
     { header: 'SKU', key: 'sku', width: 20 },
@@ -213,14 +314,10 @@ async function buildInventoryExcelWorkbook({ items, isOrgWide }) {
     sheetItems.forEach((i) => sheet.addRow(mapItemToRow(i)));
   };
 
-  const existingSheetNames = new Set();
-
   if (isOrgWide) {
-    // 1. All Branches Sheet
-    existingSheetNames.add('all branches');
-    setupSheet('All Branches', items);
+    const allBranchesName = sanitizeSheetName('All Branches', existingSheetNames);
+    setupSheet(allBranchesName, items);
 
-    // 2. Distinct branch sheets
     const branchMap = new Map();
     for (const item of items) {
       const bName = item.branchName || 'Unassigned';
@@ -235,7 +332,6 @@ async function buildInventoryExcelWorkbook({ items, isOrgWide }) {
       setupSheet(sheetName, branchItems);
     }
   } else {
-    // Single branch scope
     const branchName = items[0]?.branchName || 'Branch Inventory';
     const sheetName = sanitizeSheetName(branchName, existingSheetNames);
     setupSheet(sheetName, items);
@@ -276,7 +372,7 @@ function resolveRequestContext({ req, user, branchId }) {
  * @param {'xlsx'|'csv'} [options.format='xlsx']
  * @param {Object} [options.user]
  * @param {Object} [options.req]
- * @returns {Promise<{ filename: string, contentType: string, buffer?: Buffer, csvContent?: string, rowCount: number, dateRange: Object }>}
+ * @returns {Promise<{ filename: string, contentType: string, buffer?: Buffer, csvContent?: string, rowCount: number, isTruncated: boolean, totalMatching: number, exportedCount: number, dateRange: Object }>}
  */
 async function exportSalesReport({
   preset,
@@ -293,18 +389,29 @@ async function exportSalesReport({
   // 1. Enforce RBAC & branch scope (ADR-014 §10)
   const scope = resolveReportScope(effectiveReq, 'sales');
 
-  // 2. Fetch sales orders list (with unpaginated export limit up to 10,000)
-  const result = await getSalesOrdersList({
-    preset,
-    startDate,
-    endDate,
-    branchId: scope.branchId,
-    orderStatus,
-    isExport: true,
-  });
+  // 2. Fetch sales orders list and executive summary
+  const [result, salesReportResult] = await Promise.all([
+    getSalesOrdersList({
+      preset,
+      startDate,
+      endDate,
+      branchId: scope.branchId,
+      orderStatus,
+      isExport: true,
+    }),
+    getSalesReport({
+      preset,
+      startDate,
+      endDate,
+      branchId: scope.branchId,
+    }),
+  ]);
 
   const orders = result?.data?.orders || [];
   const dateRange = result?.data?.dateRange || {};
+  const pagination = result?.data?.pagination || {};
+  const isTruncated = Boolean(pagination.isTruncated);
+  const totalMatching = pagination.totalMatching || orders.length;
 
   const startStr = dateRange.startDate || 'start';
   const endStr = dateRange.endDate || 'end';
@@ -353,7 +460,13 @@ async function exportSalesReport({
     filename = `sales-report-${startStr}-to-${endStr}.csv`;
     contentType = CSV_MIME_TYPE;
   } else {
-    buffer = await buildSalesExcelWorkbook({ orders, isOrgWide: scope.isOrgWide });
+    buffer = await buildSalesExcelWorkbook({
+      orders,
+      summary: salesReportResult?.data?.summary,
+      isOrgWide: scope.isOrgWide,
+      isTruncated,
+      totalMatching,
+    });
     filename = `sales-report-${startStr}-to-${endStr}.xlsx`;
     contentType = EXCEL_MIME_TYPE;
   }
@@ -384,6 +497,8 @@ async function exportSalesReport({
         orderStatus: orderStatus || null,
       },
       rowCount: orders.length,
+      isTruncated,
+      totalMatching,
       generatedAt: new Date().toISOString(),
     },
   });
@@ -394,6 +509,9 @@ async function exportSalesReport({
     buffer,
     csvContent,
     rowCount: orders.length,
+    isTruncated,
+    totalMatching,
+    exportedCount: orders.length,
     dateRange,
   };
 }
@@ -415,7 +533,7 @@ async function exportSalesReportCsv(options = {}) {
  * @param {'xlsx'|'csv'} [options.format='xlsx']
  * @param {Object} [options.user]
  * @param {Object} [options.req]
- * @returns {Promise<{ filename: string, contentType: string, buffer?: Buffer, csvContent?: string, rowCount: number }>}
+ * @returns {Promise<{ filename: string, contentType: string, buffer?: Buffer, csvContent?: string, rowCount: number, isTruncated: boolean, totalMatching: number, exportedCount: number }>}
  */
 async function exportInventoryReport({
   branchId,
@@ -439,6 +557,10 @@ async function exportInventoryReport({
   });
 
   const items = result?.data?.items || [];
+  const pagination = result?.data?.pagination || {};
+  const isTruncated = Boolean(pagination.isTruncated);
+  const totalMatching = pagination.totalMatching || items.length;
+
   const todayStr = new Date().toISOString().slice(0, 10);
 
   let filename;
@@ -475,7 +597,12 @@ async function exportInventoryReport({
     filename = `inventory-report-${todayStr}.csv`;
     contentType = CSV_MIME_TYPE;
   } else {
-    buffer = await buildInventoryExcelWorkbook({ items, isOrgWide: scope.isOrgWide });
+    buffer = await buildInventoryExcelWorkbook({
+      items,
+      isOrgWide: scope.isOrgWide,
+      isTruncated,
+      totalMatching,
+    });
     filename = `inventory-report-${todayStr}.xlsx`;
     contentType = EXCEL_MIME_TYPE;
   }
@@ -504,6 +631,8 @@ async function exportInventoryReport({
         reorderStatus: reorderStatus || null,
       },
       rowCount: items.length,
+      isTruncated,
+      totalMatching,
       generatedAt: new Date().toISOString(),
     },
   });
@@ -514,6 +643,9 @@ async function exportInventoryReport({
     buffer,
     csvContent,
     rowCount: items.length,
+    isTruncated,
+    totalMatching,
+    exportedCount: items.length,
   };
 }
 
@@ -528,6 +660,8 @@ module.exports = {
   escapeCsvCell,
   buildCsvString,
   sanitizeSheetName,
+  buildSalesExcelWorkbook,
+  buildInventoryExcelWorkbook,
   exportSalesReport,
   exportSalesReportCsv,
   exportInventoryReport,

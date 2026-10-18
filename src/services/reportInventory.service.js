@@ -9,6 +9,59 @@ function roundToTwo(num) {
 }
 
 /**
+ * Builds aggregation stages that compute authoritative reorder status aligned with
+ * ADR-006's active ReorderAlert model (Review Comment 6):
+ * - If an active alert exists in ReorderAlert (or quantity is 0):
+ *   - quantity === 0 -> REORDER_TRIGGERED (out of stock, urgent reorder triggered)
+ *   - quantity <= threshold or active alert -> LOW_STOCK
+ *   - else -> OK
+ */
+function buildReorderStatusStages(threshold) {
+  return [
+    {
+      $lookup: {
+        from: 'reorderalerts',
+        let: { invId: '$_id' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [{ $eq: ['$inventoryId', '$$invId'] }, { $eq: ['$status', 'ACTIVE'] }],
+              },
+            },
+          },
+        ],
+        as: 'activeAlerts',
+      },
+    },
+    {
+      $addFields: {
+        hasActiveAlert: { $gt: [{ $size: '$activeAlerts' }, 0] },
+      },
+    },
+    {
+      $addFields: {
+        reorderStatus: {
+          $cond: [
+            { $eq: ['$quantity', 0] },
+            'REORDER_TRIGGERED',
+            {
+              $cond: [
+                {
+                  $or: ['$hasActiveAlert', { $lte: ['$quantity', threshold] }],
+                },
+                'LOW_STOCK',
+                'OK',
+              ],
+            },
+          ],
+        },
+      },
+    },
+  ];
+}
+
+/**
  * Computes the real-time inventory snapshot report (IM-01 to IM-06).
  *
  * @param {Object} options
@@ -32,29 +85,10 @@ async function getInventoryReport({ branchId = null, category = null, reorderSta
     matchStage.category = category;
   }
 
-  // Define reorder status classification expression
-  const reorderStatusExpr = {
-    $cond: [
-      { $eq: ['$quantity', 0] },
-      'REORDER_TRIGGERED',
-      {
-        $cond: [{ $lte: ['$quantity', threshold] }, 'LOW_STOCK', 'OK'],
-      },
-    ],
-  };
-
   // 1. Overall Snapshot Summary Aggregation
   const summaryPipeline = [
     { $match: matchStage },
-    {
-      $project: {
-        quantity: 1,
-        price: 1,
-        branchId: 1,
-        category: 1,
-        reorderStatus: reorderStatusExpr,
-      },
-    },
+    ...buildReorderStatusStages(threshold),
     ...(reorderStatus ? [{ $match: { reorderStatus } }] : []),
     {
       $group: {
@@ -78,14 +112,7 @@ async function getInventoryReport({ branchId = null, category = null, reorderSta
   // 2. Branch Breakdown Aggregation
   const branchPipeline = [
     { $match: matchStage },
-    {
-      $project: {
-        quantity: 1,
-        price: 1,
-        branchId: 1,
-        reorderStatus: reorderStatusExpr,
-      },
-    },
+    ...buildReorderStatusStages(threshold),
     ...(reorderStatus ? [{ $match: { reorderStatus } }] : []),
     {
       $group: {
@@ -131,14 +158,7 @@ async function getInventoryReport({ branchId = null, category = null, reorderSta
   // 3. Category Breakdown Aggregation
   const categoryPipeline = [
     { $match: matchStage },
-    {
-      $project: {
-        quantity: 1,
-        price: 1,
-        category: 1,
-        reorderStatus: reorderStatusExpr,
-      },
-    },
+    ...buildReorderStatusStages(threshold),
     ...(reorderStatus ? [{ $match: { reorderStatus } }] : []),
     {
       $group: {
@@ -165,28 +185,28 @@ async function getInventoryReport({ branchId = null, category = null, reorderSta
     okStockCount: 0,
   };
 
-  const branchBreakdown = branchResults.map((b) => ({
+  const branches = branchResults.map((b) => ({
     branchId: b.branchId ? b.branchId.toString() : null,
     branchName: b.branchName,
-    totalStock: b.totalStock || 0,
-    totalRetailValuation: roundToTwo(b.totalRetailValuation || 0),
-    itemCount: b.itemCount || 0,
-    lowStockCount: b.lowStockCount || 0,
-    reorderTriggeredCount: b.reorderTriggeredCount || 0,
+    totalStock: b.totalStock,
+    totalRetailValuation: roundToTwo(b.totalRetailValuation),
+    itemCount: b.itemCount,
+    lowStockCount: b.lowStockCount,
+    reorderTriggeredCount: b.reorderTriggeredCount,
   }));
 
-  const categoryBreakdown = categoryResults.map((c) => ({
-    category: c._id || 'General Optical',
-    totalStock: c.totalStock || 0,
-    totalRetailValuation: roundToTwo(c.totalRetailValuation || 0),
-    itemCount: c.itemCount || 0,
+  const categories = categoryResults.map((c) => ({
+    category: c._id || 'Uncategorized',
+    totalStock: c.totalStock,
+    totalRetailValuation: roundToTwo(c.totalRetailValuation),
+    itemCount: c.itemCount,
   }));
 
   return {
     success: true,
     data: {
       currency: REPORTING_CURRENCY,
-      generatedAt: new Date().toISOString(),
+      snapshotTimestamp: new Date().toISOString(),
       reorderThresholdUsed: threshold,
       summary: {
         totalStockOnHand: summary.totalStockOnHand,
@@ -197,24 +217,24 @@ async function getInventoryReport({ branchId = null, category = null, reorderSta
         okStockCount: summary.okStockCount,
       },
       breakdowns: {
-        byBranch: branchBreakdown,
-        byCategory: categoryBreakdown,
+        byBranch: branches,
+        byCategory: categories,
       },
     },
   };
 }
 
 /**
- * Returns paginated detailed inventory items with live reorder states.
+ * Retrieves paginated list of inventory stock records with live reorder states.
  *
  * @param {Object} options
  * @param {string|null} [options.branchId]
  * @param {string|null} [options.category]
- * @param {string|null} [options.reorderStatus] - 'OK' | 'LOW_STOCK' | 'REORDER_TRIGGERED'
+ * @param {string|null} [options.reorderStatus]
  * @param {number} [options.page=1]
  * @param {number} [options.limit=20]
  * @param {string} [options.sortBy='quantity']
- * @param {string} [options.sortOrder='desc']
+ * @param {string} [options.sortOrder='asc']
  * @param {boolean} [options.isExport=false]
  * @returns {Promise<Object>}
  */
@@ -225,7 +245,7 @@ async function getInventoryItemsList({
   page = PAGINATION_LIMITS.DEFAULT_PAGE,
   limit = PAGINATION_LIMITS.DEFAULT_LIMIT,
   sortBy = 'quantity',
-  sortOrder = 'desc',
+  sortOrder = 'asc',
   isExport = false,
 } = {}) {
   const threshold = await getGlobalReorderThreshold();
@@ -241,16 +261,6 @@ async function getInventoryItemsList({
   if (category) {
     matchStage.category = category;
   }
-
-  const reorderStatusExpr = {
-    $cond: [
-      { $eq: ['$quantity', 0] },
-      'REORDER_TRIGGERED',
-      {
-        $cond: [{ $lte: ['$quantity', threshold] }, 'LOW_STOCK', 'OK'],
-      },
-    ],
-  };
 
   const numericPage = Math.max(1, parseInt(page, 10) || 1);
   const numericLimit = isExport
@@ -273,18 +283,7 @@ async function getInventoryItemsList({
 
   const pipeline = [
     { $match: matchStage },
-    {
-      $project: {
-        _id: 1,
-        itemName: 1,
-        category: 1,
-        brand: 1,
-        price: 1,
-        quantity: 1,
-        branchId: 1,
-        reorderStatus: reorderStatusExpr,
-      },
-    },
+    ...buildReorderStatusStages(threshold),
     ...(reorderStatus ? [{ $match: { reorderStatus } }] : []),
     {
       $lookup: {
@@ -327,6 +326,7 @@ async function getInventoryItemsList({
       item.branch?.codeName || item.branch?.name || item.branch?.address || 'Unassigned Branch',
   }));
 
+  const isTruncated = isExport && total > numericLimit;
   const totalPages = Math.ceil(total / numericLimit) || 0;
 
   return {
@@ -339,6 +339,9 @@ async function getInventoryItemsList({
         limit: numericLimit,
         totalRecords: total,
         totalPages,
+        isTruncated,
+        totalMatching: total,
+        exportedCount: items.length,
       },
     },
   };

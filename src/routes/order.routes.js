@@ -10,7 +10,12 @@ const {
   ORDER_STATUSES,
   isValidOrderStatus,
 } = require('../constants/orderStatuses');
-const { getOrders, getOrderById, updateOrderStatus } = require('../controllers/order.controller');
+const {
+  getOrders,
+  getOrderById,
+  updateOrderStatus,
+  claimOrder,
+} = require('../controllers/order.controller');
 
 const ALL_ORDER_VIEW_ROLES = [ROLE_VALUES.CUSTOMER, ...ORDER_TRACKING_VIEW_ROLES];
 
@@ -257,6 +262,22 @@ router.patch(
   authorizeRoles(...ORDER_STATUS_UPDATE_ROLES),
   validate(validateUpdateOrderStatus),
   updateOrderStatus
+);
+
+router.patch(
+  '/orders/:id/claim',
+  authenticate,
+  authorizeRoles(...ORDER_STATUS_UPDATE_ROLES),
+  validate(validateOrderId),
+  claimOrder
+);
+
+router.post(
+  '/orders/:id/claim',
+  authenticate,
+  authorizeRoles(...ORDER_STATUS_UPDATE_ROLES),
+  validate(validateOrderId),
+  claimOrder
 );
 
 module.exports = router;

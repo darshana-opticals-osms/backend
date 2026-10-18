@@ -15,9 +15,17 @@ const { ORDER_STATUS_VALUES } = require('../../src/constants/orderStatuses');
 const JWT_SECRET = 'order-api-test-secret';
 const PASSWORD_HASH = `$2b$12$${'a'.repeat(53)}`;
 
-const createToken = ({ userId, role, branchId } = {}) => {
+const DEFAULT_STAFF_BRANCH_ID = new mongoose.Types.ObjectId().toString();
+
+const createToken = ({ userId, role, branchId, omitBranch = false } = {}) => {
   const payload = { userId, role };
-  if (branchId) payload.branchId = branchId;
+  if (!omitBranch) {
+    if (branchId) {
+      payload.branchId = branchId;
+    } else if (role && role !== ROLE_VALUES.CUSTOMER) {
+      payload.branchId = DEFAULT_STAFF_BRANCH_ID;
+    }
+  }
   return jwt.sign(payload, JWT_SECRET, { algorithm: 'HS256', expiresIn: '1h' });
 };
 
@@ -310,6 +318,15 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
             changedBy: customer._id,
           },
         ],
+      });
+
+      await Inventory.create({
+        branchId: DEFAULT_STAFF_BRANCH_ID,
+        itemName: 'Prescription Glasses',
+        category: 'FRAMES',
+        brand: 'Darshana',
+        price: 15000,
+        quantity: 10,
       });
 
       await OrderItem.create({
@@ -814,6 +831,370 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       // Verify Colombo inventory restored: 3 + 2 = 5
       const restoredColomboInv = await Inventory.findById(colomboInventory._id);
       expect(restoredColomboInv.quantity).toBe(5);
+    });
+  });
+
+  describe('Review Findings Regression Tests (PR #88)', () => {
+    // ─── Comment 1: IPN Lifecycle & Branch Claiming ─────────────────────────
+    it('Comment 1: executes sequence checkout -> verified PayHere IPN -> branch fulfillment claim -> inventory allocation', async () => {
+      const customer = await createCustomer('ipnclaim@example.com');
+      const originBranchId = new mongoose.Types.ObjectId();
+      const colomboBranchId = new mongoose.Types.ObjectId();
+
+      const originInventory = await Inventory.create({
+        branchId: originBranchId,
+        itemName: 'Progressive Lens UV400',
+        category: 'LENSES',
+        brand: 'Essilor',
+        price: 20000,
+        quantity: 10,
+      });
+
+      const colomboInventory = await Inventory.create({
+        branchId: colomboBranchId,
+        itemName: 'Progressive Lens UV400',
+        category: 'LENSES',
+        brand: 'Essilor',
+        price: 20000,
+        quantity: 8,
+      });
+
+      // 1. Checkout creates order in ORDER_CREATED (online, no branchId assigned yet)
+      const order = await Order.create({
+        customerId: customer._id,
+        branchId: null,
+        orderDate: new Date(),
+        orderAmount: 40000,
+        status: ORDER_STATUS_VALUES.ORDER_CREATED,
+        statusUpdatedAt: new Date(),
+        statusHistory: [
+          {
+            status: ORDER_STATUS_VALUES.ORDER_CREATED,
+            changedAt: new Date(),
+            changedBy: customer._id,
+          },
+        ],
+      });
+
+      await OrderItem.create({
+        orderId: order._id,
+        inventoryId: originInventory._id,
+        itemName: 'Progressive Lens UV400',
+        price: 20000,
+        quantity: 2,
+        classificationSnapshot: {
+          source: 'Inventory',
+          sourceInventoryId: originInventory._id,
+          category: 'LENSES',
+          itemClassification: 'UNKNOWN',
+          loyaltyEligibility: 'UNKNOWN',
+        },
+      });
+
+      // 2. PayHere IPN verified notification transitions Order to PROCESSING (ADR-011)
+      const payment = await Payment.create({
+        orderId: order._id,
+        amount: order.orderAmount,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+        providerTransactionId: 'PAYHERE_TXN_9999',
+      });
+
+      await Order.findByIdAndUpdate(order._id, {
+        $set: { status: ORDER_STATUS_VALUES.PROCESSING, statusUpdatedAt: new Date() },
+        $push: {
+          statusHistory: {
+            status: ORDER_STATUS_VALUES.PROCESSING,
+            changedAt: new Date(),
+            changedBy: null,
+            source: 'PAYMENT_SYSTEM',
+            paymentId: payment._id,
+          },
+        },
+      });
+
+      // Verify order is in PROCESSING without a branchId
+      const ipnOrder = await Order.findById(order._id);
+      expect(ipnOrder.status).toBe(ORDER_STATUS_VALUES.PROCESSING);
+      expect(ipnOrder.branchId).toBeNull();
+
+      // 3. Colombo branch claims the order for fulfillment
+      const colomboStaffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: colomboBranchId.toString(),
+      });
+
+      const claimRes = await request(app)
+        .patch(`/api/orders/${order._id}/claim`)
+        .set('Authorization', `Bearer ${colomboStaffToken}`);
+
+      expect(claimRes.status).toBe(200);
+      expect(claimRes.body.data.status).toBe(ORDER_STATUS_VALUES.PROCESSING);
+      expect(claimRes.body.data.branchId).toBe(colomboBranchId.toString());
+
+      // 4. Inventory is allocated from Colombo branch: 8 - 2 = 6, and origin reservation restored: 10 + 2 = 12
+      const updatedColomboInv = await Inventory.findById(colomboInventory._id);
+      expect(updatedColomboInv.quantity).toBe(6);
+
+      const updatedOriginInv = await Inventory.findById(originInventory._id);
+      expect(updatedOriginInv.quantity).toBe(12);
+    });
+
+    // ─── Comment 2: Atomic Rollback & Competing Branches ────────────────────
+    it('Comment 2a: multi-item allocation rolls back completely when an item has insufficient stock', async () => {
+      const customer = await createCustomer('rollback@example.com');
+      const branchId = new mongoose.Types.ObjectId();
+
+      const itemA = await Inventory.create({
+        branchId,
+        itemName: 'Lens Cleaner Spray',
+        category: 'ACCESSORIES',
+        brand: 'OptiClean',
+        price: 1500,
+        quantity: 10,
+      });
+
+      const itemB = await Inventory.create({
+        branchId,
+        itemName: 'Microfiber Cleaning Cloth',
+        category: 'ACCESSORIES',
+        brand: 'OptiClean',
+        price: 500,
+        quantity: 1, // only 1 in stock, order needs 3!
+      });
+
+      const order = await Order.create({
+        customerId: customer._id,
+        branchId: null,
+        orderDate: new Date(),
+        orderAmount: 4500,
+        status: ORDER_STATUS_VALUES.PROCESSING,
+        statusUpdatedAt: new Date(),
+      });
+
+      await OrderItem.create([
+        {
+          orderId: order._id,
+          inventoryId: itemA._id,
+          itemName: 'Lens Cleaner Spray',
+          price: 1500,
+          quantity: 2,
+          classificationSnapshot: {
+            source: 'Inventory',
+            sourceInventoryId: itemA._id,
+            category: 'ACCESSORIES',
+            itemClassification: 'UNKNOWN',
+            loyaltyEligibility: 'UNKNOWN',
+          },
+        },
+        {
+          orderId: order._id,
+          inventoryId: itemB._id,
+          itemName: 'Microfiber Cleaning Cloth',
+          price: 500,
+          quantity: 3,
+          classificationSnapshot: {
+            source: 'Inventory',
+            sourceInventoryId: itemB._id,
+            category: 'ACCESSORIES',
+            itemClassification: 'UNKNOWN',
+            loyaltyEligibility: 'UNKNOWN',
+          },
+        },
+      ]);
+
+      await Payment.create({
+        orderId: order._id,
+        amount: order.orderAmount,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+      });
+
+      const staffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branchId.toString(),
+      });
+
+      const claimRes = await request(app)
+        .patch(`/api/orders/${order._id}/claim`)
+        .set('Authorization', `Bearer ${staffToken}`);
+
+      expect(claimRes.status).toBe(409);
+      expect(claimRes.body.success).toBe(false);
+
+      // Verify itemA was NOT deducted (atomic rollback preserved quantity 10)
+      const checkItemA = await Inventory.findById(itemA._id);
+      expect(checkItemA.quantity).toBe(10);
+
+      // Order branchId remains unassigned
+      const checkOrder = await Order.findById(order._id);
+      expect(checkOrder.branchId).toBeNull();
+    });
+
+    it('Comment 2b: competing branches attempting concurrent claim results in single winner and clean conflict', async () => {
+      const customer = await createCustomer('competing@example.com');
+      const branchAId = new mongoose.Types.ObjectId();
+      const branchBId = new mongoose.Types.ObjectId();
+
+      const invA = await Inventory.create({
+        branchId: branchAId,
+        itemName: 'Titanium Frame Model X',
+        category: 'FRAMES',
+        brand: 'Titan',
+        price: 25000,
+        quantity: 5,
+      });
+
+      await Inventory.create({
+        branchId: branchBId,
+        itemName: 'Titanium Frame Model X',
+        category: 'FRAMES',
+        brand: 'Titan',
+        price: 25000,
+        quantity: 5,
+      });
+
+      const order = await Order.create({
+        customerId: customer._id,
+        branchId: null,
+        orderDate: new Date(),
+        orderAmount: 25000,
+        status: ORDER_STATUS_VALUES.PROCESSING,
+        statusUpdatedAt: new Date(),
+      });
+
+      await OrderItem.create({
+        orderId: order._id,
+        inventoryId: invA._id,
+        itemName: 'Titanium Frame Model X',
+        price: 25000,
+        quantity: 1,
+        classificationSnapshot: {
+          source: 'Inventory',
+          sourceInventoryId: invA._id,
+          category: 'FRAMES',
+          itemClassification: 'UNKNOWN',
+          loyaltyEligibility: 'UNKNOWN',
+        },
+      });
+
+      await Payment.create({
+        orderId: order._id,
+        amount: order.orderAmount,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+      });
+
+      const tokenA = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branchAId.toString(),
+      });
+
+      const tokenB = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branchBId.toString(),
+      });
+
+      const [resA, resB] = await Promise.all([
+        request(app)
+          .patch(`/api/orders/${order._id}/claim`)
+          .set('Authorization', `Bearer ${tokenA}`),
+        request(app)
+          .patch(`/api/orders/${order._id}/claim`)
+          .set('Authorization', `Bearer ${tokenB}`),
+      ]);
+
+      const statuses = [resA.status, resB.status].sort();
+      expect(statuses).toEqual([200, 409]);
+
+      // Winning branch is recorded on order
+      const claimedOrder = await Order.findById(order._id);
+      expect([branchAId.toString(), branchBId.toString()]).toContain(
+        claimedOrder.branchId.toString()
+      );
+    });
+
+    // ─── Comment 3: Fail-Closed Branch Authorization ────────────────────────
+    it('Comment 3: rejects staff request with missing or invalid branch claim with 403 Forbidden', async () => {
+      const orderId = new mongoose.Types.ObjectId();
+
+      // Token without branchId
+      const noBranchToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
+        omitBranch: true,
+      });
+
+      const getListRes = await request(app)
+        .get('/api/orders')
+        .set('Authorization', `Bearer ${noBranchToken}`);
+      expect(getListRes.status).toBe(403);
+
+      const getSingleRes = await request(app)
+        .get(`/api/orders/${orderId}`)
+        .set('Authorization', `Bearer ${noBranchToken}`);
+      expect(getSingleRes.status).toBe(403);
+
+      const patchRes = await request(app)
+        .patch(`/api/orders/${orderId}/status`)
+        .set('Authorization', `Bearer ${noBranchToken}`)
+        .send({ status: ORDER_STATUS_VALUES.PROCESSING });
+      expect(patchRes.status).toBe(403);
+    });
+
+    // ─── Comment 4: Authoritative Identity & Unresolved Legacy References ────
+    it('Comment 4: fails allocation with ConflictError on unresolved legacy inventory reference', async () => {
+      const customer = await createCustomer('unresolved@example.com');
+      const branchId = new mongoose.Types.ObjectId();
+      const ghostInventoryId = new mongoose.Types.ObjectId(); // does not exist in Inventory collection
+
+      const order = await Order.create({
+        customerId: customer._id,
+        branchId: null,
+        orderDate: new Date(),
+        orderAmount: 12000,
+        status: ORDER_STATUS_VALUES.PROCESSING,
+        statusUpdatedAt: new Date(),
+      });
+
+      await OrderItem.create({
+        orderId: order._id,
+        inventoryId: ghostInventoryId,
+        itemName: 'Vintage Sunglasses',
+        price: 12000,
+        quantity: 1,
+        classificationSnapshot: {
+          source: 'Inventory',
+          sourceInventoryId: ghostInventoryId,
+          category: 'SUNGLASSES',
+          itemClassification: 'UNKNOWN',
+          loyaltyEligibility: 'UNKNOWN',
+        },
+      });
+
+      await Payment.create({
+        orderId: order._id,
+        amount: order.orderAmount,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+      });
+
+      const staffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branchId.toString(),
+      });
+
+      const claimRes = await request(app)
+        .patch(`/api/orders/${order._id}/claim`)
+        .set('Authorization', `Bearer ${staffToken}`);
+
+      expect(claimRes.status).toBe(409);
+      expect(claimRes.body.success).toBe(false);
     });
   });
 });
