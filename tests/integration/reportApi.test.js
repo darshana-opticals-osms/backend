@@ -9,6 +9,7 @@ const Branch = require('../../src/models/branch.model');
 const Customer = require('../../src/models/customer.model');
 const Inventory = require('../../src/models/inventory.model');
 const AuditEvent = require('../../src/models/auditEvent.model');
+const ExcelJS = require('exceljs');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 const { PAYMENT_STATUS, PAYMENT_METHOD } = require('../../src/constants/payment');
 const { AUDIT_ACTION, AUDIT_TARGET_TYPE } = require('../../src/constants/audit');
@@ -653,6 +654,117 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       expect(auditEvent.actorRole).toBe(ROLE_VALUES.SYSTEM_ADMIN);
       expect(auditEvent.metadata.reportType).toBe('inventory');
       expect(auditEvent.metadata.rowCount).toBe(1);
+    });
+
+    it('exports sales report as multi-sheet Excel (.xlsx) by default with branch sheets', async () => {
+      const now = new Date();
+
+      // Order for Branch A
+      const orderA = await Order.create({
+        customerId: customerA._id,
+        branchId: branchA._id,
+        orderAmount: 8500,
+        status: 'COMPLETED',
+        orderDate: now,
+      });
+      await Payment.create({
+        orderId: orderA._id,
+        amount: 8500,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.CASH,
+        paidAt: now,
+      });
+
+      // Order for Branch B
+      const orderB = await Order.create({
+        customerId: customerA._id,
+        branchId: branchB._id,
+        orderAmount: 14000,
+        status: 'COMPLETED',
+        orderDate: now,
+      });
+      await Payment.create({
+        orderId: orderB._id,
+        amount: 14000,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.CARD,
+        paidAt: now,
+      });
+
+      const res = await request(app)
+        .get('/api/reports/sales/export')
+        .query({ preset: 'today' })
+        .set('Authorization', `Bearer ${adminToken}`)
+        .buffer(true)
+        .parse((resBody, callback) => {
+          const chunks = [];
+          resBody.on('data', (chunk) => chunks.push(chunk));
+          resBody.on('end', () => callback(null, Buffer.concat(chunks)));
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.header['content-type']).toContain(
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+      expect(res.header['content-disposition']).toMatch(
+        /attachment; filename="sales-report-.*\.xlsx"/
+      );
+
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(res.body);
+
+      const sheetNames = wb.worksheets.map((s) => s.name);
+      expect(sheetNames).toContain('All Branches');
+      expect(sheetNames).toContain(branchA.codeName);
+      expect(sheetNames).toContain(branchB.codeName);
+    });
+
+    it('exports inventory report as multi-sheet Excel (.xlsx) with branch sheets', async () => {
+      await Inventory.create([
+        {
+          itemName: 'RayBan Aviator Frame',
+          category: 'Frames',
+          brand: 'RayBan',
+          price: 28000,
+          quantity: 5,
+          branchId: branchA._id,
+        },
+        {
+          itemName: 'Crizal Sapphire Lens',
+          category: 'Lenses',
+          brand: 'Essilor',
+          price: 15000,
+          quantity: 8,
+          branchId: branchB._id,
+        },
+      ]);
+
+      const res = await request(app)
+        .get('/api/reports/inventory/export')
+        .query({ format: 'xlsx' })
+        .set('Authorization', `Bearer ${adminToken}`)
+        .buffer(true)
+        .parse((resBody, callback) => {
+          const chunks = [];
+          resBody.on('data', (chunk) => chunks.push(chunk));
+          resBody.on('end', () => callback(null, Buffer.concat(chunks)));
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.header['content-type']).toContain(
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+      expect(res.header['content-disposition']).toMatch(
+        /attachment; filename="inventory-report-.*\.xlsx"/
+      );
+
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(res.body);
+
+      const sheetNames = wb.worksheets.map((s) => s.name);
+      expect(sheetNames).toContain('All Branches');
+      expect(sheetNames).toContain(branchA.codeName);
+      expect(sheetNames).toContain(branchB.codeName);
     });
   });
 });

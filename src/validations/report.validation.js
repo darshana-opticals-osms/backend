@@ -319,8 +319,8 @@ function validateSalesExportQuery(req) {
   const branchErr = validateBranchId(query.branchId);
   if (branchErr) errors.push(branchErr);
 
-  if (query.format !== undefined && query.format !== 'csv') {
-    errors.push({ field: 'format', message: 'Only "csv" export format is supported.' });
+  if (query.format !== undefined && !['csv', 'xlsx'].includes(query.format)) {
+    errors.push({ field: 'format', message: 'format must be one of: csv, xlsx.' });
   }
 
   errors.push(...validateNoRequestBody(req.body));
@@ -343,8 +343,8 @@ function validateInventoryExportQuery(req) {
   const branchErr = validateBranchId(query.branchId);
   if (branchErr) errors.push(branchErr);
 
-  if (query.format !== undefined && query.format !== 'csv') {
-    errors.push({ field: 'format', message: 'Only "csv" export format is supported.' });
+  if (query.format !== undefined && !['csv', 'xlsx'].includes(query.format)) {
+    errors.push({ field: 'format', message: 'format must be one of: csv, xlsx.' });
   }
 
   errors.push(...validateNoRequestBody(req.body));

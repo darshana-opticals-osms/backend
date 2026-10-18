@@ -51,21 +51,22 @@ const getSalesOrders = catchAsync(async (req, res) => {
  * Generates and downloads RFC-4180 CSV export of qualifying sales orders with audit logging.
  */
 const exportSalesReport = catchAsync(async (req, res) => {
-  const { preset, startDate, endDate, branchId, orderStatus } = req.query;
+  const { preset, startDate, endDate, branchId, orderStatus, format = 'xlsx' } = req.query;
 
-  const result = await reportExportService.exportSalesReportCsv({
+  const result = await reportExportService.exportSalesReport({
     preset,
     startDate,
     endDate,
     branchId,
     orderStatus,
+    format,
     user: req.auth || req.user,
     req,
   });
 
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Type', result.contentType);
   res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
-  return res.status(200).send(result.csvContent);
+  return res.status(200).send(result.buffer || result.csvContent);
 });
 
 /**
@@ -109,22 +110,23 @@ const getInventoryItems = catchAsync(async (req, res) => {
 
 /**
  * GET /api/reports/inventory/export
- * Generates and downloads RFC-4180 CSV export of current stock items with audit logging.
+ * Generates and downloads multi-sheet Excel (.xlsx) or RFC-4180 CSV export of current stock items with audit logging.
  */
 const exportInventoryReport = catchAsync(async (req, res) => {
-  const { branchId, category, reorderStatus } = req.query;
+  const { branchId, category, reorderStatus, format = 'xlsx' } = req.query;
 
-  const result = await reportExportService.exportInventoryReportCsv({
+  const result = await reportExportService.exportInventoryReport({
     branchId,
     category,
     reorderStatus,
+    format,
     user: req.auth || req.user,
     req,
   });
 
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Type', result.contentType);
   res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
-  return res.status(200).send(result.csvContent);
+  return res.status(200).send(result.buffer || result.csvContent);
 });
 
 module.exports = {

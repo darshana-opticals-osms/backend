@@ -209,12 +209,17 @@ router.get(
  *         name: format
  *         schema:
  *           type: string
- *           enum: [csv]
- *           default: csv
+ *           enum: [xlsx, csv]
+ *           default: xlsx
+ *         description: Export file format. Default is xlsx (multi-sheet Excel workbook).
  *     responses:
  *       200:
- *         description: RFC-4180 CSV file stream.
+ *         description: Report export file stream (Excel workbook or CSV).
  *         content:
+ *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+ *             schema:
+ *               type: string
+ *               format: binary
  *           text/csv:
  *             schema:
  *               type: string
@@ -395,12 +400,17 @@ router.get(
  *         name: format
  *         schema:
  *           type: string
- *           enum: [csv]
- *           default: csv
+ *           enum: [xlsx, csv]
+ *           default: xlsx
+ *         description: Export file format. Default is xlsx (multi-sheet Excel workbook).
  *     responses:
  *       200:
- *         description: RFC-4180 CSV file stream.
+ *         description: Inventory export file stream (Excel workbook or CSV).
  *         content:
+ *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+ *             schema:
+ *               type: string
+ *               format: binary
  *           text/csv:
  *             schema:
  *               type: string

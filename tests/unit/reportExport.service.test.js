@@ -7,12 +7,16 @@ const Customer = require('../../src/models/customer.model');
 const Inventory = require('../../src/models/inventory.model');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 const { PAYMENT_STATUS, PAYMENT_METHOD } = require('../../src/constants/payment');
+const ExcelJS = require('exceljs');
 const { AUDIT_ACTION, AUDIT_TARGET_TYPE, AUDIT_OUTCOME } = require('../../src/constants/audit');
 const auditService = require('../../src/services/audit.service');
 const {
   escapeCsvCell,
   buildCsvString,
+  sanitizeSheetName,
+  exportSalesReport,
   exportSalesReportCsv,
+  exportInventoryReport,
   exportInventoryReportCsv,
 } = require('../../src/services/reportExport.service');
 
@@ -103,6 +107,31 @@ describe('reportExport.service (ADR-014 §11, §14.2 & RFC-4180)', () => {
       ];
       const csv = buildCsvString(headers, rows);
       expect(csv).toBe('ColA,ColB\r\nVal1,Val2\r\n"Val3,with,comma",Val4\r\n');
+    });
+  });
+
+  describe('sanitizeSheetName utility', () => {
+    it('truncates sheet names longer than 31 characters', () => {
+      const longName = 'This is a very long branch name that exceeds thirty one chars';
+      const sanitized = sanitizeSheetName(longName);
+      expect(sanitized.length).toBeLessThanOrEqual(31);
+    });
+
+    it('replaces forbidden Excel characters (\\ / ? * [ ] :) with spaces', () => {
+      const invalidName = 'Branch [Main] / North:West *?';
+      const sanitized = sanitizeSheetName(invalidName);
+      expect(sanitized).not.toMatch(/[\\/?*[\]:]/);
+    });
+
+    it('ensures sheet name uniqueness by appending incrementing suffix', () => {
+      const existing = new Set();
+      const first = sanitizeSheetName('Colombo', existing);
+      const second = sanitizeSheetName('Colombo', existing);
+      const third = sanitizeSheetName('Colombo', existing);
+
+      expect(first).toBe('Colombo');
+      expect(second).toBe('Colombo (1)');
+      expect(third).toBe('Colombo (2)');
     });
   });
 
@@ -347,6 +376,145 @@ describe('reportExport.service (ADR-014 §11, §14.2 & RFC-4180)', () => {
       expect(result.rowCount).toBe(1);
       expect(result.csvContent).toContain('Branch A Frame');
       expect(result.csvContent).not.toContain('Branch B Frame');
+    });
+  });
+
+  describe('multi-sheet Excel export (.xlsx) generation', () => {
+    it('creates separate sheets for each branch plus an All Branches sheet on org-wide sales export', async () => {
+      const now = new Date();
+
+      const order1 = await Order.create({
+        customerId: customerA._id,
+        branchId: branchA._id,
+        orderAmount: 12000,
+        status: 'COMPLETED',
+        orderDate: now,
+      });
+      await Payment.create({
+        orderId: order1._id,
+        amount: 12000,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.CASH,
+        paidAt: now,
+      });
+
+      const order2 = await Order.create({
+        customerId: customerA._id,
+        branchId: branchB._id,
+        orderAmount: 15000,
+        status: 'COMPLETED',
+        orderDate: now,
+      });
+      await Payment.create({
+        orderId: order2._id,
+        amount: 15000,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.CARD,
+        paidAt: now,
+      });
+
+      const user = {
+        userId: 'admin-1',
+        role: ROLE_VALUES.SYSTEM_ADMIN,
+      };
+
+      const result = await exportSalesReport({
+        preset: 'today',
+        format: 'xlsx',
+        user,
+      });
+
+      expect(result.filename).toMatch(/^sales-report-.*\.xlsx$/);
+      expect(result.contentType).toBe(
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+      expect(Buffer.isBuffer(result.buffer)).toBe(true);
+
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(result.buffer);
+
+      const sheetNames = wb.worksheets.map((s) => s.name);
+      expect(sheetNames).toContain('All Branches');
+      expect(sheetNames).toContain('COLOMBO_CENTRAL');
+      expect(sheetNames).toContain('KANDY_BRANCH');
+
+      const allSheet = wb.getWorksheet('All Branches');
+      expect(allSheet.rowCount).toBe(3); // 1 header row + 2 data rows
+
+      const branchASheet = wb.getWorksheet('COLOMBO_CENTRAL');
+      expect(branchASheet.rowCount).toBe(2); // 1 header row + 1 data row
+
+      const branchBSheet = wb.getWorksheet('KANDY_BRANCH');
+      expect(branchBSheet.rowCount).toBe(2); // 1 header row + 1 data row
+    });
+
+    it('creates separate sheets for each branch on org-wide inventory export', async () => {
+      await Inventory.create({
+        itemName: 'Branch A Frame',
+        category: 'Frames',
+        brand: 'RayBan',
+        price: 15000,
+        quantity: 10,
+        branchId: branchA._id,
+      });
+
+      await Inventory.create({
+        itemName: 'Branch B Lens',
+        category: 'Lenses',
+        brand: 'Essilor',
+        price: 8000,
+        quantity: 5,
+        branchId: branchB._id,
+      });
+
+      const user = {
+        userId: 'admin-1',
+        role: ROLE_VALUES.SYSTEM_ADMIN,
+      };
+
+      const result = await exportInventoryReport({
+        format: 'xlsx',
+        user,
+      });
+
+      expect(result.filename).toMatch(/^inventory-report-.*\.xlsx$/);
+      expect(Buffer.isBuffer(result.buffer)).toBe(true);
+
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(result.buffer);
+
+      const sheetNames = wb.worksheets.map((s) => s.name);
+      expect(sheetNames).toContain('All Branches');
+      expect(sheetNames).toContain('COLOMBO_CENTRAL');
+      expect(sheetNames).toContain('KANDY_BRANCH');
+    });
+
+    it('creates a single branch sheet when scoped to a specific branch', async () => {
+      await Inventory.create({
+        itemName: 'Scoped Branch A Frame',
+        category: 'Frames',
+        brand: 'Oakley',
+        price: 20000,
+        quantity: 7,
+        branchId: branchA._id,
+      });
+
+      const user = {
+        userId: 'bm-1',
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branchA._id.toString(),
+      };
+
+      const result = await exportInventoryReport({
+        format: 'xlsx',
+        user,
+      });
+
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(result.buffer);
+
+      expect(wb.worksheets).toHaveLength(1);
+      expect(wb.worksheets[0].name).toBe('COLOMBO_CENTRAL');
     });
   });
 });

@@ -209,7 +209,20 @@ describe('report.validation (ADR-014 §12 & §15.5)', () => {
       expect(errors).toEqual([]);
     });
 
-    it('rejects unsupported format like pdf or xlsx', () => {
+    it('accepts format=xlsx for sales export query', () => {
+      const req = {
+        query: {
+          preset: 'today',
+          format: 'xlsx',
+        },
+        body: {},
+      };
+
+      const errors = validateSalesExportQuery(req);
+      expect(errors).toEqual([]);
+    });
+
+    it('rejects unsupported format like pdf or docx', () => {
       const req = {
         query: {
           format: 'pdf',
@@ -221,23 +234,30 @@ describe('report.validation (ADR-014 §12 & §15.5)', () => {
       expect(errors.some((e) => e.field === 'format')).toBe(true);
     });
 
-    it('accepts valid inventory export query', () => {
-      const req = {
+    it('accepts valid inventory export query with format csv or xlsx', () => {
+      const reqCsv = {
         query: {
           category: 'Frames',
           format: 'csv',
         },
         body: {},
       };
+      expect(validateInventoryExportQuery(reqCsv)).toEqual([]);
 
-      const errors = validateInventoryExportQuery(req);
-      expect(errors).toEqual([]);
+      const reqXlsx = {
+        query: {
+          category: 'Frames',
+          format: 'xlsx',
+        },
+        body: {},
+      };
+      expect(validateInventoryExportQuery(reqXlsx)).toEqual([]);
     });
 
     it('rejects unsupported format in inventory export query', () => {
       const req = {
         query: {
-          format: 'xlsx',
+          format: 'xml',
         },
         body: {},
       };
