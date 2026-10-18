@@ -185,11 +185,20 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       expect(res.body.error.message).toContain('Access forbidden');
     });
 
-    it('returns 403 Forbidden when SYSTEM_ADMIN attempts sales report (strictly MANAGEMENT/BRANCH_MANAGER only)', async () => {
-      const res = await request(app)
+    it('allows SYSTEM_ADMIN to access sales and inventory reports with optional branch scoping', async () => {
+      const salesRes = await request(app)
         .get('/api/reports/sales')
+        .query({ branchId: branchA._id.toString() })
         .set('Authorization', `Bearer ${adminToken}`);
-      expect(res.status).toBe(403);
+      expect(salesRes.status).toBe(200);
+      expect(salesRes.body.success).toBe(true);
+
+      const invRes = await request(app)
+        .get('/api/reports/inventory')
+        .query({ branchId: branchB._id.toString() })
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(invRes.status).toBe(200);
+      expect(invRes.body.success).toBe(true);
     });
 
     it('returns 403 Forbidden when BRANCH_MANAGER attempts IDOR on another branch sales report', async () => {

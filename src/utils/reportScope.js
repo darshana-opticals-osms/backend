@@ -61,7 +61,7 @@ function resolveReportScope(req, reportCategory) {
     };
   }
 
-  // Management and Inventory Manager have organization-wide capability
+  // Management, System Admin, and Inventory Manager have organization-wide capability
   if (requestedBranchId && requestedBranchId !== 'ALL') {
     return {
       branchId: requestedBranchId.toString(),

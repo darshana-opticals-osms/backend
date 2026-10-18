@@ -96,10 +96,43 @@ describe('resolveReportScope utility (ADR-014 §10)', () => {
     });
   });
 
+  describe('System Admin Access', () => {
+    it('allows SYSTEM_ADMIN organization-wide access for sales reports when branchId is omitted', () => {
+      const req = { auth: { role: ROLE_VALUES.SYSTEM_ADMIN }, query: {} };
+      const scope = resolveReportScope(req, 'sales');
+
+      expect(scope).toEqual({
+        branchId: null,
+        isOrgWide: true,
+        role: ROLE_VALUES.SYSTEM_ADMIN,
+      });
+    });
+
+    it('allows SYSTEM_ADMIN to filter sales reports by specific branch', () => {
+      const req = { auth: { role: ROLE_VALUES.SYSTEM_ADMIN }, query: { branchId: branchA } };
+      const scope = resolveReportScope(req, 'sales');
+
+      expect(scope).toEqual({
+        branchId: branchA,
+        isOrgWide: false,
+        role: ROLE_VALUES.SYSTEM_ADMIN,
+      });
+    });
+
+    it('allows SYSTEM_ADMIN organization-wide and branch-filtered access to inventory reports', () => {
+      const orgReq = { auth: { role: ROLE_VALUES.SYSTEM_ADMIN }, query: {} };
+      expect(resolveReportScope(orgReq, 'inventory').isOrgWide).toBe(true);
+
+      const branchReq = { auth: { role: ROLE_VALUES.SYSTEM_ADMIN }, query: { branchId: branchB } };
+      const branchScope = resolveReportScope(branchReq, 'inventory');
+      expect(branchScope.isOrgWide).toBe(false);
+      expect(branchScope.branchId).toBe(branchB);
+    });
+  });
+
   describe('Unauthorized Roles (AC29)', () => {
     it.each([
       ROLE_VALUES.CUSTOMER,
-      ROLE_VALUES.SYSTEM_ADMIN,
       ROLE_VALUES.OPTOMETRIST,
       ROLE_VALUES.BRANCH_ASSISTANT,
       'UNKNOWN_ROLE',
