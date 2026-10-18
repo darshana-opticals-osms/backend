@@ -1,9 +1,11 @@
 const mongoose = require('mongoose');
 const Order = require('../models/order.model');
 const OrderItem = require('../models/orderItem.model');
+const Inventory = require('../models/inventory.model');
 const Payment = require('../models/payment.model');
 const LoyaltyTransaction = require('../models/loyaltyTransaction.model');
 const { earnPurchasePoints } = require('./loyalty.service');
+const { evaluateReorderAlert } = require('./reorderAlert.service');
 const { PAYMENT_STATUS } = require('../constants/payment');
 const { ROLE_VALUES } = require('../constants/roles');
 const {
@@ -250,6 +252,118 @@ async function getCustomerOrderById(authenticatedCustomerId, orderId) {
 }
 
 /**
+ * Allocates and deducts stock from the claiming branch's inventory when transitioning
+ * an order from ORDER_CREATED to PROCESSING.
+ *
+ * If stock was held on a different branch's inventory record during checkout,
+ * it restores that reservation to the original branch and deducts from the claiming branch.
+ *
+ * @param {object} order - Mongoose Order document
+ * @param {string|mongoose.Types.ObjectId|null} branchId - Claiming branch ID
+ * @param {import('mongoose').ClientSession|null} [session=null]
+ */
+async function allocateBranchInventoryForOrder(order, branchId, session = null) {
+  if (!branchId || !mongoose.isValidObjectId(branchId)) return;
+
+  const branchObjectId = new mongoose.Types.ObjectId(branchId);
+  const itemsQuery = OrderItem.find({ orderId: order._id });
+  if (session && typeof itemsQuery.session === 'function') itemsQuery.session(session);
+  const items = itemsQuery && typeof itemsQuery.lean === 'function'
+    ? await itemsQuery.lean()
+    : await itemsQuery;
+
+  if (!items || items.length === 0) return;
+
+  for (const item of items) {
+    const invQuery = Inventory.findOne({
+      branchId: branchObjectId,
+      itemName: item.itemName,
+    });
+    if (session && typeof invQuery.session === 'function') invQuery.session(session);
+    const branchItem = await invQuery;
+
+    if (!branchItem || branchItem.quantity < item.quantity) {
+      const available = branchItem ? branchItem.quantity : 0;
+      throw new ConflictError(
+        `Insufficient stock for '${item.itemName}' at this branch. Available: ${available}, Required: ${item.quantity}.`,
+        null,
+        'INSUFFICIENT_BRANCH_STOCK'
+      );
+    }
+
+    const originalInventoryId = item.inventoryId ? item.inventoryId.toString() : null;
+    const branchInventoryId = branchItem._id.toString();
+
+    if (originalInventoryId !== branchInventoryId) {
+      if (originalInventoryId && mongoose.isValidObjectId(originalInventoryId)) {
+        await Inventory.findByIdAndUpdate(
+          item.inventoryId,
+          { $inc: { quantity: item.quantity } },
+          session ? { session } : {}
+        );
+      }
+
+      const updatedBranchItem = await Inventory.findByIdAndUpdate(
+        branchItem._id,
+        { $inc: { quantity: -item.quantity } },
+        session ? { session, new: true } : { new: true }
+      );
+
+      try {
+        if (updatedBranchItem) {
+          await evaluateReorderAlert(updatedBranchItem, null, session);
+        }
+      } catch {
+        // Reorder alert evaluation failure should not block order status transition
+      }
+    }
+  }
+}
+
+/**
+ * Restores stock back to the branch inventory when an order in PROCESSING is CANCELLED.
+ *
+ * @param {object} order - Mongoose Order document
+ * @param {import('mongoose').ClientSession|null} [session=null]
+ */
+async function restoreBranchInventoryForOrder(order, session = null) {
+  if (!order.branchId) return;
+
+  const itemsQuery = OrderItem.find({ orderId: order._id });
+  if (session && typeof itemsQuery.session === 'function') itemsQuery.session(session);
+  const items = itemsQuery && typeof itemsQuery.lean === 'function'
+    ? await itemsQuery.lean()
+    : await itemsQuery;
+
+  if (!items || items.length === 0) return;
+
+  for (const item of items) {
+    const invQuery = Inventory.findOne({
+      branchId: order.branchId,
+      itemName: item.itemName,
+    });
+    if (session && typeof invQuery.session === 'function') invQuery.session(session);
+    const branchItem = await invQuery;
+
+    const targetInvId = branchItem ? branchItem._id : item.inventoryId;
+    if (targetInvId && mongoose.isValidObjectId(targetInvId)) {
+      const restored = await Inventory.findByIdAndUpdate(
+        targetInvId,
+        { $inc: { quantity: item.quantity } },
+        session ? { session, new: true } : { new: true }
+      );
+      if (restored) {
+        try {
+          await evaluateReorderAlert(restored, null, session);
+        } catch {
+          // Reorder alert evaluation failure should not block order cancellation
+        }
+      }
+    }
+  }
+}
+
+/**
  * Updates an Order's canonical tracking status by authorized staff.
  *
  * Implements ADR-004 §9, §10, §11, §15, §16, §17:
@@ -356,6 +470,9 @@ async function updateOrderStatus(orderId, requestedStatus, staffUserId, options 
         'PAYMENT_REQUIRED'
       );
     }
+
+    // Allocate & deduct stock from the claiming branch's inventory
+    await allocateBranchInventoryForOrder(order, staffBranchId);
   }
 
   const previousStatus = order.status;
@@ -425,6 +542,14 @@ async function updateOrderStatus(orderId, requestedStatus, staffUserId, options 
     }
     const items = await OrderItem.find({ orderId: outcome.order._id }).lean();
     return shapeOrderDetail(outcome.order, items, { isStaff: true });
+  }
+
+  // Restore branch inventory if cancelled after entering PROCESSING
+  if (
+    previousStatus === ORDER_STATUS_VALUES.PROCESSING &&
+    trimmedStatus === ORDER_STATUS_VALUES.CANCELLED
+  ) {
+    await restoreBranchInventoryForOrder(order);
   }
 
   const updateSet = {

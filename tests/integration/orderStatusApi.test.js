@@ -5,6 +5,7 @@ const { MongoMemoryServer } = require('mongodb-memory-server');
 const { createApp } = require('../../src/app');
 const Order = require('../../src/models/order.model');
 const OrderItem = require('../../src/models/orderItem.model');
+const Inventory = require('../../src/models/inventory.model');
 const Customer = require('../../src/models/customer.model');
 const Payment = require('../../src/models/payment.model');
 const { PAYMENT_STATUS, PAYMENT_METHOD } = require('../../src/constants/payment');
@@ -60,6 +61,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       Payment.deleteMany({}),
       Order.deleteMany({}),
       OrderItem.collection.deleteMany({}),
+      Inventory.deleteMany({}),
       Customer.deleteMany({}),
     ]);
   });
@@ -722,6 +724,96 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
         .send({ status: ORDER_STATUS_VALUES.READY_FOR_PICKUP });
       expect(colomboPatchRes.status).toBe(200);
       expect(colomboPatchRes.body.data.status).toBe(ORDER_STATUS_VALUES.READY_FOR_PICKUP);
+    });
+
+    it('deducts stock from claiming branch inventory and restores upon cancellation', async () => {
+      const customer = await createCustomer('branchstock@example.com');
+      const colomboBranchId = new mongoose.Types.ObjectId();
+      const kandyBranchId = new mongoose.Types.ObjectId();
+
+      // Kandy original inventory (where customer initially added to cart)
+      const kandyInventory = await Inventory.create({
+        branchId: kandyBranchId,
+        itemName: 'Designer Sunglasses',
+        category: 'SUNGLASSES',
+        brand: 'Ray-Ban',
+        price: 15000,
+        quantity: 8,
+      });
+
+      // Colombo branch has 5 in stock
+      const colomboInventory = await Inventory.create({
+        branchId: colomboBranchId,
+        itemName: 'Designer Sunglasses',
+        category: 'SUNGLASSES',
+        brand: 'Ray-Ban',
+        price: 15000,
+        quantity: 5,
+      });
+
+      const order = await Order.create({
+        customerId: customer._id,
+        orderDate: new Date(),
+        orderAmount: 30000,
+        status: ORDER_STATUS_VALUES.ORDER_CREATED,
+        statusUpdatedAt: new Date(),
+        statusHistory: [
+          {
+            status: ORDER_STATUS_VALUES.ORDER_CREATED,
+            changedAt: new Date(),
+            changedBy: customer._id,
+          },
+        ],
+      });
+
+      await OrderItem.create({
+        orderId: order._id,
+        inventoryId: kandyInventory._id,
+        itemName: 'Designer Sunglasses',
+        price: 15000,
+        quantity: 2,
+      });
+
+      await Payment.create({
+        orderId: order._id,
+        amount: order.orderAmount,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+      });
+
+      const colomboStaffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: colomboBranchId.toString(),
+      });
+
+      // Colombo claims the order into PROCESSING
+      const claimRes = await request(app)
+        .patch(`/api/orders/${order._id}/status`)
+        .set('Authorization', `Bearer ${colomboStaffToken}`)
+        .send({ status: ORDER_STATUS_VALUES.PROCESSING });
+
+      expect(claimRes.status).toBe(200);
+
+      // Verify Colombo inventory deducted: 5 - 2 = 3
+      const updatedColomboInv = await Inventory.findById(colomboInventory._id);
+      expect(updatedColomboInv.quantity).toBe(3);
+
+      // Verify Kandy original inventory was restored: 8 + 2 = 10
+      const updatedKandyInv = await Inventory.findById(kandyInventory._id);
+      expect(updatedKandyInv.quantity).toBe(10);
+
+      // Now cancel the order from PROCESSING
+      const cancelRes = await request(app)
+        .patch(`/api/orders/${order._id}/status`)
+        .set('Authorization', `Bearer ${colomboStaffToken}`)
+        .send({ status: ORDER_STATUS_VALUES.CANCELLED });
+
+      expect(cancelRes.status).toBe(200);
+
+      // Verify Colombo inventory restored: 3 + 2 = 5
+      const restoredColomboInv = await Inventory.findById(colomboInventory._id);
+      expect(restoredColomboInv.quantity).toBe(5);
     });
   });
 });
