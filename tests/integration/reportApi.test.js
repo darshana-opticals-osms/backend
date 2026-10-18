@@ -918,5 +918,119 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       expect(resFullPeriod.body.data.summary.grossRevenue).toBe(25000);
       expect(resFullPeriod.body.data.summary.averageOrderValue).toBe(25000);
     });
+
+    it('Third Re-Review Finding 3 & 4: populates accurate branch breakdown metrics (revenue, refunds, net, items sold) and exports them to Excel without zero fallbacks', async () => {
+      const orderDate = new Date('2024-06-02T10:00:00.000Z');
+      const paymentDate = new Date('2024-06-03T14:00:00.000Z');
+      const refundDate = new Date('2024-06-04T16:00:00.000Z');
+
+      const invItem = await Inventory.create({
+        branchId: branchA._id,
+        itemName: 'Branch A Frame',
+        category: 'Frames',
+        brand: 'Darshana',
+        price: 7500,
+        quantity: 10,
+      });
+
+      const order = await Order.create({
+        customerId: customerA._id,
+        branchId: branchA._id,
+        orderDate,
+        createdAt: orderDate,
+        orderAmount: 15000,
+        status: 'COMPLETED',
+      });
+
+      await OrderItem.create({
+        orderId: order._id,
+        inventoryId: invItem._id,
+        fulfilledInventoryId: invItem._id,
+        itemName: 'Branch A Frame',
+        price: 7500,
+        quantity: 2,
+      });
+
+      await Payment.create({
+        orderId: order._id,
+        amount: 15000,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+        paidAt: paymentDate,
+        createdAt: paymentDate,
+        refundAmount: 3000,
+        refundedAt: refundDate,
+      });
+
+      // 1. JSON Report Verification
+      const resJson = await request(app)
+        .get('/api/reports/sales')
+        .query({ preset: 'custom', startDate: '2024-06-01', endDate: '2024-06-05', groupBy: 'day' })
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(resJson.status).toBe(200);
+      const summary = resJson.body.data.summary;
+      expect(summary.grossRevenue).toBe(15000);
+      expect(summary.refundDeductions).toBe(3000);
+      expect(summary.netRevenue).toBe(12000);
+      expect(summary.totalOrders).toBe(1);
+      expect(summary.itemsSold).toBe(2);
+
+      // Verify branch breakdown has non-zero calculated values
+      const branchEntry = resJson.body.data.breakdowns.byBranch.find(
+        (b) => b.branchId === branchA._id.toString()
+      );
+      expect(branchEntry).toBeDefined();
+      expect(branchEntry.grossRevenue).toBe(15000);
+      expect(branchEntry.refundDeductions).toBe(3000);
+      expect(branchEntry.netRevenue).toBe(12000);
+      expect(branchEntry.orderCount).toBe(1);
+      expect(branchEntry.itemCount).toBe(2);
+
+      // Verify SM-04 time series consistency:
+      // Order was created on 2024-06-02 (orderCount: 1, grossRevenue: 0)
+      // Payment was made on 2024-06-03 (orderCount: 0, grossRevenue: 15000)
+      const day2Entry = resJson.body.data.breakdowns.byTime.find((t) => t.period === '2024-06-02');
+      const day3Entry = resJson.body.data.breakdowns.byTime.find((t) => t.period === '2024-06-03');
+      expect(day2Entry).toBeDefined();
+      expect(day2Entry.orderCount).toBe(1);
+      expect(day2Entry.grossRevenue).toBe(0);
+      expect(day3Entry).toBeDefined();
+      expect(day3Entry.orderCount).toBe(0);
+      expect(day3Entry.grossRevenue).toBe(15000);
+
+      // 2. Excel Export Verification
+      const resExcel = await request(app)
+        .get('/api/reports/sales/export')
+        .query({ preset: 'custom', startDate: '2024-06-01', endDate: '2024-06-05' })
+        .set('Authorization', `Bearer ${adminToken}`)
+        .buffer(true)
+        .parse((resBody, callback) => {
+          const chunks = [];
+          resBody.on('data', (chunk) => chunks.push(chunk));
+          resBody.on('end', () => callback(null, Buffer.concat(chunks)));
+        });
+
+      expect(resExcel.status).toBe(200);
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(resExcel.body);
+
+      const branchSheet = wb.getWorksheet('Branch Breakdowns');
+      expect(branchSheet).toBeDefined();
+
+      let targetRow = null;
+      branchSheet.eachRow((row, rowNumber) => {
+        if (rowNumber > 1 && row.getCell(1).value === (branchA.codeName || branchA.name)) {
+          targetRow = row;
+        }
+      });
+
+      expect(targetRow).not.toBeNull();
+      expect(targetRow.getCell(2).value).toBe('15000.00'); // Gross Revenue
+      expect(targetRow.getCell(3).value).toBe('3000.00'); // Refund Deductions
+      expect(targetRow.getCell(4).value).toBe('12000.00'); // Net Revenue
+      expect(targetRow.getCell(5).value).toBe(1); // Total Orders
+      expect(targetRow.getCell(6).value).toBe(2); // Items Sold
+    });
   });
 });

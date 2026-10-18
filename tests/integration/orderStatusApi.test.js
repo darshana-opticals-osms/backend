@@ -1376,5 +1376,91 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       const invAfterAttempt = await Inventory.findById(inv._id);
       expect(invAfterAttempt.quantity).toBe(10);
     });
+
+    // ─── Third Re-Review Finding 6: Cross-Branch Cancellation Guard on Unclaimed Orders ──
+    it('Third Re-Review Finding 6: rejects cross-branch cancellation of unclaimed PROCESSING orders by branch staff', async () => {
+      const branchA = await Branch.create({
+        codeName: 'CANCEL_SOURCE_BRANCH',
+        address: '10 Alpha Way',
+        contactNumber: '+94112223344',
+      });
+      const branchB = await Branch.create({
+        codeName: 'CANCEL_ATTACK_BRANCH',
+        address: '20 Beta Road',
+        contactNumber: '+94112223355',
+      });
+
+      const invA = await Inventory.create({
+        branchId: branchA._id,
+        itemName: 'Branch A Frame Item',
+        category: 'FRAMES',
+        brand: 'Darshana',
+        price: 12000,
+        quantity: 8, // already decremented 10 -> 8 at checkout
+      });
+
+      const customer = await createCustomer('cross-cancel@example.com');
+      const order = await Order.create({
+        customerId: customer._id,
+        branchId: null, // Unclaimed online order
+        orderDate: new Date(),
+        orderAmount: 24000,
+        status: ORDER_STATUS_VALUES.PROCESSING,
+        statusUpdatedAt: new Date(),
+      });
+
+      await OrderItem.create({
+        orderId: order._id,
+        inventoryId: invA._id,
+        itemName: 'Branch A Frame Item',
+        price: 12000,
+        quantity: 2,
+      });
+
+      await Payment.create({
+        orderId: order._id,
+        amount: 24000,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+      });
+
+      // Staff from Branch B attempts to cancel Branch A's unclaimed order
+      const staffBToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
+        branchId: branchB._id.toString(),
+      });
+
+      const crossCancelRes = await request(app)
+        .patch(`/api/orders/${order._id}/status`)
+        .set('Authorization', `Bearer ${staffBToken}`)
+        .send({ status: ORDER_STATUS_VALUES.CANCELLED });
+
+      expect(crossCancelRes.status).toBe(403);
+      expect(crossCancelRes.body.error.code).toBe('BRANCH_ACCESS_DENIED');
+
+      // Stock must not have been modified
+      const invAfterForbiddenCancel = await Inventory.findById(invA._id);
+      expect(invAfterForbiddenCancel.quantity).toBe(8);
+
+      // Staff from Branch A cancels: authorized and succeeds!
+      const staffAToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
+        branchId: branchA._id.toString(),
+      });
+
+      const authorizedCancelRes = await request(app)
+        .patch(`/api/orders/${order._id}/status`)
+        .set('Authorization', `Bearer ${staffAToken}`)
+        .send({ status: ORDER_STATUS_VALUES.CANCELLED });
+
+      expect(authorizedCancelRes.status).toBe(200);
+      expect(authorizedCancelRes.body.data.status).toBe(ORDER_STATUS_VALUES.CANCELLED);
+
+      // Stock successfully restored to Branch A (8 -> 10)
+      const invAfterAuthorizedCancel = await Inventory.findById(invA._id);
+      expect(invAfterAuthorizedCancel.quantity).toBe(10);
+    });
   });
 });

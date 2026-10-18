@@ -122,7 +122,7 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
     await Promise.all([
       Payment.aggregate(salesPipeline),
 
-      // Refund deductions query
+      // Refund deductions query - grouped by branch for branch breakdown and summary
       Payment.aggregate([
         { $match: buildRefundMatch({ startUtc, endUtc }) },
         {
@@ -137,8 +137,8 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
         ...(targetBranchObjectId ? [{ $match: { 'order.branchId': targetBranchObjectId } }] : []),
         {
           $group: {
-            _id: null,
-            totalRefundDeductions: {
+            _id: { $ifNull: ['$order.branchId', 'UNASSIGNED'] },
+            refundDeductions: {
               $sum: {
                 $cond: [
                   { $gt: ['$refundAmount', 0] },
@@ -197,20 +197,30 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
           },
         },
         {
-          $group: {
-            _id: null,
-            totalQualifyingOrders: { $sum: 1 },
+          $project: {
+            _id: 1,
+            branchId: 1,
+            orderDate: { $ifNull: ['$createdAt', '$orderDate'] },
           },
         },
       ]),
     ]);
 
-  // Compute SM-01, SM-04, distinct qualifying order IDs
-  let grossRevenue = 0;
-  const distinctOrderIds = new Set();
-  const branchSalesMap = new Map();
-  const methodMap = new Map();
-  const timeMap = new Map();
+  // Compute total and branch refund deductions
+  const branchRefundMap = new Map();
+  let totalRefundDeductions = 0;
+  for (const ref of refundsAggregation) {
+    const bKey = ref._id && ref._id !== 'UNASSIGNED' ? ref._id.toString() : 'UNASSIGNED';
+    const amt = ref.refundDeductions || 0;
+    branchRefundMap.set(bKey, amt);
+    totalRefundDeductions += amt;
+  }
+  totalRefundDeductions = roundToTwo(totalRefundDeductions);
+
+  // Compute operational qualifying orders (SM-04 per ADR-014: Order.createdAt within [startUtc, endUtc])
+  const totalQualifyingOrders = qualifyingOrdersAggregation.length;
+  const branchOperationalOrderCountMap = new Map();
+  const timeOperationalOrderCountMap = new Map();
 
   // Helper for time grouping format
   const getTimeKey = (date) => {
@@ -233,6 +243,26 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
     return `${y}-${m}-${d}`;
   };
 
+  for (const qOrder of qualifyingOrdersAggregation) {
+    const bKey = qOrder.branchId ? qOrder.branchId.toString() : 'UNASSIGNED';
+    branchOperationalOrderCountMap.set(bKey, (branchOperationalOrderCountMap.get(bKey) || 0) + 1);
+
+    if (['day', 'week', 'month'].includes(groupBy) && qOrder.orderDate) {
+      const timeKey = getTimeKey(new Date(qOrder.orderDate));
+      timeOperationalOrderCountMap.set(
+        timeKey,
+        (timeOperationalOrderCountMap.get(timeKey) || 0) + 1
+      );
+    }
+  }
+
+  // Compute SM-01, distinct qualifying order IDs for items sold
+  let grossRevenue = 0;
+  const distinctOrderIds = new Set();
+  const branchSalesMap = new Map();
+  const methodMap = new Map();
+  const timeMap = new Map();
+
   for (const record of salesRecords) {
     const amt = record.amount || 0;
     grossRevenue += amt;
@@ -240,19 +270,17 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
     const orderIdStr = record.orderId.toString();
     distinctOrderIds.add(orderIdStr);
 
-    // Branch breakdown - track unique order IDs
+    // Branch breakdown - track gross revenue
     const branchKey = record.branchId ? record.branchId.toString() : 'UNASSIGNED';
     let branchEntry = branchSalesMap.get(branchKey);
     if (!branchEntry) {
       branchEntry = {
         branchId: branchKey,
         grossRevenue: 0,
-        orders: new Set(),
       };
       branchSalesMap.set(branchKey, branchEntry);
     }
     branchEntry.grossRevenue += amt;
-    branchEntry.orders.add(orderIdStr);
 
     // Payment method breakdown
     const methodKey = record.method || 'OTHER';
@@ -261,37 +289,57 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
     methodEntry.volume += amt;
     methodMap.set(methodKey, methodEntry);
 
-    // Time series grouping - track unique order IDs
+    // Time series grouping - track gross revenue
     if (['day', 'week', 'month'].includes(groupBy)) {
       const timeKey = getTimeKey(record.paidDate);
       let timeEntry = timeMap.get(timeKey);
       if (!timeEntry) {
-        timeEntry = { period: timeKey, grossRevenue: 0, orders: new Set() };
+        timeEntry = { period: timeKey, grossRevenue: 0 };
         timeMap.set(timeKey, timeEntry);
       }
       timeEntry.grossRevenue += amt;
-      timeEntry.orders.add(orderIdStr);
     }
   }
 
-  // Calculate items sold quantity (SM-06) and category breakdown (SM-08)
+  // Calculate items sold quantity (SM-06), category breakdown (SM-08), and branch items sold
   const qualifyingOrderObjectIds = Array.from(distinctOrderIds).map(
     (id) => new mongoose.Types.ObjectId(id)
   );
 
   let itemsSoldQuantity = 0;
   const categoryBreakdown = [];
+  const branchItemCountMap = new Map();
 
   if (qualifyingOrderObjectIds.length > 0) {
-    const itemAggregations = await OrderItem.aggregate([
-      { $match: { orderId: { $in: qualifyingOrderObjectIds } } },
-      {
-        $group: {
-          _id: { $ifNull: ['$classificationSnapshot.category', 'General Optical'] },
-          quantity: { $sum: '$quantity' },
-          volume: { $sum: { $multiply: ['$price', '$quantity'] } },
+    const [itemAggregations, branchItemAggregations] = await Promise.all([
+      OrderItem.aggregate([
+        { $match: { orderId: { $in: qualifyingOrderObjectIds } } },
+        {
+          $group: {
+            _id: { $ifNull: ['$classificationSnapshot.category', 'General Optical'] },
+            quantity: { $sum: '$quantity' },
+            volume: { $sum: { $multiply: ['$price', '$quantity'] } },
+          },
         },
-      },
+      ]),
+      OrderItem.aggregate([
+        { $match: { orderId: { $in: qualifyingOrderObjectIds } } },
+        {
+          $lookup: {
+            from: 'orders',
+            localField: 'orderId',
+            foreignField: '_id',
+            as: 'order',
+          },
+        },
+        { $unwind: { path: '$order', preserveNullAndEmptyArrays: true } },
+        {
+          $group: {
+            _id: { $ifNull: ['$order.branchId', 'UNASSIGNED'] },
+            itemCount: { $sum: '$quantity' },
+          },
+        },
+      ]),
     ]);
 
     for (const itemAgg of itemAggregations) {
@@ -301,6 +349,23 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
         quantity: itemAgg.quantity,
         revenue: roundToTwo(itemAgg.volume),
       });
+    }
+
+    for (const bAgg of branchItemAggregations) {
+      const bKey = bAgg._id && bAgg._id !== 'UNASSIGNED' ? bAgg._id.toString() : 'UNASSIGNED';
+      branchItemCountMap.set(bKey, bAgg.itemCount);
+    }
+  }
+
+  // Ensure branches with operational orders or refunds are also present in branchSalesMap
+  for (const bId of branchOperationalOrderCountMap.keys()) {
+    if (!branchSalesMap.has(bId)) {
+      branchSalesMap.set(bId, { branchId: bId, grossRevenue: 0 });
+    }
+  }
+  for (const bId of branchRefundMap.keys()) {
+    if (!branchSalesMap.has(bId)) {
+      branchSalesMap.set(bId, { branchId: bId, grossRevenue: 0 });
     }
   }
 
@@ -316,12 +381,21 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
   );
 
   for (const [bId, entry] of branchSalesMap.entries()) {
+    const bGross = roundToTwo(entry.grossRevenue);
+    const bRefund = roundToTwo(branchRefundMap.get(bId) || 0);
+    const bNet = roundToTwo(bGross - bRefund);
+    const bOrders = branchOperationalOrderCountMap.get(bId) || 0;
+    const bItems = branchItemCountMap.get(bId) || 0;
+
     branchBreakdown.push({
       branchId: bId === 'UNASSIGNED' ? null : bId,
       branchName:
         bId === 'UNASSIGNED' ? 'Unassigned / Online' : branchNameById.get(bId) || 'Unknown Branch',
-      grossRevenue: roundToTwo(entry.grossRevenue),
-      orderCount: entry.orders ? entry.orders.size : entry.orderCount || 0,
+      grossRevenue: bGross,
+      refundDeductions: bRefund,
+      netRevenue: bNet,
+      orderCount: bOrders,
+      itemCount: bItems,
     });
   }
 
@@ -332,18 +406,22 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
     volume: roundToTwo(m.volume),
   }));
 
+  // Ensure time periods with operational orders are also present in timeMap
+  for (const timeKey of timeOperationalOrderCountMap.keys()) {
+    if (!timeMap.has(timeKey)) {
+      timeMap.set(timeKey, { period: timeKey, grossRevenue: 0 });
+    }
+  }
+
   // Format time series breakdown sorted chronologically
   const timeSeriesBreakdown = Array.from(timeMap.values())
     .map((t) => ({
       period: t.period,
       grossRevenue: roundToTwo(t.grossRevenue),
-      orderCount: t.orders ? t.orders.size : t.orderCount || 0,
+      orderCount: timeOperationalOrderCountMap.get(t.period) || 0,
     }))
     .sort((a, b) => a.period.localeCompare(b.period));
 
-  const totalRefundDeductions = roundToTwo(refundsAggregation[0]?.totalRefundDeductions || 0);
-  // SM-04 per ADR-014: Operational qualifying orders attributed to Order.createdAt within the window
-  const totalQualifyingOrders = qualifyingOrdersAggregation[0]?.totalQualifyingOrders || 0;
   const netRevenue = roundToTwo(grossRevenue - totalRefundDeductions);
   const averageOrderValue =
     totalQualifyingOrders > 0 ? roundToTwo(grossRevenue / totalQualifyingOrders) : 0;

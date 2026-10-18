@@ -740,6 +740,28 @@ async function updateOrderStatus(orderId, requestedStatus, staffUserId, options 
     );
   }
 
+  // Review Item 6: Prevent branch staff from cancelling unclaimed orders reserved from another branch
+  if (!order.branchId && trimmedStatus === ORDER_STATUS_VALUES.CANCELLED && isBranchStaff) {
+    const orderItems = await OrderItem.find({ orderId: order._id }).lean();
+    for (const itm of orderItems) {
+      const invId = itm.fulfilledInventoryId || itm.inventoryId;
+      if (invId) {
+        const sourceInv = await Inventory.findById(invId).lean();
+        if (
+          sourceInv &&
+          sourceInv.branchId &&
+          sourceInv.branchId.toString() !== staffBranchId.toString()
+        ) {
+          throw new ForbiddenError(
+            'You are not authorized to cancel unclaimed orders containing inventory reserved from another branch.',
+            null,
+            'BRANCH_ACCESS_DENIED'
+          );
+        }
+      }
+    }
+  }
+
   // Prevent an unclaimed PROCESSING order from advancing to downstream fulfillment without branch claiming
   if (
     order.status === ORDER_STATUS_VALUES.PROCESSING &&
