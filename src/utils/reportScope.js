@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const { ROLE_VALUES } = require('../constants/roles');
 const { SALES_VIEW_ROLES, INVENTORY_VIEW_ROLES } = require('../constants/report.constants');
 const { ForbiddenError, UnauthorizedError } = require('../errors/AppError');
@@ -35,8 +36,12 @@ function resolveReportScope(req, reportCategory) {
 
   if (role === ROLE_VALUES.BRANCH_MANAGER) {
     const userBranchId = req.auth?.branchId || req.user?.branchId;
-    if (!userBranchId) {
-      throw new ForbiddenError('Branch Manager is not assigned to an active branch.');
+    if (!userBranchId || !mongoose.isValidObjectId(userBranchId)) {
+      throw new ForbiddenError(
+        'Branch Manager has an invalid or missing branch assignment.',
+        null,
+        'INVALID_BRANCH_CLAIM'
+      );
     }
 
     const assignedBranchStr = userBranchId.toString();

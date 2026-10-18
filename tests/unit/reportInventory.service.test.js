@@ -2,6 +2,8 @@ const { connectDatabase, disconnectDatabase } = require('../../src/config/databa
 const Inventory = require('../../src/models/inventory.model');
 const Branch = require('../../src/models/branch.model');
 const InventoryConfig = require('../../src/models/inventoryConfig.model');
+const ReorderAlert = require('../../src/models/reorderAlert.model');
+const { evaluateReorderAlert } = require('../../src/services/reorderAlert.service');
 const {
   getInventoryReport,
   getInventoryItemsList,
@@ -26,6 +28,7 @@ describe('reportInventory.service (ADR-014 §9 - IM-01 to IM-06)', () => {
       Inventory.deleteMany({}),
       Branch.deleteMany({}),
       InventoryConfig.deleteMany({}),
+      ReorderAlert.deleteMany({}),
     ]);
 
     branchA = await Branch.create({
@@ -47,10 +50,16 @@ describe('reportInventory.service (ADR-014 §9 - IM-01 to IM-06)', () => {
     });
   });
 
+  async function createInventoryItem(data) {
+    const item = await Inventory.create(data);
+    await evaluateReorderAlert(item, 5);
+    return item;
+  }
+
   describe('Current Snapshot Inventory Metrics (IM-01 to IM-06)', () => {
     it('calculates total stock, retail valuation, low-stock, and reorder-triggered counts accurately', async () => {
       // 1. OK stock: quantity 20 > 5, price 10000 -> val 200,000
-      await Inventory.create({
+      await createInventoryItem({
         branchId: branchA._id,
         itemName: 'Ray-Ban Aviator',
         category: 'Sunglasses',
@@ -60,7 +69,7 @@ describe('reportInventory.service (ADR-014 §9 - IM-01 to IM-06)', () => {
       });
 
       // 2. LOW_STOCK: 0 < quantity 3 <= 5, price 5000 -> val 15,000
-      await Inventory.create({
+      await createInventoryItem({
         branchId: branchA._id,
         itemName: 'Titanium Frame',
         category: 'Frames',
@@ -70,7 +79,7 @@ describe('reportInventory.service (ADR-014 §9 - IM-01 to IM-06)', () => {
       });
 
       // 3. REORDER_TRIGGERED: quantity 0 == 0, price 2000 -> val 0
-      await Inventory.create({
+      await createInventoryItem({
         branchId: branchB._id,
         itemName: 'Contact Lens Solution',
         category: 'Solutions',
@@ -105,7 +114,7 @@ describe('reportInventory.service (ADR-014 §9 - IM-01 to IM-06)', () => {
     });
 
     it('groups inventory by branch and category correctly (IM-02, IM-03)', async () => {
-      await Inventory.create({
+      await createInventoryItem({
         branchId: branchA._id,
         itemName: 'Item A',
         category: 'Frames',
@@ -114,7 +123,7 @@ describe('reportInventory.service (ADR-014 §9 - IM-01 to IM-06)', () => {
         quantity: 10,
       });
 
-      await Inventory.create({
+      await createInventoryItem({
         branchId: branchB._id,
         itemName: 'Item B',
         category: 'Lenses',
@@ -140,7 +149,7 @@ describe('reportInventory.service (ADR-014 §9 - IM-01 to IM-06)', () => {
     });
 
     it('filters inventory by branchId for Branch Manager scope (AC28, AC30)', async () => {
-      await Inventory.create({
+      await createInventoryItem({
         branchId: branchA._id,
         itemName: 'Branch A Only Item',
         category: 'Frames',
@@ -149,7 +158,7 @@ describe('reportInventory.service (ADR-014 §9 - IM-01 to IM-06)', () => {
         quantity: 12,
       });
 
-      await Inventory.create({
+      await createInventoryItem({
         branchId: branchB._id,
         itemName: 'Branch B Only Item',
         category: 'Frames',
@@ -166,6 +175,15 @@ describe('reportInventory.service (ADR-014 §9 - IM-01 to IM-06)', () => {
       expect(branchReport.data.summary.totalRetailValuation).toBe(60000);
       expect(branchReport.data.breakdowns.byBranch.length).toBe(1);
       expect(branchReport.data.breakdowns.byBranch[0].branchName).toBe('COLOMBO_CENTRAL');
+    });
+
+    it('fails closed with ForbiddenError when invalid branchId is provided', async () => {
+      await expect(getInventoryReport({ branchId: 'invalid-id' })).rejects.toThrow(
+        'Invalid branch identifier.'
+      );
+      await expect(getInventoryItemsList({ branchId: 'malformed-123' })).rejects.toThrow(
+        'Invalid branch identifier.'
+      );
     });
 
     it('returns valid empty snapshot report when no items exist (AC41)', async () => {
@@ -187,7 +205,7 @@ describe('reportInventory.service (ADR-014 §9 - IM-01 to IM-06)', () => {
 
   describe('Detailed Inventory Items Listing (getInventoryItemsList)', () => {
     it('returns paginated items with dynamic reorderStatus and retailValuation', async () => {
-      await Inventory.create({
+      await createInventoryItem({
         branchId: branchA._id,
         itemName: 'Premium Sunglasses',
         category: 'Sunglasses',
@@ -196,7 +214,7 @@ describe('reportInventory.service (ADR-014 §9 - IM-01 to IM-06)', () => {
         quantity: 2, // Low stock since <= 5
       });
 
-      await Inventory.create({
+      await createInventoryItem({
         branchId: branchA._id,
         itemName: 'Daily Disposable Lenses',
         category: 'Lenses',
@@ -220,7 +238,7 @@ describe('reportInventory.service (ADR-014 §9 - IM-01 to IM-06)', () => {
     });
 
     it('filters items by reorderStatus', async () => {
-      await Inventory.create({
+      await createInventoryItem({
         branchId: branchA._id,
         itemName: 'Out of Stock Frame',
         category: 'Frames',
@@ -229,7 +247,7 @@ describe('reportInventory.service (ADR-014 §9 - IM-01 to IM-06)', () => {
         quantity: 0,
       });
 
-      await Inventory.create({
+      await createInventoryItem({
         branchId: branchA._id,
         itemName: 'Abundant Lens Cleaner',
         category: 'Solutions',

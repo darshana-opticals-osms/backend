@@ -71,6 +71,19 @@ jest.mock('../../src/services/loyalty.service', () => ({
 jest.mock('../../src/services/reorderAlert.service', () => ({
   evaluateReorderAlert: jest.fn().mockResolvedValue(undefined),
 }));
+jest.mock('../../src/services/audit.service', () => ({
+  record: jest.fn().mockResolvedValue({}),
+  buildUserActor: jest.fn((u) => ({
+    actorType: 'USER',
+    actorId: (u.userId || u._id).toString(),
+    actorRole: u.role || 'STAFF',
+  })),
+  buildSystemActor: jest.fn(() => ({
+    actorType: 'SYSTEM',
+    actorId: 'system',
+    actorRole: 'SYSTEM',
+  })),
+}));
 const Order = require('../../src/models/order.model');
 const OrderItem = require('../../src/models/orderItem.model');
 const Inventory = require('../../src/models/inventory.model');
@@ -924,25 +937,19 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
       ).rejects.toThrow(ForbiddenError);
     });
 
-    it('assigns branchId and deducts branch stock when staff transitions ORDER_CREATED to PROCESSING', async () => {
+    it('assigns branchId and consumes reservation when staff transitions ORDER_CREATED to PROCESSING (same branch - Finding 2)', async () => {
       const order = makeOrder({ status: ORDER_STATUS_VALUES.ORDER_CREATED, branchId: null });
       Order.findById.mockResolvedValue(order);
       Payment.exists.mockResolvedValue({ _id: new mongoose.Types.ObjectId() });
       Order.findOneAndUpdate.mockResolvedValue(
         makeOrder({ status: ORDER_STATUS_VALUES.PROCESSING, branchId: BRANCH_A_ID })
       );
-      const originalInvId = new mongoose.Types.ObjectId();
+      const branchInvId = new mongoose.Types.ObjectId();
       OrderItem.find.mockReturnValue({
-        lean: jest.fn().mockResolvedValue([makeItem(ITEM_ID_1, { inventoryId: originalInvId })]),
+        session: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue([makeItem(ITEM_ID_1, { inventoryId: branchInvId })]),
       });
 
-      const branchInvId = new mongoose.Types.ObjectId();
-      const originalRecord = {
-        _id: originalInvId,
-        branchId: new mongoose.Types.ObjectId(), // original branch
-        itemName: 'Optical Frame',
-        quantity: 5,
-      };
       const branchRecord = {
         _id: branchInvId,
         branchId: BRANCH_A_ID,
@@ -951,7 +958,7 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
       };
       Inventory.findById.mockReturnValue({
         session: jest.fn().mockReturnThis(),
-        lean: jest.fn().mockResolvedValue(originalRecord),
+        lean: jest.fn().mockResolvedValue(branchRecord),
       });
       Inventory.find.mockReturnValue({
         session: jest.fn().mockReturnThis(),
@@ -969,18 +976,37 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
       );
       expect(updateCall[1].$set).toHaveProperty('status', ORDER_STATUS_VALUES.PROCESSING);
 
-      // Verify branch stock was decremented
-      expect(Inventory.findByIdAndUpdate).toHaveBeenCalledWith(
-        branchInvId,
-        { $inc: { quantity: -2 } },
-        expect.objectContaining({ new: true })
-      );
-      // Verify original reservation stock was restored
-      expect(Inventory.findByIdAndUpdate).toHaveBeenCalledWith(
-        originalInvId,
-        { $inc: { quantity: 2 } },
-        expect.any(Object)
-      );
+      // Review Finding 2: Same branch consumes checkout reservation, does NOT double-deduct
+      expect(Inventory.findByIdAndUpdate).not.toHaveBeenCalled();
+    });
+
+    it('rejects cross-branch transition to PROCESSING with ConflictError (Finding 5)', async () => {
+      const order = makeOrder({ status: ORDER_STATUS_VALUES.ORDER_CREATED, branchId: null });
+      Order.findById.mockResolvedValue(order);
+      Payment.exists.mockResolvedValue({ _id: new mongoose.Types.ObjectId() });
+      const originalInvId = new mongoose.Types.ObjectId();
+      const otherBranchId = new mongoose.Types.ObjectId();
+      OrderItem.find.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue([makeItem(ITEM_ID_1, { inventoryId: originalInvId })]),
+      });
+
+      const originalRecord = {
+        _id: originalInvId,
+        branchId: otherBranchId,
+        itemName: 'Optical Frame',
+        quantity: 5,
+      };
+      Inventory.findById.mockReturnValue({
+        session: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue(originalRecord),
+      });
+
+      await expect(
+        updateOrderStatus(ORDER_ID_STR, ORDER_STATUS_VALUES.PROCESSING, STAFF_ID_STR, {
+          branchId: BRANCH_A_STR,
+        })
+      ).rejects.toThrow(ConflictError);
     });
 
     it('rejects transition to PROCESSING with ConflictError if branch has insufficient stock', async () => {
@@ -1104,6 +1130,7 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
         itemName: 'Optical Frame',
         quantity: 8,
       };
+      Inventory.findByIdAndUpdate.mockResolvedValue(branchRecord);
       Inventory.findById.mockReturnValue({
         session: jest.fn().mockReturnThis(),
         lean: jest.fn().mockResolvedValue(branchRecord),

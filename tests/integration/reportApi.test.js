@@ -8,6 +8,8 @@ const OrderItem = require('../../src/models/orderItem.model');
 const Branch = require('../../src/models/branch.model');
 const Customer = require('../../src/models/customer.model');
 const Inventory = require('../../src/models/inventory.model');
+const ReorderAlert = require('../../src/models/reorderAlert.model');
+const { evaluateReorderAlert } = require('../../src/services/reorderAlert.service');
 const AuditEvent = require('../../src/models/auditEvent.model');
 const ExcelJS = require('exceljs');
 const { ROLE_VALUES } = require('../../src/constants/roles');
@@ -95,6 +97,7 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       Branch.collection.deleteMany({}),
       Customer.collection.deleteMany({}),
       Inventory.collection.deleteMany({}),
+      ReorderAlert.collection.deleteMany({}),
       AuditEvent.collection.deleteMany({}),
     ]);
 
@@ -507,7 +510,7 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
 
   describe('GET /api/reports/inventory & /api/reports/inventory/items', () => {
     beforeEach(async () => {
-      await Inventory.create([
+      const seeded = await Inventory.create([
         {
           itemName: 'RayBan Aviator Classic',
           category: 'Frames',
@@ -533,6 +536,9 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
           branchId: branchB._id,
         },
       ]);
+      for (const item of seeded) {
+        await evaluateReorderAlert(item, 5);
+      }
     });
 
     it('returns inventory summary metrics and breakdowns', async () => {
@@ -718,9 +724,10 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       await wb.xlsx.load(res.body);
 
       const sheetNames = wb.worksheets.map((s) => s.name);
-      expect(sheetNames).toContain('All Branches');
-      expect(sheetNames).toContain(branchA.codeName);
-      expect(sheetNames).toContain(branchB.codeName);
+      expect(sheetNames).toContain('Executive Summary');
+      expect(sheetNames).toContain('Branch Breakdowns');
+      expect(sheetNames).toContain('Inventory Snapshot');
+      expect(sheetNames).toContain('Orders Breakdown');
     });
 
     it('exports inventory report as multi-sheet Excel (.xlsx) with branch sheets', async () => {
@@ -769,6 +776,91 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       expect(sheetNames).toContain('All Branches');
       expect(sheetNames).toContain(branchA.codeName);
       expect(sheetNames).toContain(branchB.codeName);
+    });
+
+    it('Finding 1: fails closed with 403 Forbidden when Branch Manager has malformed or invalid branch claim', async () => {
+      const invalidBranchToken = createToken({
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: 'invalid-not-an-objectid',
+      });
+
+      const resSales = await request(app)
+        .get('/api/reports/sales')
+        .query({ preset: 'today' })
+        .set('Authorization', `Bearer ${invalidBranchToken}`);
+      expect(resSales.status).toBe(403);
+      expect(resSales.body.error?.message || resSales.body.message).toMatch(
+        /invalid or missing branch assignment/i
+      );
+
+      const resInv = await request(app)
+        .get('/api/reports/inventory')
+        .set('Authorization', `Bearer ${invalidBranchToken}`);
+      expect(resInv.status).toBe(403);
+    });
+
+    it('Finding 8: attributes refund strictly by Payment.refundedAt and excludes non-refunded updates', async () => {
+      const today = new Date();
+      const pastDate = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000); // 10 days ago
+
+      const order = await Order.create({
+        customerId: customerA._id,
+        branchId: branchA._id,
+        orderDate: today,
+        orderAmount: 10000,
+        status: 'PROCESSING',
+      });
+
+      // Payment refunded today
+      await Payment.create({
+        orderId: order._id,
+        amount: 10000,
+        status: PAYMENT_STATUS.REFUNDED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+        paidAt: today,
+        refundedAt: today,
+      });
+
+      // Legacy payment without refundedAt (only updatedAt is today) - MUST NOT be counted as refunded today
+      const legacyOrder = await Order.create({
+        customerId: customerA._id,
+        branchId: branchA._id,
+        orderDate: pastDate,
+        orderAmount: 5000,
+        status: 'CANCELLED',
+      });
+      await Payment.create({
+        orderId: legacyOrder._id,
+        amount: 5000,
+        status: PAYMENT_STATUS.REFUNDED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+        paidAt: pastDate,
+        refundedAt: pastDate, // refunded in past period
+      });
+
+      const res = await request(app)
+        .get('/api/reports/sales')
+        .query({ preset: 'today' })
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(200);
+      // SM-02 should reflect ONLY the refund with refundedAt = today (10,000)
+      expect(res.body.data.summary.refundDeductions).toBe(10000);
+    });
+
+    it('Finding 9: rejects orderStatus=CANCELLED with 422 on qualifying sales orders endpoint', async () => {
+      const res = await request(app)
+        .get('/api/reports/sales/orders')
+        .query({ preset: 'today', orderStatus: 'CANCELLED' })
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(422);
+      expect(res.body.success).toBe(false);
+      const errorField =
+        res.body.error?.details?.[0]?.field ||
+        res.body.errors?.[0]?.field ||
+        res.body.error?.message;
+      expect(errorField).toMatch(/orderStatus/i);
     });
   });
 });

@@ -2,7 +2,7 @@ const ExcelJS = require('exceljs');
 const { AUDIT_ACTION, AUDIT_TARGET_TYPE, AUDIT_OUTCOME } = require('../constants/audit');
 const { resolveReportScope } = require('../utils/reportScope');
 const { getSalesOrdersList, getSalesReport } = require('./reportSales.service');
-const { getInventoryItemsList } = require('./reportInventory.service');
+const { getInventoryItemsList, getInventoryReport } = require('./reportInventory.service');
 const auditService = require('./audit.service');
 
 const EXCEL_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -74,15 +74,21 @@ function sanitizeSheetName(name, existingNames = new Set()) {
 }
 
 /**
- * Builds an ExcelJS Workbook with Executive Summary sheet and breakdown sheets per branch.
+ * Builds an ExcelJS Workbook aligned with ADR-014:
+ * For SYSTEM_ADMIN (isOrgWide = true):
+ *   1. Executive Summary
+ *   2. Branch Breakdowns
+ *   3. Inventory Snapshot
+ *   4. Orders Breakdown
  *
- * Review Comment 6 – Reconciles Excel workbook structure with ADR-014's approved
- * executive summary and breakdown requirements. Also includes truncation notices
- * to avoid silently omitting records beyond 10,000.
+ * For BRANCH_MANAGER (isOrgWide = false):
+ *   1. Executive Summary
+ *   2. Orders Breakdown
  *
  * @param {Object} options
  * @param {Array<Object>} options.orders
  * @param {Object} [options.summary]
+ * @param {Object} [options.inventorySnapshot]
  * @param {boolean} options.isOrgWide
  * @param {boolean} [options.isTruncated=false]
  * @param {number} [options.totalMatching=0]
@@ -91,6 +97,7 @@ function sanitizeSheetName(name, existingNames = new Set()) {
 async function buildSalesExcelWorkbook({
   orders,
   summary = null,
+  inventorySnapshot = null,
   isOrgWide,
   isTruncated = false,
   totalMatching = 0,
@@ -100,8 +107,9 @@ async function buildSalesExcelWorkbook({
   workbook.created = new Date();
 
   const existingSheetNames = new Set();
+  const summaryData = summary?.summary || summary || {};
 
-  // 1. Executive Summary Sheet (ADR-014 §11 requirement, Review Comment 6)
+  // 1. Executive Summary Sheet (ADR-014 §11 requirement)
   const summarySheetName = sanitizeSheetName('Executive Summary', existingSheetNames);
   const summarySheet = workbook.addWorksheet(summarySheetName);
   summarySheet.columns = [
@@ -116,59 +124,130 @@ async function buildSalesExcelWorkbook({
     fgColor: { argb: 'FFD9E1F2' },
   };
 
-  if (summary) {
-    summarySheet.addRow({
-      metric: 'Recognized Gross Revenue (LKR)',
-      value: Number(summary.grossRevenue || 0).toFixed(2),
-      refId: 'SM-01',
-    });
-    summarySheet.addRow({
-      metric: 'Refund Deductions (LKR)',
-      value: Number(summary.refundDeductions || 0).toFixed(2),
-      refId: 'SM-02',
-    });
-    summarySheet.addRow({
-      metric: 'Recognized Net Revenue (LKR)',
-      value: Number(summary.netRevenue || 0).toFixed(2),
-      refId: 'SM-03',
-    });
-    summarySheet.addRow({
-      metric: 'Total Qualifying Orders',
-      value: summary.totalOrders ?? 0,
-      refId: 'SM-04',
-    });
-    summarySheet.addRow({
-      metric: 'Average Order Value (LKR)',
-      value: Number(summary.averageOrderValue || 0).toFixed(2),
-      refId: 'SM-05',
-    });
-    summarySheet.addRow({
-      metric: 'Items Sold Quantity',
-      value: summary.itemsSold ?? 0,
-      refId: 'SM-06',
-    });
-    summarySheet.addRow({
-      metric: 'Cancelled Orders Count',
-      value: summary.cancelledOrdersCount ?? 0,
-      refId: 'SM-10',
-    });
-    summarySheet.addRow({
-      metric: 'Cancelled Orders Value (LKR)',
-      value: Number(summary.cancelledOrdersValue || 0).toFixed(2),
-      refId: 'SM-10',
-    });
-  }
+  summarySheet.addRow({
+    metric: 'Recognized Gross Revenue (LKR)',
+    value: Number(summaryData.grossRevenue || 0).toFixed(2),
+    refId: 'SM-01',
+  });
+  summarySheet.addRow({
+    metric: 'Refund Deductions (LKR)',
+    value: Number(summaryData.refundDeductions || 0).toFixed(2),
+    refId: 'SM-02',
+  });
+  summarySheet.addRow({
+    metric: 'Recognized Net Revenue (LKR)',
+    value: Number(summaryData.netRevenue || 0).toFixed(2),
+    refId: 'SM-03',
+  });
+  summarySheet.addRow({
+    metric: 'Total Qualifying Orders',
+    value: summaryData.totalOrders ?? 0,
+    refId: 'SM-04',
+  });
+  summarySheet.addRow({
+    metric: 'Average Order Value (LKR)',
+    value: Number(summaryData.averageOrderValue || 0).toFixed(2),
+    refId: 'SM-05',
+  });
+  summarySheet.addRow({
+    metric: 'Items Sold Quantity',
+    value: summaryData.itemsSold ?? 0,
+    refId: 'SM-06',
+  });
+  summarySheet.addRow({
+    metric: 'Cancelled Orders Count',
+    value: summaryData.cancelledOrdersCount ?? 0,
+    refId: 'SM-10',
+  });
+  summarySheet.addRow({
+    metric: 'Cancelled Orders Value (LKR)',
+    value: Number(summaryData.cancelledOrdersValue || 0).toFixed(2),
+    refId: 'SM-10',
+  });
 
   if (isTruncated) {
     summarySheet.addRow({
       metric: 'Export Row Limit Notice',
-      value: `Export capped at 10,000 rows. Total matching in database: ${totalMatching}`,
+      value: `Export capped at row limit. Total matching in database: ${totalMatching}`,
       refId: 'NOTICE (TRUNCATED)',
     });
   }
 
-  // 2. Data Columns for Detailed Orders Sheets
-  const orderColumns = [
+  // 2. Branch Breakdowns Sheet (System Admin org-wide only per ADR-014)
+  if (isOrgWide) {
+    const branchBreakdownsName = sanitizeSheetName('Branch Breakdowns', existingSheetNames);
+    const branchSheet = workbook.addWorksheet(branchBreakdownsName);
+    branchSheet.columns = [
+      { header: 'Branch Name', key: 'branchName', width: 28 },
+      { header: 'Gross Revenue (LKR)', key: 'grossRevenue', width: 22 },
+      { header: 'Refund Deductions (LKR)', key: 'refundDeductions', width: 22 },
+      { header: 'Net Revenue (LKR)', key: 'netRevenue', width: 22 },
+      { header: 'Total Orders', key: 'orderCount', width: 16 },
+      { header: 'Items Sold', key: 'itemCount', width: 16 },
+    ];
+    branchSheet.getRow(1).font = { bold: true };
+    branchSheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFEFEFEF' },
+    };
+
+    const branchList = summary?.breakdowns?.byBranch || [];
+    for (const b of branchList) {
+      branchSheet.addRow({
+        branchName: b.branchName || 'Unassigned',
+        grossRevenue: Number(b.grossRevenue || 0).toFixed(2),
+        refundDeductions: Number(b.refundDeductions || 0).toFixed(2),
+        netRevenue: Number(b.netRevenue || 0).toFixed(2),
+        orderCount: b.orderCount ?? 0,
+        itemCount: b.itemCount ?? 0,
+      });
+    }
+
+    // 3. Inventory Snapshot Sheet (System Admin org-wide only per ADR-014)
+    const invSnapshotName = sanitizeSheetName('Inventory Snapshot', existingSheetNames);
+    const invSheet = workbook.addWorksheet(invSnapshotName);
+    invSheet.columns = [
+      { header: 'Branch / Metric Description', key: 'name', width: 32 },
+      { header: 'Total Stock on Hand', key: 'totalStock', width: 22 },
+      { header: 'Retail Valuation (LKR)', key: 'retailValuation', width: 24 },
+      { header: 'Low Stock Items', key: 'lowStockCount', width: 18 },
+      { header: 'Reorder Triggered Items', key: 'reorderTriggeredCount', width: 24 },
+    ];
+    invSheet.getRow(1).font = { bold: true };
+    invSheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFD9E1F2' },
+    };
+
+    const invSummary = inventorySnapshot?.data?.summary;
+    if (invSummary) {
+      invSheet.addRow({
+        name: 'TOTAL ORGANIZATION INVENTORY',
+        totalStock: invSummary.totalStockOnHand ?? 0,
+        retailValuation: Number(invSummary.totalRetailValuation || 0).toFixed(2),
+        lowStockCount: invSummary.lowStockCount ?? 0,
+        reorderTriggeredCount: invSummary.reorderTriggeredCount ?? 0,
+      });
+    }
+
+    const invBranches = inventorySnapshot?.data?.breakdowns?.byBranch || [];
+    for (const ib of invBranches) {
+      invSheet.addRow({
+        name: ib.branchName || 'Unassigned Branch',
+        totalStock: ib.totalStock ?? 0,
+        retailValuation: Number(ib.totalRetailValuation || 0).toFixed(2),
+        lowStockCount: ib.lowStockCount ?? 0,
+        reorderTriggeredCount: ib.reorderTriggeredCount ?? 0,
+      });
+    }
+  }
+
+  // 4. Orders Breakdown Sheet
+  const ordersSheetName = sanitizeSheetName('Orders Breakdown', existingSheetNames);
+  const ordersSheet = workbook.addWorksheet(ordersSheetName);
+  ordersSheet.columns = [
     { header: 'Order ID', key: 'orderId', width: 28 },
     { header: 'Payment ID', key: 'paymentId', width: 28 },
     { header: 'Order Date', key: 'orderDate', width: 22 },
@@ -184,6 +263,12 @@ async function buildSalesExcelWorkbook({
     { header: 'Order Amount (LKR)', key: 'orderAmount', width: 20 },
     { header: 'Paid Amount (LKR)', key: 'paidAmount', width: 20 },
   ];
+  ordersSheet.getRow(1).font = { bold: true };
+  ordersSheet.getRow(1).fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFEFEFEF' },
+  };
 
   const mapOrderToRow = (order) => ({
     orderId: order.orderId,
@@ -202,43 +287,7 @@ async function buildSalesExcelWorkbook({
     paidAmount: Number(order.paidAmount || 0).toFixed(2),
   });
 
-  const setupSheet = (sheetName, sheetOrders) => {
-    const sheet = workbook.addWorksheet(sheetName);
-    sheet.columns = orderColumns;
-    sheet.getRow(1).font = { bold: true };
-    sheet.getRow(1).fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFEFEFEF' },
-    };
-    sheetOrders.forEach((o) => sheet.addRow(mapOrderToRow(o)));
-  };
-
-  if (isOrgWide) {
-    // All Branches Sheet
-    const allBranchesName = sanitizeSheetName('All Branches', existingSheetNames);
-    setupSheet(allBranchesName, orders);
-
-    // Distinct branch sheets
-    const branchMap = new Map();
-    for (const order of orders) {
-      const bName = order.branchName || 'Unassigned';
-      if (!branchMap.has(bName)) {
-        branchMap.set(bName, []);
-      }
-      branchMap.get(bName).push(order);
-    }
-
-    for (const [branchName, branchOrders] of branchMap.entries()) {
-      const sheetName = sanitizeSheetName(branchName, existingSheetNames);
-      setupSheet(sheetName, branchOrders);
-    }
-  } else {
-    // Single branch scope
-    const branchName = orders[0]?.branchName || 'Branch Report';
-    const sheetName = sanitizeSheetName(branchName, existingSheetNames);
-    setupSheet(sheetName, orders);
-  }
+  orders.forEach((o) => ordersSheet.addRow(mapOrderToRow(o)));
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
@@ -389,8 +438,8 @@ async function exportSalesReport({
   // 1. Enforce RBAC & branch scope (ADR-014 §10)
   const scope = resolveReportScope(effectiveReq, 'sales');
 
-  // 2. Fetch sales orders list and executive summary
-  const [result, salesReportResult] = await Promise.all([
+  // 2. Fetch sales orders list, executive summary, and inventory snapshot (org-wide)
+  const [result, salesReportResult, inventoryReportResult] = await Promise.all([
     getSalesOrdersList({
       preset,
       startDate,
@@ -398,6 +447,7 @@ async function exportSalesReport({
       branchId: scope.branchId,
       orderStatus,
       isExport: true,
+      limit: null,
     }),
     getSalesReport({
       preset,
@@ -405,6 +455,7 @@ async function exportSalesReport({
       endDate,
       branchId: scope.branchId,
     }),
+    scope.isOrgWide ? getInventoryReport({ branchId: null }).catch(() => null) : null,
   ]);
 
   const orders = result?.data?.orders || [];
@@ -462,7 +513,8 @@ async function exportSalesReport({
   } else {
     buffer = await buildSalesExcelWorkbook({
       orders,
-      summary: salesReportResult?.data?.summary,
+      summary: salesReportResult?.data,
+      inventorySnapshot: inventoryReportResult,
       isOrgWide: scope.isOrgWide,
       isTruncated,
       totalMatching,
@@ -548,12 +600,13 @@ async function exportInventoryReport({
   // 1. Enforce RBAC & branch scope (ADR-014 §10)
   const scope = resolveReportScope(effectiveReq, 'inventory');
 
-  // 2. Fetch inventory items (with unpaginated export limit up to 10,000)
+  // 2. Fetch inventory items (unbounded complete export)
   const result = await getInventoryItemsList({
     branchId: scope.branchId,
     category,
     reorderStatus,
     isExport: true,
+    limit: null,
   });
 
   const items = result?.data?.items || [];

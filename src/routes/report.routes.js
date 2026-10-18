@@ -69,8 +69,8 @@ const {
  *     responses:
  *       200:
  *         description: Sales metrics and breakdowns retrieved successfully.
- *       400:
- *         description: Invalid query parameter or date range exceeds 365 days.
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  *       403:
@@ -148,8 +148,8 @@ router.get(
  *     responses:
  *       200:
  *         description: Paginated orders retrieved successfully.
- *       400:
- *         description: Invalid query parameters.
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  *       403:
@@ -218,8 +218,8 @@ router.get(
  *             schema:
  *               type: string
  *               format: binary
- *       400:
- *         description: Invalid query parameters.
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  *       403:
@@ -272,8 +272,8 @@ router.get(
  *     responses:
  *       200:
  *         description: Inventory snapshot metrics retrieved successfully.
- *       400:
- *         description: Invalid query parameters.
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  *       403:
@@ -340,8 +340,8 @@ router.get(
  *     responses:
  *       200:
  *         description: Paginated stock items retrieved successfully.
- *       400:
- *         description: Invalid query parameters.
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  *       403:
@@ -400,8 +400,8 @@ router.get(
  *             schema:
  *               type: string
  *               format: binary
- *       400:
- *         description: Invalid query parameters.
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  *       403:

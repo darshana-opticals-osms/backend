@@ -66,6 +66,8 @@ describe('Swagger documentation integrity', () => {
     'GET /orders',
     'GET /orders/{id}',
     'PATCH /orders/{id}/status',
+    'PATCH /orders/{id}/claim',
+    'POST /orders/{id}/claim',
     'POST /payments/initiate',
     'POST /payments/notify',
     'POST /payments/{paymentId}/recovery',

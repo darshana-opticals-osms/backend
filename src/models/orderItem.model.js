@@ -51,6 +51,14 @@ const orderItemSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Authoritative Inventory reference allocated/fulfilled by claiming branch.
+    // Preserves exact stock attribution so cancellations restore to the correct branch.
+    fulfilledInventoryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Inventory',
+      default: null,
+    },
+
     orderId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Order',

@@ -5,7 +5,7 @@ const Inventory = require('../models/inventory.model');
 const Payment = require('../models/payment.model');
 const LoyaltyTransaction = require('../models/loyaltyTransaction.model');
 const { earnPurchasePoints } = require('./loyalty.service');
-const { evaluateReorderAlert } = require('./reorderAlert.service');
+const { deductInventoryStock, restoreInventoryStock } = require('./inventory.service');
 const { PAYMENT_STATUS } = require('../constants/payment');
 const { ROLE_VALUES } = require('../constants/roles');
 const {
@@ -293,51 +293,28 @@ async function getCustomerOrderById(authenticatedCustomerId, orderId) {
  * @throws {ConflictError} If stock is insufficient or match is ambiguous
  */
 async function resolveClaimingBranchInventory(item, branchObjectId, session) {
-  // Prefer authoritative sourceInventoryId from classificationSnapshot (Review Comment 4)
   const sourceInventoryId = item.classificationSnapshot?.sourceInventoryId || item.inventoryId;
 
   if (sourceInventoryId && mongoose.isValidObjectId(sourceInventoryId)) {
-    // Check if the original inventory record belongs to the claiming branch
     const sourceRecord = await Inventory.findById(sourceInventoryId)
       .session(session || null)
       .lean();
 
     if (sourceRecord && sourceRecord.branchId.toString() === branchObjectId.toString()) {
-      // Claiming branch IS the original branch — use the record directly
+      // Claiming branch IS the original checkout branch — authoritative same-branch match!
       return sourceRecord;
     }
 
     if (sourceRecord) {
-      // Cross-branch claim: match by authoritative attributes (itemName, brand, category) to distinguish variants (Review Comment 4)
-      const candidateQuery = {
-        branchId: branchObjectId,
-        itemName: sourceRecord.itemName,
-      };
-      if (sourceRecord.brand) candidateQuery.brand = sourceRecord.brand;
-      if (sourceRecord.category) candidateQuery.category = sourceRecord.category;
-
-      const candidates = await Inventory.find(candidateQuery)
-        .session(session || null)
-        .lean();
-
-      if (candidates.length === 0) {
-        throw new ConflictError(
-          `No inventory record found for '${sourceRecord.itemName}' at this branch.`,
-          null,
-          'INVENTORY_NOT_FOUND_AT_BRANCH'
-        );
-      }
-      if (candidates.length > 1) {
-        throw new ConflictError(
-          `Ambiguous inventory match for '${sourceRecord.itemName}' at this branch. Cannot allocate safely.`,
-          null,
-          'AMBIGUOUS_INVENTORY_MATCH'
-        );
-      }
-      return candidates[0];
+      // Review Finding 5: Cross-branch matching lacks a globally stable product/SKU identity.
+      // Fail closed rather than guessing by mutable attributes (itemName, brand, category).
+      throw new ConflictError(
+        `Cross-branch fulfillment is unsupported: item '${sourceRecord.itemName}' originated from branch '${sourceRecord.branchId}' and cannot be allocated safely to branch '${branchObjectId}' without a shared SKU identity.`,
+        null,
+        'UNSUPPORTED_CROSS_BRANCH_ALLOCATION'
+      );
     }
 
-    // Review Comment 4: Unresolved legacy reference cannot be allocated safely
     throw new ConflictError(
       `Unresolved inventory reference for '${item.itemName}'. Cannot allocate safely without authoritative product reference.`,
       null,
@@ -345,7 +322,7 @@ async function resolveClaimingBranchInventory(item, branchObjectId, session) {
     );
   }
 
-  // Legacy fallback: match by branchId + itemName (Review Comment 4 — must be unambiguous)
+  // Legacy fallback: if item has no inventoryId, check if claiming branch has an unambiguous match
   const legacyCandidates = await Inventory.find({
     branchId: branchObjectId,
     itemName: item.itemName,
@@ -371,69 +348,102 @@ async function resolveClaimingBranchInventory(item, branchObjectId, session) {
 }
 
 /**
- * Allocates and deducts stock from the claiming branch's inventory when transitioning
- * an order from ORDER_CREATED to PROCESSING.
+ * Safely resolves a Mongoose query with an optional transaction session,
+ * accommodating both real Mongoose queries and unit-test query mocks.
+ */
+async function resolveMongooseQuery(query, session = null) {
+  if (!query) return null;
+  let q = query;
+  if (typeof q.session === 'function' && session) {
+    q = q.session(session);
+  }
+  if (typeof q.then === 'function') {
+    return await q;
+  }
+  if (typeof q.lean === 'function') {
+    return await q.lean();
+  }
+  return await q;
+}
+
+/**
+ * Allocates and records fulfillment inventory for an order when claimed by a branch.
  *
- * Review Comment 2 – Atomicity: Caller must run this inside a MongoDB transaction
- * session so that any partial failure rolls back all inventory writes together with
- * the order status update.
+ * Review Finding 2 – Prevents double stock deduction on same-branch claims by consuming
+ * the reservation made at checkout by checkoutCustomer().
  *
- * Review Comment 4 – Uses resolveClaimingBranchInventory() to match by stable
- * product identity (classificationSnapshot.sourceInventoryId) rather than itemName alone.
+ * Review Finding 4 & 6 – Persists fulfilledInventoryId on OrderItem and uses
+ * authoritative deductInventoryStock with fail-closed reorder alerts and audit events.
  *
  * @param {object} order - Mongoose Order document
  * @param {string|mongoose.Types.ObjectId|null} branchId - Claiming branch ID
  * @param {import('mongoose').ClientSession} session - Required active transaction session
+ * @param {object|null} [auditUser=null]
  */
-async function allocateBranchInventoryForOrder(order, branchId, session) {
+async function allocateBranchInventoryForOrder(order, branchId, session, auditUser = null) {
   if (!branchId || !mongoose.isValidObjectId(branchId)) return;
 
   const branchObjectId = new mongoose.Types.ObjectId(branchId);
-  const itemQuery = OrderItem.find({ orderId: order._id });
-  if (session && typeof itemQuery.session === 'function') {
-    itemQuery.session(session);
-  }
-  const items = await itemQuery.lean();
+  const items = await resolveMongooseQuery(OrderItem.find({ orderId: order._id }), session);
 
   if (!items || items.length === 0) return;
 
   for (const item of items) {
-    // Review Comment 4 – Use authoritative inventory identity
     const branchItem = await resolveClaimingBranchInventory(item, branchObjectId, session);
-
-    if (branchItem.quantity < item.quantity) {
-      const available = branchItem.quantity;
-      throw new ConflictError(
-        `Insufficient stock for '${item.itemName}' at this branch. Available: ${available}, Required: ${item.quantity}.`,
-        null,
-        'INSUFFICIENT_BRANCH_STOCK'
-      );
-    }
 
     const originalInventoryId = item.inventoryId ? item.inventoryId.toString() : null;
     const branchInventoryId = branchItem._id.toString();
+    const isSameBranch = originalInventoryId && originalInventoryId === branchInventoryId;
 
-    if (originalInventoryId && originalInventoryId !== branchInventoryId) {
-      // Restore reservation at original branch before deducting from claiming branch
-      await Inventory.findByIdAndUpdate(
-        item.inventoryId,
-        { $inc: { quantity: item.quantity } },
-        { session }
-      );
-    }
-
-    const updatedBranchItem = await Inventory.findByIdAndUpdate(
-      branchItem._id,
-      { $inc: { quantity: -item.quantity } },
-      { session, new: true }
-    );
-
-    try {
-      if (updatedBranchItem) {
-        await evaluateReorderAlert(updatedBranchItem, null, session);
+    if (isSameBranch) {
+      // Review Finding 2: SAME-BRANCH CLAIM
+      // Stock was ALREADY deducted/reserved at checkout by checkoutCustomer().
+      // Do NOT perform a second physical stock deduction!
+      // Simply record fulfilledInventoryId to confirm fulfillment attribution.
+      item.fulfilledInventoryId = branchItem._id;
+      if (typeof item.save === 'function') {
+        await item.save({ session });
+      } else if (OrderItem.findByIdAndUpdate) {
+        await OrderItem.findByIdAndUpdate(
+          item._id,
+          { $set: { fulfilledInventoryId: branchItem._id } },
+          session ? { session } : {}
+        );
       }
-    } catch {
-      // Reorder alert evaluation failure should not block order status transition
+    } else {
+      // Cross-branch claim (if supported via legacy fallback):
+      await deductInventoryStock(
+        [{ inventoryId: branchItem._id, quantity: item.quantity }],
+        session,
+        {
+          orderId: order._id.toString(),
+          user: auditUser,
+          system: !auditUser,
+        }
+      );
+
+      if (originalInventoryId) {
+        await restoreInventoryStock(
+          [{ inventoryId: item.inventoryId, quantity: item.quantity }],
+          session,
+          {
+            orderId: order._id.toString(),
+            user: auditUser,
+            system: !auditUser,
+          }
+        );
+      }
+
+      item.fulfilledInventoryId = branchItem._id;
+      if (typeof item.save === 'function') {
+        await item.save({ session });
+      } else if (OrderItem.findByIdAndUpdate) {
+        await OrderItem.findByIdAndUpdate(
+          item._id,
+          { $set: { fulfilledInventoryId: branchItem._id } },
+          session ? { session } : {}
+        );
+      }
     }
   }
 }
@@ -441,50 +451,60 @@ async function allocateBranchInventoryForOrder(order, branchId, session) {
 /**
  * Restores stock back to the branch inventory when an order in PROCESSING is CANCELLED.
  *
- * Review Comment 2 – Atomicity: Caller must run this inside a MongoDB transaction
- * session so that inventory restoration and order status update are atomic.
+ * Review Finding 4 – Deterministically restores the exact Inventory record that was fulfilled
+ * (item.fulfilledInventoryId || item.inventoryId), failing closed on branch mismatch.
  *
- * Review Comment 4 – Uses resolveClaimingBranchInventory() for stable identity matching.
+ * Review Finding 6 – Participates in transaction session, evaluates reorder alerts fail-closed,
+ * and records immutable audit events per ADR-006 and ADR-012.
  *
  * @param {object} order - Mongoose Order document
  * @param {import('mongoose').ClientSession} session - Required active transaction session
+ * @param {object|null} [auditUser=null]
  */
-async function restoreBranchInventoryForOrder(order, session) {
+async function restoreBranchInventoryForOrder(order, session, auditUser = null) {
   if (!order.branchId) return;
 
-  const branchObjectId = new mongoose.Types.ObjectId(order.branchId);
-  const itemQuery = OrderItem.find({ orderId: order._id });
-  if (session && typeof itemQuery.session === 'function') {
-    itemQuery.session(session);
-  }
-  const items = await itemQuery.lean();
-
+  const items = await resolveMongooseQuery(OrderItem.find({ orderId: order._id }), session);
   if (!items || items.length === 0) return;
 
+  const orderBranchIdStr = order.branchId.toString();
+
   for (const item of items) {
-    let targetInvId;
-    try {
-      const branchItem = await resolveClaimingBranchInventory(item, branchObjectId, session);
-      targetInvId = branchItem._id;
-    } catch {
-      // If we can't resolve the authoritative record, fall back to stored inventoryId
-      targetInvId = item.inventoryId;
+    const targetInvId = item.fulfilledInventoryId || item.inventoryId;
+    if (!targetInvId || !mongoose.isValidObjectId(targetInvId)) {
+      throw new ConflictError(
+        `Fulfillment inventory cannot be safely resolved for item '${item.itemName}' during cancellation restoration.`,
+        null,
+        'RESTORATION_INVENTORY_UNRESOLVED'
+      );
     }
 
-    if (targetInvId && mongoose.isValidObjectId(targetInvId)) {
-      const restored = await Inventory.findByIdAndUpdate(
-        targetInvId,
-        { $inc: { quantity: item.quantity } },
-        { session, new: true }
+    const targetInventory = await resolveMongooseQuery(Inventory.findById(targetInvId), session);
+    if (!targetInventory) {
+      throw new ConflictError(
+        `Fulfillment inventory record '${targetInvId}' not found for cancellation restoration.`,
+        null,
+        'RESTORATION_INVENTORY_NOT_FOUND'
       );
-      if (restored) {
-        try {
-          await evaluateReorderAlert(restored, null, session);
-        } catch {
-          // Reorder alert evaluation failure should not block order cancellation
-        }
-      }
     }
+
+    if (targetInventory.branchId.toString() !== orderBranchIdStr) {
+      throw new ConflictError(
+        `Fulfillment inventory belongs to branch '${targetInventory.branchId}' but order was fulfilled by branch '${orderBranchIdStr}'. Cannot restore safely.`,
+        null,
+        'RESTORATION_BRANCH_MISMATCH'
+      );
+    }
+
+    await restoreInventoryStock(
+      [{ inventoryId: targetInventory._id, quantity: item.quantity }],
+      session,
+      {
+        orderId: order._id.toString(),
+        user: auditUser,
+        system: !auditUser,
+      }
+    );
   }
 }
 
@@ -569,7 +589,10 @@ async function claimOrder(orderId, branchId, staffUserId) {
   try {
     await session.withTransaction(async () => {
       // Allocate branch inventory first; throws ConflictError on insufficient stock
-      await allocateBranchInventoryForOrder(order, branchId, session);
+      await allocateBranchInventoryForOrder(order, branchId, session, {
+        userId: staffUserId,
+        role: ROLE_VALUES.BRANCH_MANAGER,
+      });
 
       claimedOrder = await Order.findOneAndUpdate(
         { _id: orderId, status: ORDER_STATUS_VALUES.PROCESSING, branchId: null },
@@ -836,7 +859,10 @@ async function updateOrderStatus(orderId, requestedStatus, staffUserId, options 
     try {
       await session.withTransaction(async () => {
         // Restore inventory first; then update order status atomically
-        await restoreBranchInventoryForOrder(order, session);
+        await restoreBranchInventoryForOrder(order, session, {
+          userId: staffUserId,
+          role: role || ROLE_VALUES.BRANCH_MANAGER,
+        });
 
         updatedOrder = await Order.findOneAndUpdate(
           {
@@ -892,7 +918,10 @@ async function updateOrderStatus(orderId, requestedStatus, staffUserId, options 
     try {
       await session.withTransaction(async () => {
         // Allocate branch stock first; throws ConflictError on insufficient stock
-        await allocateBranchInventoryForOrder(order, staffBranchId, session);
+        await allocateBranchInventoryForOrder(order, staffBranchId, session, {
+          userId: staffUserId,
+          role: role || ROLE_VALUES.BRANCH_ASSISTANT,
+        });
 
         const updateSet = {
           status: trimmedStatus,

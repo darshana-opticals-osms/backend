@@ -15,6 +15,7 @@ const {
 } = require('../constants/report.constants');
 const { resolveReportDateRange } = require('../utils/reportDates');
 const { shapeReportCustomer } = require('../utils/reportMasking');
+const { ForbiddenError } = require('../errors/AppError');
 
 /**
  * Builds the MongoDB match condition for qualifying sales payments.
@@ -40,22 +41,16 @@ function buildQualifyingPaymentMatch({ startUtc, endUtc }) {
 
 /**
  * Builds the match condition for refunds executed in the date range.
- * Refunded payments have:
- * status in REFUNDED_PAYMENT_STATUSES OR refundAmount > 0
- * and refundedAt (or updatedAt) within [startUtc, endUtc]
+ * ADR-014 strictly defines refund reporting using Payment.refundedAt.
+ * Documents lacking refundedAt are excluded from period refund deductions
+ * to avoid attributing generic document updates to financial refund events.
  */
 function buildRefundMatch({ startUtc, endUtc }) {
   return {
     $or: [{ status: { $in: REFUNDED_PAYMENT_STATUSES } }, { refundAmount: { $gt: 0 } }],
-    $expr: {
-      $and: [
-        {
-          $gte: [{ $ifNull: ['$refundedAt', '$updatedAt'] }, startUtc],
-        },
-        {
-          $lte: [{ $ifNull: ['$refundedAt', '$updatedAt'] }, endUtc],
-        },
-      ],
+    refundedAt: {
+      $gte: startUtc,
+      $lte: endUtc,
     },
   };
 }
@@ -83,8 +78,14 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
   const dateRange = resolveReportDateRange({ preset, startDate, endDate });
   const { startUtc, endUtc } = dateRange;
 
+  if (branchId && branchId !== 'ALL' && !mongoose.isValidObjectId(branchId)) {
+    throw new ForbiddenError('Invalid branch identifier.');
+  }
+
   const targetBranchObjectId =
-    branchId && mongoose.isValidObjectId(branchId) ? new mongoose.Types.ObjectId(branchId) : null;
+    branchId && branchId !== 'ALL' && mongoose.isValidObjectId(branchId)
+      ? new mongoose.Types.ObjectId(branchId)
+      : null;
 
   // 1. Aggregate Qualifying Sales Payments joined with Orders
   const salesPipeline = [
@@ -116,88 +117,57 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
     },
   ];
 
-  // 2. Fetch sales payments, refunds, cancellations, and authoritative order volume in parallel
-  const [salesRecords, refundsAggregation, cancellationsAggregation, orderCountAggregation] =
-    await Promise.all([
-      Payment.aggregate(salesPipeline),
+  // 2. Fetch sales payments, refunds, and cancellations in parallel
+  const [salesRecords, refundsAggregation, cancellationsAggregation] = await Promise.all([
+    Payment.aggregate(salesPipeline),
 
-      // Refund deductions query
-      Payment.aggregate([
-        { $match: buildRefundMatch({ startUtc, endUtc }) },
-        {
-          $lookup: {
-            from: 'orders',
-            localField: 'orderId',
-            foreignField: '_id',
-            as: 'order',
-          },
+    // Refund deductions query
+    Payment.aggregate([
+      { $match: buildRefundMatch({ startUtc, endUtc }) },
+      {
+        $lookup: {
+          from: 'orders',
+          localField: 'orderId',
+          foreignField: '_id',
+          as: 'order',
         },
-        { $unwind: { path: '$order', preserveNullAndEmptyArrays: true } },
-        ...(targetBranchObjectId ? [{ $match: { 'order.branchId': targetBranchObjectId } }] : []),
-        {
-          $group: {
-            _id: null,
-            totalRefundDeductions: {
-              $sum: {
-                $cond: [
-                  { $gt: ['$refundAmount', 0] },
-                  '$refundAmount',
-                  { $cond: [{ $eq: ['$status', REFUNDED_PAYMENT_STATUS] }, '$amount', 0] },
-                ],
-              },
+      },
+      { $unwind: { path: '$order', preserveNullAndEmptyArrays: true } },
+      ...(targetBranchObjectId ? [{ $match: { 'order.branchId': targetBranchObjectId } }] : []),
+      {
+        $group: {
+          _id: null,
+          totalRefundDeductions: {
+            $sum: {
+              $cond: [
+                { $gt: ['$refundAmount', 0] },
+                '$refundAmount',
+                { $cond: [{ $eq: ['$status', REFUNDED_PAYMENT_STATUS] }, '$amount', 0] },
+              ],
             },
           },
         },
-      ]),
+      },
+    ]),
 
-      // Cancelled orders query (SM-10)
-      Order.aggregate([
-        {
-          $match: {
-            status: CANCELLED_ORDER_STATUS,
-            updatedAt: { $gte: startUtc, $lte: endUtc },
-            ...(targetBranchObjectId ? { branchId: targetBranchObjectId } : {}),
-          },
+    // Cancelled orders query (SM-10)
+    Order.aggregate([
+      {
+        $match: {
+          status: CANCELLED_ORDER_STATUS,
+          updatedAt: { $gte: startUtc, $lte: endUtc },
+          ...(targetBranchObjectId ? { branchId: targetBranchObjectId } : {}),
         },
-        {
-          $group: {
-            _id: null,
-            cancelledCount: { $sum: 1 },
-            cancelledValue: { $sum: '$orderAmount' },
-          },
+      },
+      {
+        $group: {
+          _id: null,
+          cancelledCount: { $sum: 1 },
+          cancelledValue: { $sum: '$orderAmount' },
         },
-      ]),
-
-      // Authoritative qualifying order count based on Order.createdAt (Review Comment 5, ADR-014 SM-04)
-      Order.aggregate([
-        {
-          $match: {
-            status: { $in: QUALIFYING_ORDER_STATUSES },
-            createdAt: { $gte: startUtc, $lte: endUtc },
-            ...(targetBranchObjectId ? { branchId: targetBranchObjectId } : {}),
-          },
-        },
-        {
-          $lookup: {
-            from: 'payments',
-            localField: '_id',
-            foreignField: 'orderId',
-            as: 'payments',
-          },
-        },
-        {
-          $match: {
-            'payments.status': { $in: QUALIFYING_PAYMENT_STATUSES },
-          },
-        },
-        {
-          $group: {
-            _id: null,
-            totalOrders: { $sum: 1 },
-          },
-        },
-      ]),
-    ]);
+      },
+    ]),
+  ]);
 
   // Compute SM-01, SM-04, distinct qualifying order IDs
   let grossRevenue = 0;
@@ -234,16 +204,19 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
     const orderIdStr = record.orderId.toString();
     distinctOrderIds.add(orderIdStr);
 
-    // Branch breakdown
+    // Branch breakdown - track unique order IDs
     const branchKey = record.branchId ? record.branchId.toString() : 'UNASSIGNED';
-    const branchEntry = branchSalesMap.get(branchKey) || {
-      branchId: branchKey,
-      grossRevenue: 0,
-      orderCount: 0,
-    };
+    let branchEntry = branchSalesMap.get(branchKey);
+    if (!branchEntry) {
+      branchEntry = {
+        branchId: branchKey,
+        grossRevenue: 0,
+        orders: new Set(),
+      };
+      branchSalesMap.set(branchKey, branchEntry);
+    }
     branchEntry.grossRevenue += amt;
-    branchEntry.orderCount += 1;
-    branchSalesMap.set(branchKey, branchEntry);
+    branchEntry.orders.add(orderIdStr);
 
     // Payment method breakdown
     const methodKey = record.method || 'OTHER';
@@ -252,13 +225,16 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
     methodEntry.volume += amt;
     methodMap.set(methodKey, methodEntry);
 
-    // Time series grouping
+    // Time series grouping - track unique order IDs
     if (['day', 'week', 'month'].includes(groupBy)) {
       const timeKey = getTimeKey(record.paidDate);
-      const timeEntry = timeMap.get(timeKey) || { period: timeKey, grossRevenue: 0, orderCount: 0 };
+      let timeEntry = timeMap.get(timeKey);
+      if (!timeEntry) {
+        timeEntry = { period: timeKey, grossRevenue: 0, orders: new Set() };
+        timeMap.set(timeKey, timeEntry);
+      }
       timeEntry.grossRevenue += amt;
-      timeEntry.orderCount += 1;
-      timeMap.set(timeKey, timeEntry);
+      timeEntry.orders.add(orderIdStr);
     }
   }
 
@@ -309,7 +285,7 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
       branchName:
         bId === 'UNASSIGNED' ? 'Unassigned / Online' : branchNameById.get(bId) || 'Unknown Branch',
       grossRevenue: roundToTwo(entry.grossRevenue),
-      orderCount: entry.orderCount,
+      orderCount: entry.orders ? entry.orders.size : entry.orderCount || 0,
     });
   }
 
@@ -325,13 +301,13 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
     .map((t) => ({
       period: t.period,
       grossRevenue: roundToTwo(t.grossRevenue),
-      orderCount: t.orderCount,
+      orderCount: t.orders ? t.orders.size : t.orderCount || 0,
     }))
     .sort((a, b) => a.period.localeCompare(b.period));
 
   const totalRefundDeductions = roundToTwo(refundsAggregation[0]?.totalRefundDeductions || 0);
-  // Review Comment 5: Authoritative order count follows Order.createdAt per ADR-014 SM-04
-  const totalQualifyingOrders = orderCountAggregation[0]?.totalOrders || 0;
+  // Reconciled qualifying order count: identical recognized population as Gross Revenue
+  const totalQualifyingOrders = distinctOrderIds.size;
   const netRevenue = roundToTwo(grossRevenue - totalRefundDeductions);
   const averageOrderValue =
     totalQualifyingOrders > 0 ? roundToTwo(grossRevenue / totalQualifyingOrders) : 0;

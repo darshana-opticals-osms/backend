@@ -5,6 +5,8 @@ const OrderItem = require('../../src/models/orderItem.model');
 const Branch = require('../../src/models/branch.model');
 const Customer = require('../../src/models/customer.model');
 const Inventory = require('../../src/models/inventory.model');
+const ReorderAlert = require('../../src/models/reorderAlert.model');
+const reorderAlertService = require('../../src/services/reorderAlert.service');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 const { PAYMENT_STATUS, PAYMENT_METHOD } = require('../../src/constants/payment');
 const ExcelJS = require('exceljs');
@@ -43,6 +45,7 @@ describe('reportExport.service (ADR-014 §11, §14.2 & RFC-4180)', () => {
       Branch.deleteMany({}),
       Customer.deleteMany({}),
       Inventory.deleteMany({}),
+      ReorderAlert.deleteMany({}),
     ]);
 
     branchA = await Branch.create({
@@ -295,7 +298,7 @@ describe('reportExport.service (ADR-014 §11, §14.2 & RFC-4180)', () => {
         branchId: branchA._id,
       });
 
-      await Inventory.create({
+      const invB = await Inventory.create({
         itemName: 'Anti-Glare Lens',
         category: 'Lenses',
         brand: 'Essilor',
@@ -303,6 +306,7 @@ describe('reportExport.service (ADR-014 §11, §14.2 & RFC-4180)', () => {
         quantity: 0,
         branchId: branchB._id,
       });
+      await reorderAlertService.evaluateReorderAlert(invB);
 
       const user = {
         userId: 'adm-mgr-1',
@@ -434,18 +438,22 @@ describe('reportExport.service (ADR-014 §11, §14.2 & RFC-4180)', () => {
       await wb.xlsx.load(result.buffer);
 
       const sheetNames = wb.worksheets.map((s) => s.name);
-      expect(sheetNames).toContain('All Branches');
-      expect(sheetNames).toContain('COLOMBO_CENTRAL');
-      expect(sheetNames).toContain('KANDY_BRANCH');
+      expect(sheetNames).toContain('Executive Summary');
+      expect(sheetNames).toContain('Branch Breakdowns');
+      expect(sheetNames).toContain('Inventory Snapshot');
+      expect(sheetNames).toContain('Orders Breakdown');
 
-      const allSheet = wb.getWorksheet('All Branches');
-      expect(allSheet.rowCount).toBe(3); // 1 header row + 2 data rows
+      const summarySheet = wb.getWorksheet('Executive Summary');
+      expect(summarySheet.rowCount).toBeGreaterThanOrEqual(2);
 
-      const branchASheet = wb.getWorksheet('COLOMBO_CENTRAL');
-      expect(branchASheet.rowCount).toBe(2); // 1 header row + 1 data row
+      const branchBreakdownsSheet = wb.getWorksheet('Branch Breakdowns');
+      expect(branchBreakdownsSheet.rowCount).toBeGreaterThanOrEqual(1);
 
-      const branchBSheet = wb.getWorksheet('KANDY_BRANCH');
-      expect(branchBSheet.rowCount).toBe(2); // 1 header row + 1 data row
+      const invSnapshotSheet = wb.getWorksheet('Inventory Snapshot');
+      expect(invSnapshotSheet.rowCount).toBeGreaterThanOrEqual(1);
+
+      const ordersSheet = wb.getWorksheet('Orders Breakdown');
+      expect(ordersSheet.rowCount).toBe(3); // 1 header row + 2 data rows
     });
 
     it('creates separate sheets for each branch on org-wide inventory export', async () => {

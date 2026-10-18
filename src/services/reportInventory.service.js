@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Inventory = require('../models/inventory.model');
 const { REPORTING_CURRENCY, PAGINATION_LIMITS } = require('../constants/report.constants');
 const { getGlobalReorderThreshold } = require('./reorderAlert.service');
+const { ForbiddenError } = require('../errors/AppError');
 
 function roundToTwo(num) {
   if (typeof num !== 'number' || !Number.isFinite(num)) return 0;
@@ -9,14 +10,17 @@ function roundToTwo(num) {
 }
 
 /**
- * Builds aggregation stages that compute authoritative reorder status aligned with
- * ADR-006's active ReorderAlert model (Review Comment 6):
- * - If an active alert exists in ReorderAlert (or quantity is 0):
+ * Builds aggregation stages that consume authoritative reorder status aligned with
+ * ADR-006's active ReorderAlert model:
+ * - If an active alert exists in ReorderAlert (status === 'ACTIVE'):
  *   - quantity === 0 -> REORDER_TRIGGERED (out of stock, urgent reorder triggered)
- *   - quantity <= threshold or active alert -> LOW_STOCK
- *   - else -> OK
+ *   - quantity > 0 -> LOW_STOCK
+ * - If no active alert exists:
+ *   - OK
+ *
+ * Does not replicate local threshold evaluations inside reporting service.
  */
-function buildReorderStatusStages(threshold) {
+function buildReorderStatusStages() {
   return [
     {
       $lookup: {
@@ -43,17 +47,11 @@ function buildReorderStatusStages(threshold) {
       $addFields: {
         reorderStatus: {
           $cond: [
-            { $eq: ['$quantity', 0] },
-            'REORDER_TRIGGERED',
+            '$hasActiveAlert',
             {
-              $cond: [
-                {
-                  $or: ['$hasActiveAlert', { $lte: ['$quantity', threshold] }],
-                },
-                'LOW_STOCK',
-                'OK',
-              ],
+              $cond: [{ $eq: ['$quantity', 0] }, 'REORDER_TRIGGERED', 'LOW_STOCK'],
             },
+            'OK',
           ],
         },
       },
@@ -77,7 +75,10 @@ async function getInventoryReport({ branchId = null, category = null, reorderSta
     quantity: { $gte: 0 },
   };
 
-  if (branchId && mongoose.isValidObjectId(branchId)) {
+  if (branchId) {
+    if (!mongoose.isValidObjectId(branchId)) {
+      throw new ForbiddenError('Invalid branch identifier.');
+    }
     matchStage.branchId = new mongoose.Types.ObjectId(branchId);
   }
 
@@ -88,7 +89,7 @@ async function getInventoryReport({ branchId = null, category = null, reorderSta
   // 1. Overall Snapshot Summary Aggregation
   const summaryPipeline = [
     { $match: matchStage },
-    ...buildReorderStatusStages(threshold),
+    ...buildReorderStatusStages(),
     ...(reorderStatus ? [{ $match: { reorderStatus } }] : []),
     {
       $group: {
@@ -112,7 +113,7 @@ async function getInventoryReport({ branchId = null, category = null, reorderSta
   // 2. Branch Breakdown Aggregation
   const branchPipeline = [
     { $match: matchStage },
-    ...buildReorderStatusStages(threshold),
+    ...buildReorderStatusStages(),
     ...(reorderStatus ? [{ $match: { reorderStatus } }] : []),
     {
       $group: {
@@ -158,7 +159,7 @@ async function getInventoryReport({ branchId = null, category = null, reorderSta
   // 3. Category Breakdown Aggregation
   const categoryPipeline = [
     { $match: matchStage },
-    ...buildReorderStatusStages(threshold),
+    ...buildReorderStatusStages(),
     ...(reorderStatus ? [{ $match: { reorderStatus } }] : []),
     {
       $group: {
@@ -254,7 +255,10 @@ async function getInventoryItemsList({
     quantity: { $gte: 0 },
   };
 
-  if (branchId && mongoose.isValidObjectId(branchId)) {
+  if (branchId) {
+    if (!mongoose.isValidObjectId(branchId)) {
+      throw new ForbiddenError('Invalid branch identifier.');
+    }
     matchStage.branchId = new mongoose.Types.ObjectId(branchId);
   }
 
@@ -264,12 +268,14 @@ async function getInventoryItemsList({
 
   const numericPage = Math.max(1, parseInt(page, 10) || 1);
   const numericLimit = isExport
-    ? Math.min(10000, Math.max(1, parseInt(limit, 10) || 10000))
+    ? limit
+      ? Math.max(1, parseInt(limit, 10))
+      : 0
     : Math.min(
         PAGINATION_LIMITS.MAX_LIMIT,
         Math.max(1, parseInt(limit, 10) || PAGINATION_LIMITS.DEFAULT_LIMIT)
       );
-  const skip = (numericPage - 1) * numericLimit;
+  const skip = numericLimit > 0 ? (numericPage - 1) * numericLimit : 0;
 
   const sortDirection = sortOrder === 'asc' ? 1 : -1;
   const sortFieldMap = {
@@ -281,9 +287,17 @@ async function getInventoryItemsList({
   };
   const resolvedSortField = sortFieldMap[sortBy] || 'quantity';
 
+  const dataStages = [{ $sort: { [resolvedSortField]: sortDirection, _id: sortDirection } }];
+  if (skip > 0) {
+    dataStages.push({ $skip: skip });
+  }
+  if (numericLimit > 0) {
+    dataStages.push({ $limit: numericLimit });
+  }
+
   const pipeline = [
     { $match: matchStage },
-    ...buildReorderStatusStages(threshold),
+    ...buildReorderStatusStages(),
     ...(reorderStatus ? [{ $match: { reorderStatus } }] : []),
     {
       $lookup: {
@@ -297,11 +311,7 @@ async function getInventoryItemsList({
     {
       $facet: {
         metadata: [{ $count: 'total' }],
-        data: [
-          { $sort: { [resolvedSortField]: sortDirection, _id: sortDirection } },
-          { $skip: skip },
-          { $limit: numericLimit },
-        ],
+        data: dataStages,
       },
     },
   ];
@@ -326,8 +336,8 @@ async function getInventoryItemsList({
       item.branch?.codeName || item.branch?.name || item.branch?.address || 'Unassigned Branch',
   }));
 
-  const isTruncated = isExport && total > numericLimit;
-  const totalPages = Math.ceil(total / numericLimit) || 0;
+  const isTruncated = isExport && numericLimit > 0 && total > numericLimit;
+  const totalPages = numericLimit > 0 ? Math.ceil(total / numericLimit) || 0 : total > 0 ? 1 : 0;
 
   return {
     success: true,

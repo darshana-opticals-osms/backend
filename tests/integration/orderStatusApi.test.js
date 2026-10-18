@@ -8,6 +8,7 @@ const OrderItem = require('../../src/models/orderItem.model');
 const Inventory = require('../../src/models/inventory.model');
 const Customer = require('../../src/models/customer.model');
 const Payment = require('../../src/models/payment.model');
+const Cart = require('../../src/models/cart.model');
 const { PAYMENT_STATUS, PAYMENT_METHOD } = require('../../src/constants/payment');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 const { ORDER_STATUS_VALUES } = require('../../src/constants/orderStatuses');
@@ -71,6 +72,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       OrderItem.collection.deleteMany({}),
       Inventory.deleteMany({}),
       Customer.deleteMany({}),
+      Cart.deleteMany({}),
     ]);
   });
 
@@ -743,29 +745,18 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       expect(colomboPatchRes.body.data.status).toBe(ORDER_STATUS_VALUES.READY_FOR_PICKUP);
     });
 
-    it('deducts stock from claiming branch inventory and restores upon cancellation', async () => {
+    it('prevents double stock deduction when claiming branch is original checkout branch, and restores upon cancellation', async () => {
       const customer = await createCustomer('branchstock@example.com');
       const colomboBranchId = new mongoose.Types.ObjectId();
-      const kandyBranchId = new mongoose.Types.ObjectId();
 
-      // Kandy original inventory (where customer initially added to cart)
-      const kandyInventory = await Inventory.create({
-        branchId: kandyBranchId,
-        itemName: 'Designer Sunglasses',
-        category: 'SUNGLASSES',
-        brand: 'Ray-Ban',
-        price: 15000,
-        quantity: 8,
-      });
-
-      // Colombo branch has 5 in stock
+      // Colombo original inventory: checkout deduction previously occurred (10 -> 8)
       const colomboInventory = await Inventory.create({
         branchId: colomboBranchId,
         itemName: 'Designer Sunglasses',
         category: 'SUNGLASSES',
         brand: 'Ray-Ban',
         price: 15000,
-        quantity: 5,
+        quantity: 8,
       });
 
       const order = await Order.create({
@@ -785,7 +776,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
 
       await OrderItem.create({
         orderId: order._id,
-        inventoryId: kandyInventory._id,
+        inventoryId: colomboInventory._id,
         itemName: 'Designer Sunglasses',
         price: 15000,
         quantity: 2,
@@ -812,13 +803,9 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
 
       expect(claimRes.status).toBe(200);
 
-      // Verify Colombo inventory deducted: 5 - 2 = 3
+      // Verify Colombo inventory was NOT deducted again (consumed reservation, remains 8)
       const updatedColomboInv = await Inventory.findById(colomboInventory._id);
-      expect(updatedColomboInv.quantity).toBe(3);
-
-      // Verify Kandy original inventory was restored: 8 + 2 = 10
-      const updatedKandyInv = await Inventory.findById(kandyInventory._id);
-      expect(updatedKandyInv.quantity).toBe(10);
+      expect(updatedColomboInv.quantity).toBe(8);
 
       // Now cancel the order from PROCESSING
       const cancelRes = await request(app)
@@ -828,16 +815,13 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
 
       expect(cancelRes.status).toBe(200);
 
-      // Verify Colombo inventory restored: 3 + 2 = 5
+      // Verify Colombo inventory restored: 8 + 2 = 10 (returns to exact initial stock)
       const restoredColomboInv = await Inventory.findById(colomboInventory._id);
-      expect(restoredColomboInv.quantity).toBe(5);
+      expect(restoredColomboInv.quantity).toBe(10);
     });
-  });
 
-  describe('Review Findings Regression Tests (PR #88)', () => {
-    // ─── Comment 1: IPN Lifecycle & Branch Claiming ─────────────────────────
-    it('Comment 1: executes sequence checkout -> verified PayHere IPN -> branch fulfillment claim -> inventory allocation', async () => {
-      const customer = await createCustomer('ipnclaim@example.com');
+    it('fails closed with UNSUPPORTED_CROSS_BRANCH_ALLOCATION when claiming branch differs from checkout branch', async () => {
+      const customer = await createCustomer('crossbranchfail@example.com');
       const originBranchId = new mongoose.Types.ObjectId();
       const colomboBranchId = new mongoose.Types.ObjectId();
 
@@ -847,33 +831,15 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
         category: 'LENSES',
         brand: 'Essilor',
         price: 20000,
-        quantity: 10,
-      });
-
-      const colomboInventory = await Inventory.create({
-        branchId: colomboBranchId,
-        itemName: 'Progressive Lens UV400',
-        category: 'LENSES',
-        brand: 'Essilor',
-        price: 20000,
         quantity: 8,
       });
 
-      // 1. Checkout creates order in ORDER_CREATED (online, no branchId assigned yet)
       const order = await Order.create({
         customerId: customer._id,
-        branchId: null,
         orderDate: new Date(),
         orderAmount: 40000,
-        status: ORDER_STATUS_VALUES.ORDER_CREATED,
+        status: ORDER_STATUS_VALUES.PROCESSING,
         statusUpdatedAt: new Date(),
-        statusHistory: [
-          {
-            status: ORDER_STATUS_VALUES.ORDER_CREATED,
-            changedAt: new Date(),
-            changedBy: customer._id,
-          },
-        ],
       });
 
       await OrderItem.create({
@@ -882,43 +848,15 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
         itemName: 'Progressive Lens UV400',
         price: 20000,
         quantity: 2,
-        classificationSnapshot: {
-          source: 'Inventory',
-          sourceInventoryId: originInventory._id,
-          category: 'LENSES',
-          itemClassification: 'UNKNOWN',
-          loyaltyEligibility: 'UNKNOWN',
-        },
       });
 
-      // 2. PayHere IPN verified notification transitions Order to PROCESSING (ADR-011)
-      const payment = await Payment.create({
+      await Payment.create({
         orderId: order._id,
         amount: order.orderAmount,
         status: PAYMENT_STATUS.COMPLETED,
         method: PAYMENT_METHOD.ONLINE_GATEWAY,
-        providerTransactionId: 'PAYHERE_TXN_9999',
       });
 
-      await Order.findByIdAndUpdate(order._id, {
-        $set: { status: ORDER_STATUS_VALUES.PROCESSING, statusUpdatedAt: new Date() },
-        $push: {
-          statusHistory: {
-            status: ORDER_STATUS_VALUES.PROCESSING,
-            changedAt: new Date(),
-            changedBy: null,
-            source: 'PAYMENT_SYSTEM',
-            paymentId: payment._id,
-          },
-        },
-      });
-
-      // Verify order is in PROCESSING without a branchId
-      const ipnOrder = await Order.findById(order._id);
-      expect(ipnOrder.status).toBe(ORDER_STATUS_VALUES.PROCESSING);
-      expect(ipnOrder.branchId).toBeNull();
-
-      // 3. Colombo branch claims the order for fulfillment
       const colomboStaffToken = createToken({
         userId: new mongoose.Types.ObjectId().toString(),
         role: ROLE_VALUES.BRANCH_MANAGER,
@@ -929,25 +867,107 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
         .patch(`/api/orders/${order._id}/claim`)
         .set('Authorization', `Bearer ${colomboStaffToken}`);
 
+      expect(claimRes.status).toBe(409);
+      expect(claimRes.body.error.code).toBe('UNSUPPORTED_CROSS_BRANCH_ALLOCATION');
+
+      // Origin inventory remains untouched
+      const checkOrigin = await Inventory.findById(originInventory._id);
+      expect(checkOrigin.quantity).toBe(8);
+    });
+  });
+
+  describe('Review Findings Regression Tests (PR #88)', () => {
+    // ─── Finding 3: Real Checkout -> Verified Payment -> Branch Claim -> Cancellation Flow ───
+    it('executes real application flow: real checkout -> reservation -> verified payment -> same-branch claim -> cancellation restoring exact inventory', async () => {
+      const customer = await createCustomer('realcheckout@example.com');
+      const branchId = new mongoose.Types.ObjectId();
+
+      // Initial inventory: 10 units
+      const inventory = await Inventory.create({
+        branchId,
+        itemName: 'Progressive Lens UV400',
+        category: 'Lenses',
+        brand: 'Essilor',
+        price: 20000,
+        quantity: 10,
+      });
+
+      // 1. Add item to Customer Cart
+      await Cart.create({
+        customerId: customer._id,
+        items: [{ inventoryId: inventory._id, quantity: 2 }],
+      });
+
+      const customerToken = createToken({
+        userId: customer._id.toString(),
+        role: ROLE_VALUES.CUSTOMER,
+      });
+
+      // 2. Real checkout: deducts inventory from 10 -> 8
+      const checkoutRes = await request(app)
+        .post('/api/checkout')
+        .set('Authorization', `Bearer ${customerToken}`)
+        .send();
+
+      expect(checkoutRes.status).toBe(201);
+      const orderId = checkoutRes.body.data.order.id;
+
+      // Verify physical stock deduction occurred at checkout: 10 -> 8
+      const invAfterCheckout = await Inventory.findById(inventory._id);
+      expect(invAfterCheckout.quantity).toBe(8);
+
+      // 3. Payment verification: transitions order to PROCESSING
+      await Payment.create({
+        orderId,
+        amount: 40000,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+        providerTransactionId: 'PAYHERE_REAL_TXN_888',
+        paidAt: new Date(),
+      });
+
+      await Order.findByIdAndUpdate(orderId, {
+        $set: { status: ORDER_STATUS_VALUES.PROCESSING, statusUpdatedAt: new Date() },
+      });
+
+      // 4. Same-branch staff claims the order for fulfillment
+      const staffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branchId.toString(),
+      });
+
+      const claimRes = await request(app)
+        .patch(`/api/orders/${orderId}/claim`)
+        .set('Authorization', `Bearer ${staffToken}`);
+
       expect(claimRes.status).toBe(200);
-      expect(claimRes.body.data.status).toBe(ORDER_STATUS_VALUES.PROCESSING);
-      expect(claimRes.body.data.branchId).toBe(colomboBranchId.toString());
+      expect(claimRes.body.data.branchId).toBe(branchId.toString());
 
-      // 4. Inventory is allocated from Colombo branch: 8 - 2 = 6, and origin reservation restored: 10 + 2 = 12
-      const updatedColomboInv = await Inventory.findById(colomboInventory._id);
-      expect(updatedColomboInv.quantity).toBe(6);
+      // Verify stock was NOT deducted again (consumed checkout reservation, remains 8)
+      const invAfterClaim = await Inventory.findById(inventory._id);
+      expect(invAfterClaim.quantity).toBe(8);
 
-      const updatedOriginInv = await Inventory.findById(originInventory._id);
-      expect(updatedOriginInv.quantity).toBe(12);
+      // 5. Order cancellation: stock is restored to exact initial quantity (8 -> 10)
+      const cancelRes = await request(app)
+        .patch(`/api/orders/${orderId}/status`)
+        .set('Authorization', `Bearer ${staffToken}`)
+        .send({ status: ORDER_STATUS_VALUES.CANCELLED });
+
+      expect(cancelRes.status).toBe(200);
+
+      const invAfterCancel = await Inventory.findById(inventory._id);
+      expect(invAfterCancel.quantity).toBe(10);
     });
 
     // ─── Comment 2: Atomic Rollback & Competing Branches ────────────────────
-    it('Comment 2a: multi-item allocation rolls back completely when an item has insufficient stock', async () => {
+    it('Comment 2a: multi-item allocation rolls back completely when cross-branch fulfillment is attempted', async () => {
       const customer = await createCustomer('rollback@example.com');
-      const branchId = new mongoose.Types.ObjectId();
+      const originBranchId = new mongoose.Types.ObjectId();
+      const claimingBranchId = new mongoose.Types.ObjectId();
 
       const itemA = await Inventory.create({
-        branchId,
+        branchId: originBranchId,
         itemName: 'Lens Cleaner Spray',
         category: 'ACCESSORIES',
         brand: 'OptiClean',
@@ -956,12 +976,12 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       });
 
       const itemB = await Inventory.create({
-        branchId,
+        branchId: originBranchId,
         itemName: 'Microfiber Cleaning Cloth',
         category: 'ACCESSORIES',
         brand: 'OptiClean',
         price: 500,
-        quantity: 1, // only 1 in stock, order needs 3!
+        quantity: 1,
       });
 
       const order = await Order.create({
@@ -1014,7 +1034,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       const staffToken = createToken({
         userId: new mongoose.Types.ObjectId().toString(),
         role: ROLE_VALUES.BRANCH_MANAGER,
-        branchId: branchId.toString(),
+        branchId: claimingBranchId.toString(),
       });
 
       const claimRes = await request(app)
@@ -1022,7 +1042,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
         .set('Authorization', `Bearer ${staffToken}`);
 
       expect(claimRes.status).toBe(409);
-      expect(claimRes.body.success).toBe(false);
+      expect(claimRes.body.error.code).toBe('UNSUPPORTED_CROSS_BRANCH_ALLOCATION');
 
       // Verify itemA was NOT deducted (atomic rollback preserved quantity 10)
       const checkItemA = await Inventory.findById(itemA._id);

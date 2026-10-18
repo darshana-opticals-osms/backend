@@ -82,6 +82,23 @@ describe('resolveReportScope utility (ADR-014 §10 / ADR-002 Alignment)', () => 
 
       expect(() => resolveReportScope(req, 'sales')).toThrow(ForbiddenError);
     });
+
+    it('denies BRANCH_MANAGER with 403 Forbidden if branchId is malformed or invalid ObjectId', () => {
+      const malformedReq = {
+        auth: { role: ROLE_VALUES.BRANCH_MANAGER, branchId: 'invalid-branch-id' },
+        query: {},
+      };
+      expect(() => resolveReportScope(malformedReq, 'sales')).toThrow(ForbiddenError);
+      expect(() => resolveReportScope(malformedReq, 'sales')).toThrow(
+        'Branch Manager has an invalid or missing branch assignment.'
+      );
+
+      const emptyReq = {
+        auth: { role: ROLE_VALUES.BRANCH_MANAGER, branchId: '' },
+        query: {},
+      };
+      expect(() => resolveReportScope(emptyReq, 'inventory')).toThrow(ForbiddenError);
+    });
   });
 
   describe('Unauthorized Roles (AC29)', () => {

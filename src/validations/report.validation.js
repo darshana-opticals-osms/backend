@@ -6,6 +6,7 @@ const {
   ALLOWED_SALES_SORT_FIELDS,
   ALLOWED_INVENTORY_SORT_FIELDS,
   SORT_DIRECTIONS,
+  QUALIFYING_ORDER_STATUSES,
 } = require('../constants/report.constants');
 const { isValidIsoDateString } = require('../utils/reportDates');
 
@@ -225,6 +226,18 @@ function validateSalesOrdersQuery(req) {
       field: 'sortOrder',
       message: `sortOrder must be one of: ${SORT_DIRECTIONS.join(', ')}.`,
     });
+  }
+
+  if (query.orderStatus !== undefined) {
+    if (
+      typeof query.orderStatus !== 'string' ||
+      !QUALIFYING_ORDER_STATUSES.includes(query.orderStatus)
+    ) {
+      errors.push({
+        field: 'orderStatus',
+        message: `orderStatus must be one of the qualifying sales statuses: ${QUALIFYING_ORDER_STATUSES.join(', ')}. Cancelled orders are excluded from recognized sales.`,
+      });
+    }
   }
 
   errors.push(...validateNoRequestBody(req.body));
