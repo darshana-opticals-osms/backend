@@ -20,7 +20,7 @@ const JWT_EXPIRES_IN = '1h';
 
 const createToken = ({
   userId = new mongoose.Types.ObjectId().toString(),
-  role = ROLE_VALUES.MANAGEMENT,
+  role = ROLE_VALUES.SYSTEM_ADMIN,
   branchId = null,
 } = {}) =>
   createAccessToken({
@@ -36,13 +36,12 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
   let branchB;
   let customerA;
 
-  let managementToken;
+  let adminToken;
   let branchManagerAToken;
   let branchManagerBToken;
-  let inventoryManagerToken;
+  let branchAssistantToken;
   let customerToken;
   let optometristToken;
-  let adminToken;
 
   beforeAll(async () => {
     process.env.NODE_ENV = 'test';
@@ -118,9 +117,9 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       passwordHash: '$2b$10$abcdefghijklmnopqrstuvwxyz123456789012345678901234567890',
     });
 
-    managementToken = createToken({
+    adminToken = createToken({
       userId: new mongoose.Types.ObjectId().toString(),
-      role: ROLE_VALUES.MANAGEMENT,
+      role: ROLE_VALUES.SYSTEM_ADMIN,
     });
 
     branchManagerAToken = createToken({
@@ -135,9 +134,10 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       branchId: branchB._id.toString(),
     });
 
-    inventoryManagerToken = createToken({
+    branchAssistantToken = createToken({
       userId: new mongoose.Types.ObjectId().toString(),
-      role: ROLE_VALUES.INVENTORY_MANAGER,
+      role: ROLE_VALUES.BRANCH_ASSISTANT,
+      branchId: branchA._id.toString(),
     });
 
     customerToken = createToken({
@@ -148,11 +148,6 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
     optometristToken = createToken({
       userId: new mongoose.Types.ObjectId().toString(),
       role: ROLE_VALUES.OPTOMETRIST,
-    });
-
-    adminToken = createToken({
-      userId: new mongoose.Types.ObjectId().toString(),
-      role: ROLE_VALUES.SYSTEM_ADMIN,
     });
   });
 
@@ -177,10 +172,18 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       expect(res.status).toBe(403);
     });
 
-    it('returns 403 Forbidden when INVENTORY_MANAGER attempts sales report', async () => {
+    it('returns 403 Forbidden when BRANCH_ASSISTANT attempts sales report', async () => {
       const res = await request(app)
         .get('/api/reports/sales')
-        .set('Authorization', `Bearer ${inventoryManagerToken}`);
+        .set('Authorization', `Bearer ${branchAssistantToken}`);
+      expect(res.status).toBe(403);
+      expect(res.body.error.message).toContain('Access forbidden');
+    });
+
+    it('returns 403 Forbidden when BRANCH_ASSISTANT attempts inventory report', async () => {
+      const res = await request(app)
+        .get('/api/reports/inventory')
+        .set('Authorization', `Bearer ${branchAssistantToken}`);
       expect(res.status).toBe(403);
       expect(res.body.error.message).toContain('Access forbidden');
     });
@@ -219,24 +222,20 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       expect(res.body.error.message).toContain('cannot query branch data outside assigned scope');
     });
 
-    it('allows INVENTORY_MANAGER to access inventory report', async () => {
-      const res = await request(app)
-        .get('/api/reports/inventory')
-        .set('Authorization', `Bearer ${inventoryManagerToken}`);
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-    });
-
-    it('allows MANAGEMENT org-wide access to sales and inventory reports', async () => {
+    it('allows BRANCH_MANAGER to access their assigned branch sales and inventory reports', async () => {
       const salesRes = await request(app)
         .get('/api/reports/sales')
-        .set('Authorization', `Bearer ${managementToken}`);
+        .query({ branchId: branchA._id.toString() })
+        .set('Authorization', `Bearer ${branchManagerAToken}`);
       expect(salesRes.status).toBe(200);
+      expect(salesRes.body.success).toBe(true);
 
       const invRes = await request(app)
         .get('/api/reports/inventory')
-        .set('Authorization', `Bearer ${managementToken}`);
+        .query({ branchId: branchA._id.toString() })
+        .set('Authorization', `Bearer ${branchManagerAToken}`);
       expect(invRes.status).toBe(200);
+      expect(invRes.body.success).toBe(true);
     });
   });
 
@@ -248,7 +247,7 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
           startDate: '2024-01-01',
           endDate: '2025-06-01',
         })
-        .set('Authorization', `Bearer ${managementToken}`);
+        .set('Authorization', `Bearer ${adminToken}`);
       expect(res.status).toBe(422);
       expect(res.body.error.message).toContain('exceed');
     });
@@ -257,7 +256,7 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       const res = await request(app)
         .get('/api/reports/sales')
         .query({ startDate: '2026-01-01' })
-        .set('Authorization', `Bearer ${managementToken}`);
+        .set('Authorization', `Bearer ${adminToken}`);
       expect(res.status).toBe(422);
     });
 
@@ -265,7 +264,7 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       const res = await request(app)
         .get('/api/reports/sales')
         .query({ maliciousParam: 'hack' })
-        .set('Authorization', `Bearer ${managementToken}`);
+        .set('Authorization', `Bearer ${adminToken}`);
       expect(res.status).toBe(422);
       expect(res.body.error.message).toContain('Unsupported sales report query parameter');
     });
@@ -274,7 +273,7 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       const res = await request(app)
         .get('/api/reports/sales')
         .send({ illegalBody: 'data' })
-        .set('Authorization', `Bearer ${managementToken}`);
+        .set('Authorization', `Bearer ${adminToken}`);
       expect(res.status).toBe(422);
       expect(res.body.error.message).toContain('does not accept request body');
     });
@@ -285,7 +284,7 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       const res = await request(app)
         .get('/api/reports/sales')
         .query({ preset: 'today' })
-        .set('Authorization', `Bearer ${managementToken}`);
+        .set('Authorization', `Bearer ${adminToken}`);
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
@@ -379,7 +378,7 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       const res = await request(app)
         .get('/api/reports/sales')
         .query({ preset: 'today', groupBy: 'branch' })
-        .set('Authorization', `Bearer ${managementToken}`);
+        .set('Authorization', `Bearer ${adminToken}`);
 
       expect(res.status).toBe(200);
       const summary = res.body.data.summary;
@@ -484,7 +483,7 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       const res = await request(app)
         .get('/api/reports/sales/orders')
         .query({ preset: 'today' })
-        .set('Authorization', `Bearer ${managementToken}`);
+        .set('Authorization', `Bearer ${adminToken}`);
 
       expect(res.status).toBe(200);
       expect(res.body.data.orders).toHaveLength(1);
@@ -538,7 +537,7 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
     it('returns inventory summary metrics and breakdowns', async () => {
       const res = await request(app)
         .get('/api/reports/inventory')
-        .set('Authorization', `Bearer ${inventoryManagerToken}`);
+        .set('Authorization', `Bearer ${adminToken}`);
 
       expect(res.status).toBe(200);
       const summary = res.body.data.summary;
@@ -558,7 +557,7 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       const res = await request(app)
         .get('/api/reports/inventory/items')
         .query({ reorderStatus: 'REORDER_TRIGGERED' })
-        .set('Authorization', `Bearer ${inventoryManagerToken}`);
+        .set('Authorization', `Bearer ${adminToken}`);
 
       expect(res.status).toBe(200);
       expect(res.body.data.items).toHaveLength(1);
@@ -598,7 +597,7 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       const res = await request(app)
         .get('/api/reports/sales/export')
         .query({ preset: 'today', format: 'csv' })
-        .set('Authorization', `Bearer ${managementToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .set('x-correlation-id', 'test-export-sales-corr-123');
 
       expect(res.status).toBe(200);
@@ -616,7 +615,7 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       expect(auditEvent).not.toBeNull();
       expect(auditEvent.targetType).toBe(AUDIT_TARGET_TYPE.REPORT);
       expect(auditEvent.targetId).toBe('SALES_REPORT');
-      expect(auditEvent.actorRole).toBe(ROLE_VALUES.MANAGEMENT);
+      expect(auditEvent.actorRole).toBe(ROLE_VALUES.SYSTEM_ADMIN);
       expect(auditEvent.metadata.reportType).toBe('sales');
       expect(auditEvent.metadata.rowCount).toBe(1);
     });
@@ -634,7 +633,7 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       const res = await request(app)
         .get('/api/reports/inventory/export')
         .query({ format: 'csv' })
-        .set('Authorization', `Bearer ${inventoryManagerToken}`)
+        .set('Authorization', `Bearer ${adminToken}`)
         .set('x-correlation-id', 'test-export-inv-corr-456');
 
       expect(res.status).toBe(200);
@@ -651,7 +650,7 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       expect(auditEvent).not.toBeNull();
       expect(auditEvent.targetType).toBe(AUDIT_TARGET_TYPE.REPORT);
       expect(auditEvent.targetId).toBe('INVENTORY_REPORT');
-      expect(auditEvent.actorRole).toBe(ROLE_VALUES.INVENTORY_MANAGER);
+      expect(auditEvent.actorRole).toBe(ROLE_VALUES.SYSTEM_ADMIN);
       expect(auditEvent.metadata.reportType).toBe('inventory');
       expect(auditEvent.metadata.rowCount).toBe(1);
     });

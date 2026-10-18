@@ -30,7 +30,7 @@ const {
  *       Returns recognized sales revenue (SM-01 Gross Revenue, SM-02 Refunds, SM-03 Net Revenue),
  *       qualifying orders count (SM-04), average order value (SM-05), items sold (SM-06), and
  *       breakdowns by time, branch, category, and payment method according to ADR-014.
- *       Restricted to MANAGEMENT (organization-wide) and BRANCH_MANAGER (assigned branch only).
+ *       Restricted to SYSTEM_ADMIN (organization-wide) and BRANCH_MANAGER (assigned branch only).
  *       Zero sales activity in the selected window returns an HTTP 200 payload with numeric zeroes.
  *     tags:
  *       - Reports
@@ -59,7 +59,7 @@ const {
  *         name: branchId
  *         schema:
  *           type: string
- *         description: Branch ObjectId. Management can filter by branch or omit for org-wide; Branch Managers are restricted to their assigned branch.
+ *         description: Branch ObjectId. System Admin can filter by branch or omit for org-wide; Branch Managers are restricted to their assigned branch.
  *       - in: query
  *         name: groupBy
  *         schema:
@@ -80,7 +80,6 @@ router.get(
   '/reports/sales',
   authenticate,
   authorizeRoles(
-    ROLE_VALUES.MANAGEMENT,
     ROLE_VALUES.SYSTEM_ADMIN,
     ROLE_VALUES.BRANCH_MANAGER
   ),
@@ -163,7 +162,6 @@ router.get(
   '/reports/sales/orders',
   authenticate,
   authorizeRoles(
-    ROLE_VALUES.MANAGEMENT,
     ROLE_VALUES.SYSTEM_ADMIN,
     ROLE_VALUES.BRANCH_MANAGER
   ),
@@ -190,16 +188,19 @@ router.get(
  *         schema:
  *           type: string
  *           enum: [today, last_7_days, last_30_days, this_month, custom]
+ *         description: Reporting date preset evaluated in Asia/Colombo (+05:30).
  *       - in: query
  *         name: startDate
  *         schema:
  *           type: string
  *           format: date
+ *         description: Inclusive start date (YYYY-MM-DD). Required when preset=custom.
  *       - in: query
  *         name: endDate
  *         schema:
  *           type: string
  *           format: date
+ *         description: Inclusive end date (YYYY-MM-DD). Maximum range 365 days.
  *       - in: query
  *         name: branchId
  *         schema:
@@ -229,7 +230,6 @@ router.get(
   '/reports/sales/export',
   authenticate,
   authorizeRoles(
-    ROLE_VALUES.MANAGEMENT,
     ROLE_VALUES.SYSTEM_ADMIN,
     ROLE_VALUES.BRANCH_MANAGER
   ),
@@ -246,7 +246,7 @@ router.get(
  *       Returns authoritative snapshot metrics (IM-01 Total Stock on Hand, IM-02 Branch breakdown,
  *       IM-03 Category breakdown, IM-04 Low Stock Count, IM-05 Reorder-Triggered Count, and
  *       IM-06 Total Retail Valuation in LKR) according to ADR-014 §9.
- *       Accessible by MANAGEMENT, INVENTORY_MANAGER, and BRANCH_MANAGER (assigned branch scope).
+ *       Accessible by SYSTEM_ADMIN (organization-wide or branch filter) and BRANCH_MANAGER (assigned branch scope).
  *     tags:
  *       - Reports
  *     security:
@@ -287,8 +287,6 @@ router.get(
   '/reports/inventory',
   authenticate,
   authorizeRoles(
-    ROLE_VALUES.MANAGEMENT,
-    ROLE_VALUES.INVENTORY_MANAGER,
     ROLE_VALUES.SYSTEM_ADMIN,
     ROLE_VALUES.BRANCH_MANAGER
   ),
@@ -360,8 +358,6 @@ router.get(
   '/reports/inventory/items',
   authenticate,
   authorizeRoles(
-    ROLE_VALUES.MANAGEMENT,
-    ROLE_VALUES.INVENTORY_MANAGER,
     ROLE_VALUES.SYSTEM_ADMIN,
     ROLE_VALUES.BRANCH_MANAGER
   ),
@@ -420,8 +416,6 @@ router.get(
   '/reports/inventory/export',
   authenticate,
   authorizeRoles(
-    ROLE_VALUES.MANAGEMENT,
-    ROLE_VALUES.INVENTORY_MANAGER,
     ROLE_VALUES.SYSTEM_ADMIN,
     ROLE_VALUES.BRANCH_MANAGER
   ),

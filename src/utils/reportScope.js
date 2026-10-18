@@ -22,9 +22,6 @@ function resolveReportScope(req, reportCategory) {
 
   // 1. Role Authorization Check
   if (reportCategory === 'sales') {
-    if (role === ROLE_VALUES.INVENTORY_MANAGER) {
-      throw new ForbiddenError('Inventory Managers do not have access to sales reports.');
-    }
     if (!SALES_VIEW_ROLES.includes(role)) {
       throw new ForbiddenError('Access forbidden: insufficient role permissions.');
     }
@@ -61,7 +58,7 @@ function resolveReportScope(req, reportCategory) {
     };
   }
 
-  // Management, System Admin, and Inventory Manager have organization-wide capability
+  // SYSTEM_ADMIN has organization-wide capability and can filter by branchId
   if (requestedBranchId && requestedBranchId !== 'ALL') {
     return {
       branchId: requestedBranchId.toString(),

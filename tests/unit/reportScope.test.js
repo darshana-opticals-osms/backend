@@ -2,38 +2,41 @@ const { resolveReportScope } = require('../../src/utils/reportScope');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 const { ForbiddenError, UnauthorizedError } = require('../../src/errors/AppError');
 
-describe('resolveReportScope utility (ADR-014 §10)', () => {
+describe('resolveReportScope utility (ADR-014 §10 / ADR-002 Alignment)', () => {
   const branchA = '507f1f77bcf86cd799439011';
   const branchB = '507f1f77bcf86cd799439022';
 
-  describe('Management Access (FR-012 Owner)', () => {
-    it('allows MANAGEMENT organization-wide access for sales reports when branchId is omitted', () => {
-      const req = { auth: { role: ROLE_VALUES.MANAGEMENT }, query: {} };
+  describe('System Admin Access (Org-Wide & Branch Filterable)', () => {
+    it('allows SYSTEM_ADMIN organization-wide access for sales reports when branchId is omitted', () => {
+      const req = { auth: { role: ROLE_VALUES.SYSTEM_ADMIN }, query: {} };
       const scope = resolveReportScope(req, 'sales');
 
       expect(scope).toEqual({
         branchId: null,
         isOrgWide: true,
-        role: ROLE_VALUES.MANAGEMENT,
+        role: ROLE_VALUES.SYSTEM_ADMIN,
       });
     });
 
-    it('allows MANAGEMENT to filter by specific branch', () => {
-      const req = { auth: { role: ROLE_VALUES.MANAGEMENT }, query: { branchId: branchA } };
+    it('allows SYSTEM_ADMIN to filter sales reports by specific branch', () => {
+      const req = { auth: { role: ROLE_VALUES.SYSTEM_ADMIN }, query: { branchId: branchA } };
       const scope = resolveReportScope(req, 'sales');
 
       expect(scope).toEqual({
         branchId: branchA,
         isOrgWide: false,
-        role: ROLE_VALUES.MANAGEMENT,
+        role: ROLE_VALUES.SYSTEM_ADMIN,
       });
     });
 
-    it('allows MANAGEMENT access to inventory reports', () => {
-      const req = { auth: { role: ROLE_VALUES.MANAGEMENT }, query: {} };
-      const scope = resolveReportScope(req, 'inventory');
+    it('allows SYSTEM_ADMIN organization-wide and branch-filtered access to inventory reports', () => {
+      const orgReq = { auth: { role: ROLE_VALUES.SYSTEM_ADMIN }, query: {} };
+      expect(resolveReportScope(orgReq, 'inventory').isOrgWide).toBe(true);
 
-      expect(scope.isOrgWide).toBe(true);
+      const branchReq = { auth: { role: ROLE_VALUES.SYSTEM_ADMIN }, query: { branchId: branchB } };
+      const branchScope = resolveReportScope(branchReq, 'inventory');
+      expect(branchScope.isOrgWide).toBe(false);
+      expect(branchScope.branchId).toBe(branchB);
     });
   });
 
@@ -78,55 +81,6 @@ describe('resolveReportScope utility (ADR-014 §10)', () => {
       };
 
       expect(() => resolveReportScope(req, 'sales')).toThrow(ForbiddenError);
-    });
-  });
-
-  describe('Inventory Manager Access (FR-012 View - Inventory Only)', () => {
-    it('allows INVENTORY_MANAGER access to inventory reports', () => {
-      const req = { auth: { role: ROLE_VALUES.INVENTORY_MANAGER }, query: {} };
-      const scope = resolveReportScope(req, 'inventory');
-
-      expect(scope.isOrgWide).toBe(true);
-    });
-
-    it('strictly denies INVENTORY_MANAGER access to sales/financial reports (AC27)', () => {
-      const req = { auth: { role: ROLE_VALUES.INVENTORY_MANAGER }, query: {} };
-
-      expect(() => resolveReportScope(req, 'sales')).toThrow(ForbiddenError);
-    });
-  });
-
-  describe('System Admin Access', () => {
-    it('allows SYSTEM_ADMIN organization-wide access for sales reports when branchId is omitted', () => {
-      const req = { auth: { role: ROLE_VALUES.SYSTEM_ADMIN }, query: {} };
-      const scope = resolveReportScope(req, 'sales');
-
-      expect(scope).toEqual({
-        branchId: null,
-        isOrgWide: true,
-        role: ROLE_VALUES.SYSTEM_ADMIN,
-      });
-    });
-
-    it('allows SYSTEM_ADMIN to filter sales reports by specific branch', () => {
-      const req = { auth: { role: ROLE_VALUES.SYSTEM_ADMIN }, query: { branchId: branchA } };
-      const scope = resolveReportScope(req, 'sales');
-
-      expect(scope).toEqual({
-        branchId: branchA,
-        isOrgWide: false,
-        role: ROLE_VALUES.SYSTEM_ADMIN,
-      });
-    });
-
-    it('allows SYSTEM_ADMIN organization-wide and branch-filtered access to inventory reports', () => {
-      const orgReq = { auth: { role: ROLE_VALUES.SYSTEM_ADMIN }, query: {} };
-      expect(resolveReportScope(orgReq, 'inventory').isOrgWide).toBe(true);
-
-      const branchReq = { auth: { role: ROLE_VALUES.SYSTEM_ADMIN }, query: { branchId: branchB } };
-      const branchScope = resolveReportScope(branchReq, 'inventory');
-      expect(branchScope.isOrgWide).toBe(false);
-      expect(branchScope.branchId).toBe(branchB);
     });
   });
 

@@ -107,11 +107,11 @@ describe('reportExport.service (ADR-014 §11, §14.2 & RFC-4180)', () => {
   });
 
   describe('exportSalesReportCsv', () => {
-    it('throws ForbiddenError when accessed by INVENTORY_MANAGER role', async () => {
-      const user = { userId: 'u1', role: ROLE_VALUES.INVENTORY_MANAGER };
+    it('throws ForbiddenError when accessed by unauthorized role (BRANCH_ASSISTANT)', async () => {
+      const user = { userId: 'u1', role: ROLE_VALUES.BRANCH_ASSISTANT };
       await expect(
         exportSalesReportCsv({ preset: 'today', user })
-      ).rejects.toThrow('Inventory Managers do not have access to sales reports.');
+      ).rejects.toThrow('Access forbidden: insufficient role permissions.');
     });
 
     it('throws ForbiddenError when BRANCH_MANAGER attempts IDOR export on another branch', async () => {
@@ -129,7 +129,7 @@ describe('reportExport.service (ADR-014 §11, §14.2 & RFC-4180)', () => {
       ).rejects.toThrow('cannot query branch data outside assigned scope');
     });
 
-    it('successfully exports sales report with masked PII and records audit event for MANAGEMENT', async () => {
+    it('successfully exports sales report with masked PII and records audit event for SYSTEM_ADMIN', async () => {
       const recordSpy = jest.spyOn(auditService, 'record');
 
       const now = new Date();
@@ -150,8 +150,8 @@ describe('reportExport.service (ADR-014 §11, §14.2 & RFC-4180)', () => {
       });
 
       const user = {
-        userId: 'mgr-101',
-        role: ROLE_VALUES.MANAGEMENT,
+        userId: 'adm-101',
+        role: ROLE_VALUES.SYSTEM_ADMIN,
       };
 
       const result = await exportSalesReportCsv({
@@ -177,8 +177,8 @@ describe('reportExport.service (ADR-014 §11, §14.2 & RFC-4180)', () => {
           action: AUDIT_ACTION.REPORT_EXPORT_GENERATED,
           actor: {
             actorType: 'USER',
-            actorId: 'mgr-101',
-            actorRole: ROLE_VALUES.MANAGEMENT,
+            actorId: 'adm-101',
+            actorRole: ROLE_VALUES.SYSTEM_ADMIN,
           },
           target: {
             targetType: AUDIT_TARGET_TYPE.REPORT,
@@ -254,7 +254,7 @@ describe('reportExport.service (ADR-014 §11, §14.2 & RFC-4180)', () => {
       ).rejects.toThrow('Access forbidden: insufficient role permissions.');
     });
 
-    it('successfully exports inventory report and records audit event for INVENTORY_MANAGER', async () => {
+    it('successfully exports inventory report and records audit event for SYSTEM_ADMIN', async () => {
       const recordSpy = jest.spyOn(auditService, 'record');
 
       await Inventory.create({
@@ -276,8 +276,8 @@ describe('reportExport.service (ADR-014 §11, §14.2 & RFC-4180)', () => {
       });
 
       const user = {
-        userId: 'inv-mgr-1',
-        role: ROLE_VALUES.INVENTORY_MANAGER,
+        userId: 'adm-mgr-1',
+        role: ROLE_VALUES.SYSTEM_ADMIN,
       };
 
       const result = await exportInventoryReportCsv({
@@ -296,8 +296,8 @@ describe('reportExport.service (ADR-014 §11, §14.2 & RFC-4180)', () => {
           action: AUDIT_ACTION.REPORT_EXPORT_GENERATED,
           actor: {
             actorType: 'USER',
-            actorId: 'inv-mgr-1',
-            actorRole: ROLE_VALUES.INVENTORY_MANAGER,
+            actorId: 'adm-mgr-1',
+            actorRole: ROLE_VALUES.SYSTEM_ADMIN,
           },
           target: {
             targetType: AUDIT_TARGET_TYPE.REPORT,
