@@ -25,8 +25,7 @@ const toPublicProduct = (product) => ({
 });
 
 const getOnlineFulfillmentBranch = async () => {
-  const codeName =
-    process.env.ONLINE_FULFILLMENT_BRANCH_CODE || ONLINE_FULFILLMENT_BRANCH_CODE;
+  const codeName = process.env.ONLINE_FULFILLMENT_BRANCH_CODE || ONLINE_FULFILLMENT_BRANCH_CODE;
 
   let branch = await Branch.findOne({
     codeName: new RegExp(`^${codeName}$`, 'i'),
