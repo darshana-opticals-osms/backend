@@ -8,6 +8,7 @@ const { ORDER_STATUS_VALUES } = require('../constants/orderStatuses');
 const { ConflictError, NotFoundError, ValidationError } = require('../errors/AppError');
 const { deductInventoryStock } = require('./inventory.service');
 const { ITEM_CLASSIFICATIONS, LOYALTY_ELIGIBILITY } = require('../constants/itemClassification');
+const { getOnlineFulfillmentBranch } = require('./fulfillmentBranch.service');
 
 const CUSTOMER_NOT_FOUND = 'CUSTOMER_NOT_FOUND';
 const CART_NOT_FOUND = 'CART_NOT_FOUND';
@@ -17,6 +18,8 @@ const INSUFFICIENT_STOCK = 'INSUFFICIENT_STOCK';
 const INVALID_INVENTORY_PRICE = 'INVALID_INVENTORY_PRICE';
 const INVALID_INVENTORY_STOCK = 'INVALID_INVENTORY_STOCK';
 const CHECKOUT_CONFLICT = 'CHECKOUT_CONFLICT';
+const FULFILLMENT_BRANCH_UNAVAILABLE = 'FULFILLMENT_BRANCH_UNAVAILABLE';
+const CROSS_BRANCH_CHECKOUT_CONFLICT = 'CROSS_BRANCH_CHECKOUT_CONFLICT';
 const RESERVATION_WINDOW_MS = 30 * 60 * 1000;
 
 function validateCartItems(items) {
@@ -167,10 +170,31 @@ async function checkoutCustomer(customerId) {
 
       validateCartItems(cart.items);
 
+      const fulfillmentBranch = await getOnlineFulfillmentBranch(session);
+      if (!fulfillmentBranch) {
+        throw new ConflictError(
+          'Online fulfillment branch is currently unavailable.',
+          null,
+          FULFILLMENT_BRANCH_UNAVAILABLE
+        );
+      }
+
       const inventoryIds = cart.items.map((item) => new mongoose.Types.ObjectId(item.inventoryId));
       const inventories = await Inventory.find({ _id: { $in: inventoryIds } })
         .session(session)
         .lean();
+
+      const hasCrossBranch = inventories.some(
+        (inv) => !inv.branchId || !inv.branchId.equals(fulfillmentBranch._id)
+      );
+      if (hasCrossBranch) {
+        throw new ConflictError(
+          'Cart contains items that do not belong to the online fulfillment branch.',
+          null,
+          CROSS_BRANCH_CHECKOUT_CONFLICT
+        );
+      }
+
       const inventoryById = new Map(inventories.map((item) => [item._id.toString(), item]));
       const { orderItems, orderAmount } = buildOrderItems(cart.items, inventoryById);
       const now = new Date();
@@ -181,6 +205,7 @@ async function checkoutCustomer(customerId) {
         [
           {
             customerId: customer._id,
+            branchId: fulfillmentBranch._id,
             orderDate: now,
             orderAmount,
             status,
@@ -227,4 +252,6 @@ module.exports = {
   buildOrderItems,
   decrementInventoryStock,
   RESERVATION_WINDOW_MS,
+  FULFILLMENT_BRANCH_UNAVAILABLE,
+  CROSS_BRANCH_CHECKOUT_CONFLICT,
 };

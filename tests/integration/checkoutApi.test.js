@@ -89,8 +89,13 @@ describe('Secure Checkout API', () => {
     process.env = originalEnv;
   }, 30000);
 
-  const createBranch = () =>
-    Branch.create({ address: 'Gampaha Branch', contactNumber: '+94 33 200 0000' });
+  const createBranch = (overrides = {}) =>
+    Branch.create({
+      codeName: 'GAMPAHA_CENTRAL',
+      address: 'Gampaha Branch',
+      contactNumber: '+94 33 200 0000',
+      ...overrides,
+    });
 
   const createCart = (customerId, inventoryItems) =>
     Cart.create({ customerId, items: inventoryItems });
@@ -142,6 +147,7 @@ describe('Secure Checkout API', () => {
     expect(await Order.countDocuments({ customerId: customer._id })).toBe(1);
     expect(await OrderItem.countDocuments({ orderId: response.body.data.order.id })).toBe(2);
     const persistedOrder = await Order.findById(response.body.data.order.id).lean();
+    expect(persistedOrder.branchId).toEqual(branch._id);
     expect(persistedOrder.status).toBe('ORDER_CREATED');
     expect(persistedOrder.statusUpdatedAt).toEqual(persistedOrder.statusHistory[0].changedAt);
     expect(persistedOrder.statusHistory).toEqual([
@@ -534,6 +540,7 @@ describe('Secure Checkout API', () => {
 
   it('should reject missing Inventory references and preserve the Cart', async () => {
     const customer = await createCustomer('checkout.missing-inventory@example.com');
+    await createBranch();
     const missingInventoryId = new mongoose.Types.ObjectId();
     await createCart(customer._id, [{ inventoryId: missingInventoryId, quantity: 1 }]);
     const token = createToken({ userId: customer._id.toString() });
@@ -773,7 +780,7 @@ describe('Secure Checkout API', () => {
 
   describe('Checkout stock deduction and reorder alert integration (ADR-006 / AC5)', () => {
     it('should automatically evaluate and create a ReorderAlert when checkout stock deduction crosses threshold (quantity <= 5)', async () => {
-      const branch = await Branch.create({ address: 'Colombo', contactNumber: '+94112000000' });
+      const branch = await createBranch();
       // Initial stock: 7. Deduct 3 -> Remaining: 4 (which is <= 5)
       const inventory = await createInventory(branch._id, { quantity: 7 });
       const customer = await createCustomer('checkout.alert.low@example.com');
@@ -806,7 +813,7 @@ describe('Secure Checkout API', () => {
     });
 
     it('should not create a ReorderAlert when checkout stock deduction leaves quantity > 5', async () => {
-      const branch = await Branch.create({ address: 'Colombo', contactNumber: '+94112000000' });
+      const branch = await createBranch();
       // Initial stock: 10. Deduct 2 -> Remaining: 8 (> 5)
       const inventory = await createInventory(branch._id, { quantity: 10 });
       const customer = await createCustomer('checkout.alert.normal@example.com');
@@ -828,6 +835,62 @@ describe('Secure Checkout API', () => {
 
       const count = await ReorderAlert.countDocuments({ inventoryId: inventory._id });
       expect(count).toBe(0);
+    });
+
+    it('should reject checkout when cart contains items from a non-fulfillment branch with 409 CROSS_BRANCH_CHECKOUT_CONFLICT', async () => {
+      await createBranch(); // GAMPAHA_CENTRAL
+      const colomboBranch = await createBranch({
+        codeName: 'COLOMBO_01',
+        address: 'Colombo Branch',
+        contactNumber: '+94 11 200 0000',
+      });
+      const colomboInventory = await createInventory(colomboBranch._id, {
+        itemName: 'Colombo Exclusive Frame',
+        quantity: 5,
+      });
+      const customer = await createCustomer('checkout.cross-branch@example.com');
+      // Simulate bypassing cart validation directly in DB
+      await Cart.create({
+        customerId: customer._id,
+        items: [{ inventoryId: colomboInventory._id, quantity: 1 }],
+      });
+      const token = createToken({ userId: customer._id.toString() });
+
+      const response = await request(app)
+        .post('/api/checkout')
+        .set('Authorization', `Bearer ${token}`)
+        .send({});
+
+      expect(response.status).toBe(409);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error.code).toBe('CROSS_BRANCH_CHECKOUT_CONFLICT');
+      expect(await Order.countDocuments({})).toBe(0);
+    });
+
+    it('should reject checkout when online fulfillment branch is unavailable with 409 FULFILLMENT_BRANCH_UNAVAILABLE', async () => {
+      const otherBranch = await createBranch({
+        codeName: 'KANDY_BRANCH',
+        address: 'Kandy Branch',
+      });
+      const inventory = await createInventory(otherBranch._id, { quantity: 5 });
+      const customer = await createCustomer('checkout.no-branch@example.com');
+      await Cart.create({
+        customerId: customer._id,
+        items: [{ inventoryId: inventory._id, quantity: 1 }],
+      });
+      // Delete all branches so GAMPAHA_CENTRAL cannot be resolved
+      await Branch.deleteMany({});
+      const token = createToken({ userId: customer._id.toString() });
+
+      const response = await request(app)
+        .post('/api/checkout')
+        .set('Authorization', `Bearer ${token}`)
+        .send({});
+
+      expect(response.status).toBe(409);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error.code).toBe('FULFILLMENT_BRANCH_UNAVAILABLE');
+      expect(await Order.countDocuments({})).toBe(0);
     });
   });
 });

@@ -93,6 +93,38 @@ const SEED_INVENTORY_ITEMS = [
     price: 24000,
     quantity: 14,
   },
+  {
+    branchCodeName: 'GAMPAHA_CENTRAL',
+    itemName: 'Ray-Ban Aviator Classic',
+    category: 'Sunglasses',
+    brand: 'Ray-Ban',
+    price: 28500,
+    quantity: 15,
+  },
+  {
+    branchCodeName: 'GAMPAHA_CENTRAL',
+    itemName: 'Oakley Holbrook Sports',
+    category: 'Sports',
+    brand: 'Oakley',
+    price: 32000,
+    quantity: 8,
+  },
+  {
+    branchCodeName: 'GAMPAHA_CENTRAL',
+    itemName: 'Persol Steve McQueen Edition',
+    category: 'Men',
+    brand: 'Persol',
+    price: 45000,
+    quantity: 5,
+  },
+  {
+    branchCodeName: 'GAMPAHA_CENTRAL',
+    itemName: 'Vogue Eyewear Cat-Eye',
+    category: 'Women',
+    brand: 'Vogue Eyewear',
+    price: 18500,
+    quantity: 12,
+  },
 ];
 
 module.exports = {

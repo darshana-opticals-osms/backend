@@ -70,10 +70,12 @@ describe('Authenticated Cart API', () => {
     process.env = originalEnv;
   });
 
-  const createBranch = () =>
+  const createBranch = (overrides = {}) =>
     Branch.create({
+      codeName: 'GAMPAHA_CENTRAL',
       address: 'Gampaha Branch',
       contactNumber: '+94 33 200 0000',
+      ...overrides,
     });
 
   it('should persist add, merge, get, absolute update, and remove operations without changing stock', async () => {
@@ -374,5 +376,50 @@ describe('Authenticated Cart API', () => {
     expect(persistedCart.items).toEqual([
       expect.objectContaining({ inventoryId: addedInventory._id, quantity: 1 }),
     ]);
+  });
+
+  it('should reject adding cross-branch inventory to online cart with 409 CROSS_BRANCH_INVENTORY_NOT_ALLOWED', async () => {
+    const customer = await createCustomer('cart.cross-branch@example.com');
+    await createBranch(); // GAMPAHA_CENTRAL
+    const colomboBranch = await createBranch({
+      codeName: 'COLOMBO_01',
+      address: 'Colombo Branch',
+      contactNumber: '+94 11 200 0000',
+    });
+    const colomboInventory = await createInventory(colomboBranch._id, {
+      itemName: 'Colombo Exclusive Frame',
+    });
+    const token = createToken({ userId: customer._id.toString() });
+
+    const response = await request(app)
+      .post('/api/cart/items')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ inventoryId: colomboInventory._id.toString(), quantity: 1 });
+
+    expect(response.status).toBe(409);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error.code).toBe('CROSS_BRANCH_INVENTORY_NOT_ALLOWED');
+  });
+
+  it('should reject cart addition when online fulfillment branch is unavailable with 409 FULFILLMENT_BRANCH_UNAVAILABLE', async () => {
+    const customer = await createCustomer('cart.no-branch@example.com');
+    // Create inventory with a non-matching branch while no GAMPAHA_CENTRAL exists
+    const randomBranch = await createBranch({
+      codeName: 'KANDY_BRANCH',
+      address: 'Kandy Branch',
+    });
+    const inventory = await createInventory(randomBranch._id);
+    // Delete all branches so GAMPAHA_CENTRAL cannot be resolved
+    await Branch.deleteMany({});
+    const token = createToken({ userId: customer._id.toString() });
+
+    const response = await request(app)
+      .post('/api/cart/items')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ inventoryId: inventory._id.toString(), quantity: 1 });
+
+    expect(response.status).toBe(409);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error.code).toBe('FULFILLMENT_BRANCH_UNAVAILABLE');
   });
 });

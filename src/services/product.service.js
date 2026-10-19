@@ -1,5 +1,6 @@
 const Inventory = require('../models/inventory.model');
 const { NotFoundError } = require('../errors/AppError');
+const { getOnlineFulfillmentBranch } = require('./fulfillmentBranch.service');
 
 const PRODUCT_NOT_FOUND = 'PRODUCT_NOT_FOUND';
 
@@ -22,8 +23,24 @@ const toPublicProduct = (product) => ({
   imageUrl: product.imageUrl || null,
 });
 
-const buildCatalogFilter = ({ search, category, brand, minPrice, maxPrice } = {}) => {
+const buildCatalogFilter = ({
+  search,
+  category,
+  brand,
+  minPrice,
+  maxPrice,
+  branchId,
+  includeOutOfStock = false,
+} = {}) => {
   const filter = {};
+
+  if (branchId) {
+    filter.branchId = branchId;
+  }
+
+  if (!includeOutOfStock) {
+    filter.quantity = { $gt: 0 };
+  }
 
   if (category) {
     filter.category = new RegExp(`^${escapeRegex(category)}$`, 'i');
@@ -54,7 +71,13 @@ const buildCatalogFilter = ({ search, category, brand, minPrice, maxPrice } = {}
 };
 
 const listProducts = async (filters = {}) => {
-  const query = buildCatalogFilter(filters);
+  const branch = await getOnlineFulfillmentBranch();
+
+  if (!branch) {
+    return [];
+  }
+
+  const query = buildCatalogFilter({ ...filters, branchId: branch._id });
 
   const products = await Inventory.find(query)
     .select(PUBLIC_PRODUCT_FIELDS)
@@ -65,7 +88,19 @@ const listProducts = async (filters = {}) => {
 };
 
 const getProductById = async (productId) => {
-  const product = await Inventory.findById(productId).select(PUBLIC_PRODUCT_FIELDS).lean();
+  const branch = await getOnlineFulfillmentBranch();
+
+  if (!branch) {
+    throw new NotFoundError('Product not found.', null, PRODUCT_NOT_FOUND);
+  }
+
+  const query = {
+    _id: productId,
+    branchId: branch._id,
+    quantity: { $gt: 0 },
+  };
+
+  const product = await Inventory.findOne(query).select(PUBLIC_PRODUCT_FIELDS).lean();
 
   if (!product) {
     throw new NotFoundError('Product not found.', null, PRODUCT_NOT_FOUND);
@@ -77,6 +112,7 @@ const getProductById = async (productId) => {
 module.exports = {
   PRODUCT_NOT_FOUND,
   PUBLIC_PRODUCT_FIELDS,
+  getOnlineFulfillmentBranch,
   buildCatalogFilter,
   listProducts,
   getProductById,

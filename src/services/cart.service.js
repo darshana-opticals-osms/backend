@@ -3,6 +3,7 @@ const Cart = require('../models/cart.model');
 const Customer = require('../models/customer.model');
 const Inventory = require('../models/inventory.model');
 const { ConflictError, NotFoundError, ValidationError } = require('../errors/AppError');
+const { getOnlineFulfillmentBranch } = require('./fulfillmentBranch.service');
 
 const INVALID_INVENTORY_REFERENCE = 'INVALID_INVENTORY_REFERENCE';
 const INVALID_CART_QUANTITY = 'INVALID_CART_QUANTITY';
@@ -10,6 +11,8 @@ const CUSTOMER_NOT_FOUND = 'CUSTOMER_NOT_FOUND';
 const INVENTORY_NOT_FOUND = 'INVENTORY_NOT_FOUND';
 const CART_ITEM_NOT_FOUND = 'CART_ITEM_NOT_FOUND';
 const CART_QUANTITY_OVERFLOW = 'CART_QUANTITY_OVERFLOW';
+const CROSS_BRANCH_INVENTORY_NOT_ALLOWED = 'CROSS_BRANCH_INVENTORY_NOT_ALLOWED';
+const FULFILLMENT_BRANCH_UNAVAILABLE = 'FULFILLMENT_BRANCH_UNAVAILABLE';
 const MAX_ADD_ATTEMPTS = 3;
 
 function validateInventoryId(inventoryId) {
@@ -151,16 +154,47 @@ function throwQuantityOverflow() {
   );
 }
 
-async function addCartItem(customerId, inventoryId, quantity, session = null) {
+async function addCartItem(customerId, inventoryId, quantity, session = null, options = {}) {
   validateInventoryId(inventoryId);
   validateQuantity(quantity);
   await assertCustomerExists(customerId, session);
 
-  const inventoryQuery = Inventory.exists({ _id: inventoryId });
-  if (session) inventoryQuery.session(session);
-  const inventoryExists = await inventoryQuery;
+  let fulfillmentBranch = null;
+  if (!options.isRestoration) {
+    fulfillmentBranch = await getOnlineFulfillmentBranch(session);
+    if (!fulfillmentBranch) {
+      throw new ConflictError(
+        'Online fulfillment branch is currently unavailable.',
+        null,
+        FULFILLMENT_BRANCH_UNAVAILABLE
+      );
+    }
+  }
+
+  const existsQuery = Inventory.exists({ _id: inventoryId });
+  if (session) existsQuery.session(session);
+  const inventoryExists = await existsQuery;
   if (!inventoryExists) {
     throw new NotFoundError('Inventory item not found.', null, INVENTORY_NOT_FOUND);
+  }
+
+  if (!options.isRestoration) {
+    const inventoryQuery = Inventory.findById(inventoryId).select('branchId');
+    if (session) inventoryQuery.session(session);
+    const inventory = await inventoryQuery.lean();
+
+    if (inventory && (!inventory.branchId || !inventory.branchId.equals(fulfillmentBranch._id))) {
+      throw new ConflictError(
+        'Cross-branch inventory items cannot be added to online cart.',
+        [
+          {
+            field: 'inventoryId',
+            message: 'Item does not belong to the online fulfillment branch.',
+          },
+        ],
+        CROSS_BRANCH_INVENTORY_NOT_ALLOWED
+      );
+    }
   }
 
   const inventoryObjectId = new mongoose.Types.ObjectId(inventoryId);
@@ -239,7 +273,9 @@ async function restoreCartItems(customerId, items, session) {
     await Cart.hydrate(existing).validate();
   }
   for (const item of items) {
-    await addCartItem(customerId, item.inventoryId, item.quantity, session);
+    await addCartItem(customerId, item.inventoryId, item.quantity, session, {
+      isRestoration: true,
+    });
   }
 }
 
@@ -334,4 +370,7 @@ module.exports = {
   removeCartItem,
   toCartResponse,
   restoreCartItems,
+  INVENTORY_NOT_FOUND,
+  CROSS_BRANCH_INVENTORY_NOT_ALLOWED,
+  FULFILLMENT_BRANCH_UNAVAILABLE,
 };

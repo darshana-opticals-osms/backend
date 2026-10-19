@@ -134,7 +134,7 @@ function shapeOrderDetail(order, items, options = {}) {
  * - Branch-scoped staff (BRANCH_MANAGER, BRANCH_ASSISTANT, OPTOMETRIST):
  *   MUST have a valid assigned branchId. Requests without one are rejected
  *   fail-closed to prevent cross-branch data leakage (Review Comment 3).
- *   Returns ORDER_CREATED orders (unassigned, available to claim) plus orders
+ *   Returns unassigned orders (branchId: null, available to claim) plus orders
  *   already assigned to the caller's branch.
  *
  * AC1, AC2, AC6, ADR-004 §12, §13.
@@ -168,7 +168,7 @@ async function getOrders({ userId, role, branchId = null }) {
 
     const filter = {
       $or: [
-        { status: ORDER_STATUS_VALUES.ORDER_CREATED },
+        { status: ORDER_STATUS_VALUES.ORDER_CREATED, branchId: null },
         { status: ORDER_STATUS_VALUES.PROCESSING, branchId: null },
         { branchId: new mongoose.Types.ObjectId(branchId) },
       ],
@@ -525,6 +525,8 @@ async function claimOrder(orderId, branchId, staffUserId) {
     );
   }
 
+  const branchObjectId = new mongoose.Types.ObjectId(branchId);
+
   const order = await Order.findById(orderId);
   if (!order) {
     throw new NotFoundError('Order not found.', null, ORDER_NOT_FOUND);
@@ -538,7 +540,11 @@ async function claimOrder(orderId, branchId, staffUserId) {
     );
   }
 
-  if (order.branchId) {
+  const alreadyClaimed =
+    Boolean(order.claimedAt) ||
+    (order.branchId && order.branchId.toString() !== branchObjectId.toString());
+
+  if (alreadyClaimed) {
     throw new ConflictError(
       'This order has already been claimed by a branch.',
       null,
@@ -559,7 +565,6 @@ async function claimOrder(orderId, branchId, staffUserId) {
     );
   }
 
-  const branchObjectId = new mongoose.Types.ObjectId(branchId);
   const now = new Date();
 
   // Review Comment 2 – Atomicity: inventory allocation + order claim within one transaction
@@ -574,15 +579,25 @@ async function claimOrder(orderId, branchId, staffUserId) {
       });
 
       claimedOrder = await Order.findOneAndUpdate(
-        { _id: orderId, status: ORDER_STATUS_VALUES.PROCESSING, branchId: null },
         {
-          $set: { branchId: branchObjectId, statusUpdatedAt: now },
+          _id: orderId,
+          status: ORDER_STATUS_VALUES.PROCESSING,
+          $or: [{ branchId: null }, { branchId: branchObjectId }],
+          claimedAt: null,
+        },
+        {
+          $set: {
+            branchId: branchObjectId,
+            claimedAt: now,
+            claimedBy: staffUserId,
+            statusUpdatedAt: now,
+          },
           $push: {
             statusHistory: {
               status: ORDER_STATUS_VALUES.PROCESSING,
               changedAt: now,
               changedBy: staffUserId,
-              note: 'Branch claim and inventory allocation',
+              source: 'USER',
             },
           },
         },

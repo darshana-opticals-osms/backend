@@ -748,6 +748,57 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       expect(colomboPatchRes.body.data.status).toBe(ORDER_STATUS_VALUES.READY_FOR_PICKUP);
     });
 
+    it('does not expose a Gampaha-assigned ORDER_CREATED order in the order list of staff from another branch', async () => {
+      const customer = await createCustomer('isolation-created@example.com');
+      const gampahaBranchId = new mongoose.Types.ObjectId();
+      const colomboBranchId = new mongoose.Types.ObjectId();
+
+      // Gampaha-assigned order at creation (e.g. from online checkout)
+      const gampahaOrder = await Order.create({
+        customerId: customer._id,
+        branchId: gampahaBranchId,
+        orderDate: new Date(),
+        orderAmount: 18000,
+        status: ORDER_STATUS_VALUES.ORDER_CREATED,
+        statusUpdatedAt: new Date(),
+        statusHistory: [
+          {
+            status: ORDER_STATUS_VALUES.ORDER_CREATED,
+            changedAt: new Date(),
+            changedBy: customer._id,
+          },
+        ],
+      });
+
+      const gampahaStaffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: gampahaBranchId.toString(),
+      });
+
+      const colomboStaffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: colomboBranchId.toString(),
+      });
+
+      // Gampaha staff DOES see their own assigned ORDER_CREATED order
+      const gampahaListRes = await request(app)
+        .get('/api/orders')
+        .set('Authorization', `Bearer ${gampahaStaffToken}`);
+      expect(gampahaListRes.status).toBe(200);
+      expect(gampahaListRes.body.data.some((o) => o.id === gampahaOrder._id.toString())).toBe(true);
+
+      // Colombo staff CANNOT see the Gampaha-assigned ORDER_CREATED order
+      const colomboListRes = await request(app)
+        .get('/api/orders')
+        .set('Authorization', `Bearer ${colomboStaffToken}`);
+      expect(colomboListRes.status).toBe(200);
+      expect(colomboListRes.body.data.some((o) => o.id === gampahaOrder._id.toString())).toBe(
+        false
+      );
+    });
+
     it('prevents double stock deduction when claiming branch is original checkout branch, and restores upon cancellation', async () => {
       const customer = await createCustomer('branchstock@example.com');
       const colomboBranchId = new mongoose.Types.ObjectId();
@@ -883,7 +934,13 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
     // ─── Finding 3: Real Checkout -> Verified Payment -> Branch Claim -> Cancellation Flow ───
     it('executes real application flow: real checkout -> reservation -> verified payment -> same-branch claim -> cancellation restoring exact inventory', async () => {
       const customer = await createCustomer('realcheckout@example.com');
-      const branchId = new mongoose.Types.ObjectId();
+      const fulfillmentBranch = await Branch.create({
+        name: 'Gampaha Branch',
+        address: 'Gampaha Central',
+        contactNumber: '0331234567',
+        codeName: 'GAMPAHA_CENTRAL',
+      });
+      const branchId = fulfillmentBranch._id;
 
       // Initial inventory: 10 units
       const inventory = await Inventory.create({
@@ -961,6 +1018,94 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
 
       const invAfterCancel = await Inventory.findById(inventory._id);
       expect(invAfterCancel.quantity).toBe(10);
+    });
+
+    it('rejects a second claim on an order that already has branchId/claimedAt without duplicate side effects', async () => {
+      const customer = await createCustomer('secondclaim@example.com');
+      const fulfillmentBranch = await Branch.create({
+        name: 'Gampaha Branch',
+        address: 'Gampaha Central',
+        contactNumber: '0331234567',
+        codeName: 'GAMPAHA_CENTRAL',
+      });
+      const branchId = fulfillmentBranch._id;
+
+      const inventory = await Inventory.create({
+        branchId,
+        itemName: 'Claim Test Frame',
+        category: 'Frames',
+        brand: 'Ray-Ban',
+        price: 15000,
+        quantity: 5,
+      });
+
+      await Cart.create({
+        customerId: customer._id,
+        items: [{ inventoryId: inventory._id, quantity: 1 }],
+      });
+
+      const customerToken = createToken({
+        userId: customer._id.toString(),
+        role: ROLE_VALUES.CUSTOMER,
+      });
+
+      const checkoutRes = await request(app)
+        .post('/api/checkout')
+        .set('Authorization', `Bearer ${customerToken}`)
+        .send();
+
+      expect(checkoutRes.status).toBe(201);
+      const orderId = checkoutRes.body.data.order.id;
+
+      await Payment.create({
+        orderId,
+        amount: 15000,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+        providerTransactionId: 'PAYHERE_CLAIM_TEST_1',
+        paidAt: new Date(),
+      });
+
+      await Order.findByIdAndUpdate(orderId, {
+        $set: { status: ORDER_STATUS_VALUES.PROCESSING, statusUpdatedAt: new Date() },
+      });
+
+      const staffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branchId.toString(),
+      });
+
+      // First claim succeeds
+      const firstClaimRes = await request(app)
+        .patch(`/api/orders/${orderId}/claim`)
+        .set('Authorization', `Bearer ${staffToken}`);
+      expect(firstClaimRes.status).toBe(200);
+
+      const orderAfterFirst = await Order.findById(orderId).lean();
+      expect(orderAfterFirst.claimedAt).toBeDefined();
+      expect(orderAfterFirst.claimedBy).toBeDefined();
+      const firstProcessingCount = orderAfterFirst.statusHistory.filter(
+        (entry) => entry.status === ORDER_STATUS_VALUES.PROCESSING
+      ).length;
+
+      // Second claim attempt MUST be rejected fail-closed
+      const secondClaimRes = await request(app)
+        .patch(`/api/orders/${orderId}/claim`)
+        .set('Authorization', `Bearer ${staffToken}`);
+
+      expect(secondClaimRes.status).toBe(409);
+      expect(secondClaimRes.body.success).toBe(false);
+      expect(secondClaimRes.body.error.code).toBe('ORDER_ALREADY_CLAIMED');
+
+      // Verify no duplicate statusHistory entries or side effects were introduced
+      const orderAfterSecond = await Order.findById(orderId).lean();
+      const secondProcessingCount = orderAfterSecond.statusHistory.filter(
+        (entry) => entry.status === ORDER_STATUS_VALUES.PROCESSING
+      ).length;
+      expect(secondProcessingCount).toBe(firstProcessingCount);
+      expect(orderAfterSecond.claimedAt).toEqual(orderAfterFirst.claimedAt);
+      expect(orderAfterSecond.statusUpdatedAt).toEqual(orderAfterFirst.statusUpdatedAt);
     });
 
     // ─── Comment 2: Atomic Rollback & Competing Branches ────────────────────
@@ -1223,7 +1368,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
     // ─── Second Re-Review Finding 2: Unclaimed PROCESSING Order Cancellation ────
     it('restores checkout inventory when an unclaimed PROCESSING order is cancelled and blocks invalid advancement', async () => {
       const branch = await Branch.create({
-        codeName: 'UNCLAIMED_RESTORE_BRANCH',
+        codeName: 'GAMPAHA_CENTRAL',
         address: '10 Main St',
         contactNumber: '+94112345678',
       });
