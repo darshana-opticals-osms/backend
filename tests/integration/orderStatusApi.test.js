@@ -748,6 +748,57 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       expect(colomboPatchRes.body.data.status).toBe(ORDER_STATUS_VALUES.READY_FOR_PICKUP);
     });
 
+    it('does not expose a Gampaha-assigned ORDER_CREATED order in the order list of staff from another branch', async () => {
+      const customer = await createCustomer('isolation-created@example.com');
+      const gampahaBranchId = new mongoose.Types.ObjectId();
+      const colomboBranchId = new mongoose.Types.ObjectId();
+
+      // Gampaha-assigned order at creation (e.g. from online checkout)
+      const gampahaOrder = await Order.create({
+        customerId: customer._id,
+        branchId: gampahaBranchId,
+        orderDate: new Date(),
+        orderAmount: 18000,
+        status: ORDER_STATUS_VALUES.ORDER_CREATED,
+        statusUpdatedAt: new Date(),
+        statusHistory: [
+          {
+            status: ORDER_STATUS_VALUES.ORDER_CREATED,
+            changedAt: new Date(),
+            changedBy: customer._id,
+          },
+        ],
+      });
+
+      const gampahaStaffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: gampahaBranchId.toString(),
+      });
+
+      const colomboStaffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: colomboBranchId.toString(),
+      });
+
+      // Gampaha staff DOES see their own assigned ORDER_CREATED order
+      const gampahaListRes = await request(app)
+        .get('/api/orders')
+        .set('Authorization', `Bearer ${gampahaStaffToken}`);
+      expect(gampahaListRes.status).toBe(200);
+      expect(gampahaListRes.body.data.some((o) => o.id === gampahaOrder._id.toString())).toBe(true);
+
+      // Colombo staff CANNOT see the Gampaha-assigned ORDER_CREATED order
+      const colomboListRes = await request(app)
+        .get('/api/orders')
+        .set('Authorization', `Bearer ${colomboStaffToken}`);
+      expect(colomboListRes.status).toBe(200);
+      expect(colomboListRes.body.data.some((o) => o.id === gampahaOrder._id.toString())).toBe(
+        false
+      );
+    });
+
     it('prevents double stock deduction when claiming branch is original checkout branch, and restores upon cancellation', async () => {
       const customer = await createCustomer('branchstock@example.com');
       const colomboBranchId = new mongoose.Types.ObjectId();

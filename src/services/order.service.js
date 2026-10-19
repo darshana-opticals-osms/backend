@@ -134,7 +134,7 @@ function shapeOrderDetail(order, items, options = {}) {
  * - Branch-scoped staff (BRANCH_MANAGER, BRANCH_ASSISTANT, OPTOMETRIST):
  *   MUST have a valid assigned branchId. Requests without one are rejected
  *   fail-closed to prevent cross-branch data leakage (Review Comment 3).
- *   Returns ORDER_CREATED orders (unassigned, available to claim) plus orders
+ *   Returns unassigned orders (branchId: null, available to claim) plus orders
  *   already assigned to the caller's branch.
  *
  * AC1, AC2, AC6, ADR-004 §12, §13.
@@ -168,7 +168,7 @@ async function getOrders({ userId, role, branchId = null }) {
 
     const filter = {
       $or: [
-        { status: ORDER_STATUS_VALUES.ORDER_CREATED },
+        { status: ORDER_STATUS_VALUES.ORDER_CREATED, branchId: null },
         { status: ORDER_STATUS_VALUES.PROCESSING, branchId: null },
         { branchId: new mongoose.Types.ObjectId(branchId) },
       ],
