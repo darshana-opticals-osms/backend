@@ -458,6 +458,7 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       // ADR-014 restricted financial fields omitted for BRANCH_MANAGER
       expect(res.body.data.summary.refundDeductions).toBeUndefined();
       expect(res.body.data.summary.averageOrderValue).toBeUndefined();
+      expect(res.body.data.breakdowns.byPaymentMethod).toBeUndefined();
       expect(res.body.data.breakdowns.byBranch[0].refundDeductions).toBeUndefined();
       // Period-wise net revenue present
       expect(res.body.data.breakdowns.byTime[0].netRevenue).toBe(5000);
@@ -473,6 +474,7 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       expect(resB.body.data.summary.totalOrders).toBe(1);
       expect(resB.body.data.summary.refundDeductions).toBeUndefined();
       expect(resB.body.data.summary.averageOrderValue).toBeUndefined();
+      expect(resB.body.data.breakdowns.byPaymentMethod).toBeUndefined();
       expect(resB.body.data.breakdowns.byTime[0].netRevenue).toBe(9000);
     });
   });

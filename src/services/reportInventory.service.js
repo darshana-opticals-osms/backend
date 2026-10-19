@@ -333,6 +333,12 @@ async function getInventoryItemsList({
   const total = facetResult?.metadata[0]?.total || 0;
   const rawItems = facetResult?.data || [];
 
+  // Policy Clarification (ADR-014 §9 & Finding 4):
+  // Branch Managers legitimately require operational item-level unitPrice and quantity for daily store
+  // operations, physical stock counts, and counter sales (consistent with product catalog and inventory APIs).
+  // The role-based restriction under ADR-014 specifically targets precomputed executive valuation metrics
+  // (totalRetailValuation and item-level retailValuation) to prevent macro balance-sheet valuation exposure
+  // on managerial reporting dashboards, rather than restricting public catalog retail pricing.
   const items = rawItems.map((item) => ({
     id: item._id.toString(),
     sku: item._id.toString(),

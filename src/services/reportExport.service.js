@@ -336,6 +336,10 @@ async function buildInventoryExcelWorkbook({
     });
   }
 
+  // Policy Clarification (ADR-014 §9, §11 & Finding 4):
+  // Unit Price (LKR) and Quantity are operational store metrics retained in Branch Manager exports
+  // for store operations and stocktaking. Precomputed executive valuation metrics ('Retail Valuation (LKR)')
+  // are omitted for BRANCH_MANAGER to avoid macro balance-sheet metric exposure.
   const columns = [
     { header: 'SKU', key: 'sku', width: 20 },
     { header: 'Item Name', key: 'name', width: 30 },

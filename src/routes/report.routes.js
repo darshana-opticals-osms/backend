@@ -201,6 +201,7 @@ const {
  *                                 example: 25000
  *                         byPaymentMethod:
  *                           type: array
+ *                           description: Restricted payment method breakdown (SM-09); omitted for BRANCH_MANAGER per ADR-014 §10.1.
  *                           items:
  *                             type: object
  *                             required: [method, count, volume]
@@ -727,6 +728,7 @@ router.get(
  *                             example: RayBan
  *                           unitPrice:
  *                             type: number
+ *                             description: Operational item retail price; retained across roles for store operations and stocktaking.
  *                             example: 25000
  *                           quantity:
  *                             type: integer

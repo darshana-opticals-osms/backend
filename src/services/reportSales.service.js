@@ -477,11 +477,13 @@ async function getSalesReport({
         cancelledOrdersCount,
         cancelledOrdersValue,
       },
+      // Breakdowns: byPaymentMethod (SM-09) is restricted to SYSTEM_ADMIN per ADR-014 §10.1;
+      // byCategory is scoped strictly to the branch's qualifying orders when targetBranchObjectId is set.
       breakdowns: {
         byTime: timeSeriesBreakdown,
         byBranch: branchBreakdown,
         byCategory: categoryBreakdown,
-        byPaymentMethod: paymentMethodBreakdown,
+        ...(!isBranchManager ? { byPaymentMethod: paymentMethodBreakdown } : {}),
       },
     },
   };

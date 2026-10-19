@@ -324,5 +324,20 @@ describe('reportInventory.service (ADR-014 §9 - IM-01 to IM-06)', () => {
       });
       expect(list.data.items[0].retailValuation).toBe(500000);
     });
+
+    it('retains operational unitPrice and quantity for store operations while omitting precomputed retailValuation for BRANCH_MANAGER (ADR-014 Policy)', async () => {
+      const list = await getInventoryItemsList({
+        branchId: branchA._id.toString(),
+        userRole: ROLE_VALUES.BRANCH_MANAGER,
+      });
+
+      expect(list.success).toBe(true);
+      const item = list.data.items[0];
+      // Operational metrics necessary for counter sales and stock checks
+      expect(item.unitPrice).toBe(50000);
+      expect(item.quantity).toBe(10);
+      // Precomputed executive balance-sheet valuation metric omitted
+      expect(item.retailValuation).toBeUndefined();
+    });
   });
 });

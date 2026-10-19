@@ -466,17 +466,21 @@ describe('reportSales.service (ADR-014 §6, §7, §8)', () => {
       expect(report.data.summary.netRevenue).toBe(10000);
       expect(report.data.summary.totalOrders).toBe(1);
 
-      // Restricted fields MUST BE EXCLUDED
+      // Restricted fields MUST BE EXCLUDED per ADR-014
       expect(report.data.summary.refundDeductions).toBeUndefined();
       expect(report.data.summary.averageOrderValue).toBeUndefined();
+      expect(report.data.breakdowns.byPaymentMethod).toBeUndefined();
 
       // In breakdowns.byBranch
       expect(report.data.breakdowns.byBranch[0].refundDeductions).toBeUndefined();
       expect(report.data.breakdowns.byBranch[0].grossRevenue).toBe(10000);
       expect(report.data.breakdowns.byBranch[0].netRevenue).toBe(10000);
+
+      // Category breakdown is scoped to branch
+      expect(report.data.breakdowns.byCategory).toBeDefined();
     });
 
-    it('preserves refundDeductions and averageOrderValue for SYSTEM_ADMIN', async () => {
+    it('preserves refundDeductions, averageOrderValue, and byPaymentMethod for SYSTEM_ADMIN', async () => {
       const order = await Order.create({
         customerId: customerA._id,
         branchId: branchA._id,
@@ -503,6 +507,12 @@ describe('reportSales.service (ADR-014 §6, §7, §8)', () => {
       expect(report.data.summary.refundDeductions).toBe(0);
       expect(report.data.summary.averageOrderValue).toBe(10000);
       expect(report.data.breakdowns.byBranch[0].refundDeductions).toBe(0);
+      expect(report.data.breakdowns.byPaymentMethod).toBeDefined();
+      expect(report.data.breakdowns.byPaymentMethod).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ method: 'card', count: 1, volume: 10000 }),
+        ])
+      );
     });
   });
 });
