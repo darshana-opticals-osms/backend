@@ -18,6 +18,7 @@ const getSalesReport = catchAsync(async (req, res) => {
     endDate,
     branchId: scope.branchId,
     groupBy,
+    userRole: scope.role,
   });
 
   return res.status(200).json(result);
@@ -41,6 +42,7 @@ const getSalesOrders = catchAsync(async (req, res) => {
     sortBy,
     sortOrder,
     orderStatus,
+    userRole: scope.role,
   });
 
   return res.status(200).json(result);
@@ -85,6 +87,7 @@ const getInventoryReport = catchAsync(async (req, res) => {
     category,
     reorderStatus,
     groupBy,
+    userRole: scope.role,
   });
 
   return res.status(200).json(result);
@@ -106,6 +109,7 @@ const getInventoryItems = catchAsync(async (req, res) => {
     limit,
     sortBy,
     sortOrder,
+    userRole: scope.role,
   });
 
   return res.status(200).json(result);

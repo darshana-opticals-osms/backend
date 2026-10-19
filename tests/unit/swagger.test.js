@@ -593,4 +593,32 @@ describe('Swagger documentation integrity', () => {
       ])
     );
   });
+
+  it('should document reporting endpoints with 200 response JSON schemas matching actual response structure', () => {
+    // /reports/sales
+    const sales200 = swaggerSpec.paths['/reports/sales'].get.responses['200'];
+    expect(sales200.content['application/json'].schema).toBeDefined();
+    const salesSchema = sales200.content['application/json'].schema;
+    expect(salesSchema.required).toEqual(['success', 'data']);
+    expect(salesSchema.properties.data.properties.summary.properties.netRevenue).toBeDefined();
+    expect(salesSchema.properties.data.properties.breakdowns.properties.byTime.items.properties.netRevenue).toBeDefined();
+
+    // /reports/sales/orders
+    const orders200 = swaggerSpec.paths['/reports/sales/orders'].get.responses['200'];
+    expect(orders200.content['application/json'].schema).toBeDefined();
+    const ordersSchema = orders200.content['application/json'].schema;
+    expect(ordersSchema.properties.data.properties.orders.items.properties.customer).toBeDefined();
+
+    // /reports/inventory
+    const inv200 = swaggerSpec.paths['/reports/inventory'].get.responses['200'];
+    expect(inv200.content['application/json'].schema).toBeDefined();
+    const invSchema = inv200.content['application/json'].schema;
+    expect(invSchema.properties.data.properties.summary.properties.totalStockOnHand).toBeDefined();
+
+    // /reports/inventory/items
+    const invItems200 = swaggerSpec.paths['/reports/inventory/items'].get.responses['200'];
+    expect(invItems200.content['application/json'].schema).toBeDefined();
+    const invItemsSchema = invItems200.content['application/json'].schema;
+    expect(invItemsSchema.properties.data.properties.items.items.properties.reorderStatus).toBeDefined();
+  });
 });

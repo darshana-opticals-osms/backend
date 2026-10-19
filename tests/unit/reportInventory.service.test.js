@@ -4,6 +4,7 @@ const Branch = require('../../src/models/branch.model');
 const InventoryConfig = require('../../src/models/inventoryConfig.model');
 const ReorderAlert = require('../../src/models/reorderAlert.model');
 const { evaluateReorderAlert } = require('../../src/services/reorderAlert.service');
+const { ROLE_VALUES } = require('../../src/constants/roles');
 const {
   getInventoryReport,
   getInventoryItemsList,
@@ -261,6 +262,67 @@ describe('reportInventory.service (ADR-014 §9 - IM-01 to IM-06)', () => {
       expect(reorderList.data.pagination.totalRecords).toBe(1);
       expect(reorderList.data.items[0].name).toBe('Out of Stock Frame');
       expect(reorderList.data.items[0].reorderStatus).toBe('REORDER_TRIGGERED');
+    });
+  });
+
+  describe('Role-based Inventory Valuation Restrictions (DDP-064)', () => {
+    beforeEach(async () => {
+      await createInventoryItem({
+        branchId: branchA._id,
+        itemName: 'Designer Frame',
+        category: 'Frames',
+        brand: 'Gucci',
+        price: 50000,
+        quantity: 10,
+      });
+    });
+
+    it('omits totalRetailValuation in summary and breakdowns for BRANCH_MANAGER', async () => {
+      const report = await getInventoryReport({
+        branchId: branchA._id.toString(),
+        userRole: ROLE_VALUES.BRANCH_MANAGER,
+      });
+
+      expect(report.success).toBe(true);
+      expect(report.data.summary.totalStockOnHand).toBe(10);
+      expect(report.data.summary.totalRetailValuation).toBeUndefined();
+
+      expect(report.data.breakdowns.byBranch[0].totalStock).toBe(10);
+      expect(report.data.breakdowns.byBranch[0].totalRetailValuation).toBeUndefined();
+
+      expect(report.data.breakdowns.byCategory[0].totalStock).toBe(10);
+      expect(report.data.breakdowns.byCategory[0].totalRetailValuation).toBeUndefined();
+    });
+
+    it('omits retailValuation in getInventoryItemsList for BRANCH_MANAGER', async () => {
+      const list = await getInventoryItemsList({
+        branchId: branchA._id.toString(),
+        userRole: ROLE_VALUES.BRANCH_MANAGER,
+      });
+
+      expect(list.success).toBe(true);
+      expect(list.data.items[0].name).toBe('Designer Frame');
+      expect(list.data.items[0].quantity).toBe(10);
+      expect(list.data.items[0].unitPrice).toBe(50000);
+      expect(list.data.items[0].retailValuation).toBeUndefined();
+    });
+
+    it('preserves retail valuation fields for SYSTEM_ADMIN', async () => {
+      const report = await getInventoryReport({
+        branchId: branchA._id.toString(),
+        userRole: ROLE_VALUES.SYSTEM_ADMIN,
+      });
+
+      expect(report.success).toBe(true);
+      expect(report.data.summary.totalRetailValuation).toBe(500000);
+      expect(report.data.breakdowns.byBranch[0].totalRetailValuation).toBe(500000);
+      expect(report.data.breakdowns.byCategory[0].totalRetailValuation).toBe(500000);
+
+      const list = await getInventoryItemsList({
+        branchId: branchA._id.toString(),
+        userRole: ROLE_VALUES.SYSTEM_ADMIN,
+      });
+      expect(list.data.items[0].retailValuation).toBe(500000);
     });
   });
 });
