@@ -601,7 +601,10 @@ describe('Swagger documentation integrity', () => {
     const salesSchema = sales200.content['application/json'].schema;
     expect(salesSchema.required).toEqual(['success', 'data']);
     expect(salesSchema.properties.data.properties.summary.properties.netRevenue).toBeDefined();
-    expect(salesSchema.properties.data.properties.breakdowns.properties.byTime.items.properties.netRevenue).toBeDefined();
+    expect(
+      salesSchema.properties.data.properties.breakdowns.properties.byTime.items.properties
+        .netRevenue
+    ).toBeDefined();
 
     // /reports/sales/orders
     const orders200 = swaggerSpec.paths['/reports/sales/orders'].get.responses['200'];
@@ -619,6 +622,8 @@ describe('Swagger documentation integrity', () => {
     const invItems200 = swaggerSpec.paths['/reports/inventory/items'].get.responses['200'];
     expect(invItems200.content['application/json'].schema).toBeDefined();
     const invItemsSchema = invItems200.content['application/json'].schema;
-    expect(invItemsSchema.properties.data.properties.items.items.properties.reorderStatus).toBeDefined();
+    expect(
+      invItemsSchema.properties.data.properties.items.items.properties.reorderStatus
+    ).toBeDefined();
   });
 });

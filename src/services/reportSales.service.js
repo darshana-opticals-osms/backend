@@ -76,7 +76,14 @@ function roundToTwo(num) {
  * @param {string} [options.userRole] - Role of authenticated user
  * @returns {Promise<Object>}
  */
-async function getSalesReport({ preset, startDate, endDate, branchId = null, groupBy = 'day', userRole = null }) {
+async function getSalesReport({
+  preset,
+  startDate,
+  endDate,
+  branchId = null,
+  groupBy = 'day',
+  userRole = null,
+}) {
   const isBranchManager = userRole === ROLE_VALUES.BRANCH_MANAGER;
   const dateRange = resolveReportDateRange({ preset, startDate, endDate });
   const { startUtc, endUtc } = dateRange;
@@ -507,7 +514,7 @@ async function getSalesOrdersList({
   sortOrder = 'desc',
   orderStatus,
   isExport = false,
-  userRole = null,
+  _userRole = null,
 }) {
   const dateRange = resolveReportDateRange({ preset, startDate, endDate });
   const { startUtc, endUtc } = dateRange;

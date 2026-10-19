@@ -547,7 +547,9 @@ describe('reportExport.service (ADR-014 §11, §14.2 & RFC-4180)', () => {
       });
 
       expect(result.csvContent).not.toContain('Retail Valuation (LKR)');
-      expect(result.csvContent).toContain('SKU,Item Name,Category,Brand,Quantity,Unit Price (LKR),Reorder Status,Branch');
+      expect(result.csvContent).toContain(
+        'SKU,Item Name,Category,Brand,Quantity,Unit Price (LKR),Reorder Status,Branch'
+      );
     });
 
     it('excludes Retail Valuation from Excel export for BRANCH_MANAGER', async () => {
