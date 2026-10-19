@@ -23,6 +23,7 @@ describe('Product catalog API (Integration tests)', () => {
     await Promise.all([Inventory.deleteMany({}), Branch.deleteMany({})]);
 
     branch = await Branch.create({
+      codeName: 'GAMPAHA_CENTRAL',
       address: 'Catalog Test Branch',
       contactNumber: '+94 11 234 5678',
     });
@@ -290,6 +291,37 @@ describe('Product catalog API (Integration tests)', () => {
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
       expect(response.body.data.itemName).toBe('Gampaha Ray-Ban Aviator');
+    });
+
+    it('should not allow retrieving out-of-stock Gampaha items by ID directly', async () => {
+      const response = await request(app).get(`/api/products/${gampahaOutOfStockProduct._id}`);
+
+      expect(response.status).toBe(404);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error.code).toBe('PRODUCT_NOT_FOUND');
+    });
+  });
+
+  describe('Missing configured fulfillment branch (fail-closed)', () => {
+    beforeEach(async () => {
+      await Branch.deleteMany({});
+    });
+
+    it('should return an empty list when the configured fulfillment branch is missing', async () => {
+      const response = await request(app).get('/api/products');
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toEqual([]);
+    });
+
+    it('should return 404 PRODUCT_NOT_FOUND for single product lookup when fulfillment branch is missing', async () => {
+      const dummyId = new mongoose.Types.ObjectId();
+      const response = await request(app).get(`/api/products/${dummyId}`);
+
+      expect(response.status).toBe(404);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error.code).toBe('PRODUCT_NOT_FOUND');
     });
   });
 });

@@ -525,6 +525,8 @@ async function claimOrder(orderId, branchId, staffUserId) {
     );
   }
 
+  const branchObjectId = new mongoose.Types.ObjectId(branchId);
+
   const order = await Order.findById(orderId);
   if (!order) {
     throw new NotFoundError('Order not found.', null, ORDER_NOT_FOUND);
@@ -538,7 +540,11 @@ async function claimOrder(orderId, branchId, staffUserId) {
     );
   }
 
-  if (order.branchId) {
+  const alreadyClaimed =
+    (order.branchId && order.branchId.toString() !== branchObjectId.toString()) ||
+    order.statusHistory?.some((entry) => entry.note === 'Branch claim and inventory allocation');
+
+  if (alreadyClaimed) {
     throw new ConflictError(
       'This order has already been claimed by a branch.',
       null,
@@ -559,7 +565,6 @@ async function claimOrder(orderId, branchId, staffUserId) {
     );
   }
 
-  const branchObjectId = new mongoose.Types.ObjectId(branchId);
   const now = new Date();
 
   // Review Comment 2 – Atomicity: inventory allocation + order claim within one transaction
@@ -574,7 +579,12 @@ async function claimOrder(orderId, branchId, staffUserId) {
       });
 
       claimedOrder = await Order.findOneAndUpdate(
-        { _id: orderId, status: ORDER_STATUS_VALUES.PROCESSING, branchId: null },
+        {
+          _id: orderId,
+          status: ORDER_STATUS_VALUES.PROCESSING,
+          $or: [{ branchId: null }, { branchId: branchObjectId }],
+          'statusHistory.note': { $ne: 'Branch claim and inventory allocation' },
+        },
         {
           $set: { branchId: branchObjectId, statusUpdatedAt: now },
           $push: {

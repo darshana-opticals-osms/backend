@@ -883,7 +883,13 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
     // ─── Finding 3: Real Checkout -> Verified Payment -> Branch Claim -> Cancellation Flow ───
     it('executes real application flow: real checkout -> reservation -> verified payment -> same-branch claim -> cancellation restoring exact inventory', async () => {
       const customer = await createCustomer('realcheckout@example.com');
-      const branchId = new mongoose.Types.ObjectId();
+      const fulfillmentBranch = await Branch.create({
+        name: 'Gampaha Branch',
+        address: 'Gampaha Central',
+        contactNumber: '0331234567',
+        codeName: 'GAMPAHA_CENTRAL',
+      });
+      const branchId = fulfillmentBranch._id;
 
       // Initial inventory: 10 units
       const inventory = await Inventory.create({
@@ -1223,7 +1229,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
     // ─── Second Re-Review Finding 2: Unclaimed PROCESSING Order Cancellation ────
     it('restores checkout inventory when an unclaimed PROCESSING order is cancelled and blocks invalid advancement', async () => {
       const branch = await Branch.create({
-        codeName: 'UNCLAIMED_RESTORE_BRANCH',
+        codeName: 'GAMPAHA_CENTRAL',
         address: '10 Main St',
         contactNumber: '+94112345678',
       });

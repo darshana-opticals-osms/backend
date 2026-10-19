@@ -10,6 +10,11 @@ const {
   restoreCartItems,
 } = require('../../src/services/cart.service');
 
+jest.mock('../../src/services/fulfillmentBranch.service', () => ({
+  getOnlineFulfillmentBranch: jest.fn(),
+}));
+const { getOnlineFulfillmentBranch } = require('../../src/services/fulfillmentBranch.service');
+
 jest.mock('../../src/models/cart.model', () => ({
   create: jest.fn(),
   findOneAndUpdate: jest.fn(),
@@ -18,16 +23,26 @@ jest.mock('../../src/models/cart.model', () => ({
 }));
 
 jest.mock('../../src/models/customer.model', () => ({ exists: jest.fn() }));
-jest.mock('../../src/models/inventory.model', () => ({ exists: jest.fn() }));
+jest.mock('../../src/models/inventory.model', () => ({ exists: jest.fn(), findById: jest.fn() }));
 
 describe('Cart service', () => {
   const customerId = new mongoose.Types.ObjectId().toString();
   const inventoryId = new mongoose.Types.ObjectId().toString();
+  const fulfillmentBranchId = new mongoose.Types.ObjectId();
 
   beforeEach(() => {
     jest.clearAllMocks();
+    getOnlineFulfillmentBranch.mockResolvedValue({ _id: fulfillmentBranchId });
     Customer.exists.mockResolvedValue({ _id: customerId });
     Inventory.exists.mockResolvedValue({ _id: inventoryId });
+    Inventory.findById.mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        session: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue({ _id: inventoryId, branchId: fulfillmentBranchId }),
+        }),
+        lean: jest.fn().mockResolvedValue({ _id: inventoryId, branchId: fulfillmentBranchId }),
+      }),
+    });
   });
 
   it('should atomically add or increment the authenticated customer Cart item', async () => {

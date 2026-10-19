@@ -1,7 +1,6 @@
 const Inventory = require('../models/inventory.model');
-const Branch = require('../models/branch.model');
 const { NotFoundError } = require('../errors/AppError');
-const { ONLINE_FULFILLMENT_BRANCH_CODE } = require('../constants/fulfillment.constants');
+const { getOnlineFulfillmentBranch } = require('./fulfillmentBranch.service');
 
 const PRODUCT_NOT_FOUND = 'PRODUCT_NOT_FOUND';
 
@@ -23,24 +22,6 @@ const toPublicProduct = (product) => ({
   price: product.price,
   imageUrl: product.imageUrl || null,
 });
-
-const getOnlineFulfillmentBranch = async () => {
-  const codeName = process.env.ONLINE_FULFILLMENT_BRANCH_CODE || ONLINE_FULFILLMENT_BRANCH_CODE;
-
-  let branch = await Branch.findOne({
-    codeName: new RegExp(`^${codeName}$`, 'i'),
-  })
-    .select('_id codeName')
-    .lean();
-
-  if (!branch) {
-    // Fallback: If codeName is not explicitly found (e.g. in single-branch test fixtures),
-    // resolve to the first available branch.
-    branch = await Branch.findOne().select('_id codeName').lean();
-  }
-
-  return branch;
-};
 
 const buildCatalogFilter = ({
   search,
@@ -108,11 +89,16 @@ const listProducts = async (filters = {}) => {
 
 const getProductById = async (productId) => {
   const branch = await getOnlineFulfillmentBranch();
-  const query = { _id: productId };
 
-  if (branch) {
-    query.branchId = branch._id;
+  if (!branch) {
+    throw new NotFoundError('Product not found.', null, PRODUCT_NOT_FOUND);
   }
+
+  const query = {
+    _id: productId,
+    branchId: branch._id,
+    quantity: { $gt: 0 },
+  };
 
   const product = await Inventory.findOne(query).select(PUBLIC_PRODUCT_FIELDS).lean();
 

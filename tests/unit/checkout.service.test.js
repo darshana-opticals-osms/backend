@@ -12,6 +12,12 @@ const {
   decrementInventoryStock,
 } = require('../../src/services/checkout.service');
 
+const FULFILLMENT_BRANCH_ID = new mongoose.Types.ObjectId();
+jest.mock('../../src/services/fulfillmentBranch.service', () => ({
+  getOnlineFulfillmentBranch: jest.fn(),
+}));
+const { getOnlineFulfillmentBranch } = require('../../src/services/fulfillmentBranch.service');
+
 jest.mock('../../src/services/reorderAlert.service', () => ({
   evaluateReorderAlert: jest.fn().mockResolvedValue(null),
 }));
@@ -64,6 +70,7 @@ describe('checkout service', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    getOnlineFulfillmentBranch.mockResolvedValue({ _id: FULFILLMENT_BRANCH_ID });
     session = {
       withTransaction: jest.fn(async (operation) => operation()),
       endSession: jest.fn().mockResolvedValue(undefined),
@@ -81,6 +88,7 @@ describe('checkout service', () => {
       makeQuery([
         {
           _id: new mongoose.Types.ObjectId(INVENTORY_ID),
+          branchId: FULFILLMENT_BRANCH_ID,
           itemName: 'Optical Frame',
           category: 'Frames',
           price: 12.25,
@@ -121,6 +129,7 @@ describe('checkout service', () => {
       [
         expect.objectContaining({
           customerId: expect.any(mongoose.Types.ObjectId),
+          branchId: FULFILLMENT_BRANCH_ID,
           orderAmount: 24.5,
           status: 'ORDER_CREATED',
           statusHistory: [expect.objectContaining({ status: 'ORDER_CREATED' })],

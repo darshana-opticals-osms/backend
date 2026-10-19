@@ -106,7 +106,7 @@ const productIdValidation = (req) => {
  * /products:
  *   get:
  *     summary: List catalog products
- *     description: Returns the public product catalogue. Internal inventory-only fields are intentionally excluded.
+ *     description: Returns the public product catalogue scoped to the configured online fulfillment branch (default GAMPAHA_CENTRAL) and customer-available (in-stock) inventory. Internal inventory-only fields are intentionally excluded.
  *     tags:
  *       - Products
  *     parameters:
@@ -168,7 +168,7 @@ router.get('/products', validate(catalogQueryValidation), getProducts);
  * /products/{id}:
  *   get:
  *     summary: Get one catalog product by ID
- *     description: Returns public product discovery data for a single item.
+ *     description: Returns public product discovery data for a single in-stock item belonging to the configured online fulfillment branch (default GAMPAHA_CENTRAL).
  *     tags:
  *       - Products
  *     parameters:
