@@ -969,6 +969,94 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
       expect(invAfterCancel.quantity).toBe(10);
     });
 
+    it('rejects a second claim on an order that already has branchId/claimedAt without duplicate side effects', async () => {
+      const customer = await createCustomer('secondclaim@example.com');
+      const fulfillmentBranch = await Branch.create({
+        name: 'Gampaha Branch',
+        address: 'Gampaha Central',
+        contactNumber: '0331234567',
+        codeName: 'GAMPAHA_CENTRAL',
+      });
+      const branchId = fulfillmentBranch._id;
+
+      const inventory = await Inventory.create({
+        branchId,
+        itemName: 'Claim Test Frame',
+        category: 'Frames',
+        brand: 'Ray-Ban',
+        price: 15000,
+        quantity: 5,
+      });
+
+      await Cart.create({
+        customerId: customer._id,
+        items: [{ inventoryId: inventory._id, quantity: 1 }],
+      });
+
+      const customerToken = createToken({
+        userId: customer._id.toString(),
+        role: ROLE_VALUES.CUSTOMER,
+      });
+
+      const checkoutRes = await request(app)
+        .post('/api/checkout')
+        .set('Authorization', `Bearer ${customerToken}`)
+        .send();
+
+      expect(checkoutRes.status).toBe(201);
+      const orderId = checkoutRes.body.data.order.id;
+
+      await Payment.create({
+        orderId,
+        amount: 15000,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.ONLINE_GATEWAY,
+        providerTransactionId: 'PAYHERE_CLAIM_TEST_1',
+        paidAt: new Date(),
+      });
+
+      await Order.findByIdAndUpdate(orderId, {
+        $set: { status: ORDER_STATUS_VALUES.PROCESSING, statusUpdatedAt: new Date() },
+      });
+
+      const staffToken = createToken({
+        userId: new mongoose.Types.ObjectId().toString(),
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branchId.toString(),
+      });
+
+      // First claim succeeds
+      const firstClaimRes = await request(app)
+        .patch(`/api/orders/${orderId}/claim`)
+        .set('Authorization', `Bearer ${staffToken}`);
+      expect(firstClaimRes.status).toBe(200);
+
+      const orderAfterFirst = await Order.findById(orderId).lean();
+      expect(orderAfterFirst.claimedAt).toBeDefined();
+      expect(orderAfterFirst.claimedBy).toBeDefined();
+      const firstProcessingCount = orderAfterFirst.statusHistory.filter(
+        (entry) => entry.status === ORDER_STATUS_VALUES.PROCESSING
+      ).length;
+
+      // Second claim attempt MUST be rejected fail-closed
+      const secondClaimRes = await request(app)
+        .patch(`/api/orders/${orderId}/claim`)
+        .set('Authorization', `Bearer ${staffToken}`);
+
+      expect(secondClaimRes.status).toBe(409);
+      expect(secondClaimRes.body.success).toBe(false);
+      expect(secondClaimRes.body.error.code).toBe('ORDER_ALREADY_CLAIMED');
+
+      // Verify no duplicate statusHistory entries or side effects were introduced
+      const orderAfterSecond = await Order.findById(orderId).lean();
+      const secondProcessingCount = orderAfterSecond.statusHistory.filter(
+        (entry) => entry.status === ORDER_STATUS_VALUES.PROCESSING
+      ).length;
+      expect(secondProcessingCount).toBe(firstProcessingCount);
+      expect(orderAfterSecond.claimedAt).toEqual(orderAfterFirst.claimedAt);
+      expect(orderAfterSecond.statusUpdatedAt).toEqual(orderAfterFirst.statusUpdatedAt);
+    });
+
     // ─── Comment 2: Atomic Rollback & Competing Branches ────────────────────
     it('Comment 2a: multi-item allocation rolls back completely when cross-branch fulfillment is attempted', async () => {
       const customer = await createCustomer('rollback@example.com');

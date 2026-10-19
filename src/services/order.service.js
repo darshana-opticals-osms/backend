@@ -541,8 +541,8 @@ async function claimOrder(orderId, branchId, staffUserId) {
   }
 
   const alreadyClaimed =
-    (order.branchId && order.branchId.toString() !== branchObjectId.toString()) ||
-    order.statusHistory?.some((entry) => entry.note === 'Branch claim and inventory allocation');
+    Boolean(order.claimedAt) ||
+    (order.branchId && order.branchId.toString() !== branchObjectId.toString());
 
   if (alreadyClaimed) {
     throw new ConflictError(
@@ -583,16 +583,21 @@ async function claimOrder(orderId, branchId, staffUserId) {
           _id: orderId,
           status: ORDER_STATUS_VALUES.PROCESSING,
           $or: [{ branchId: null }, { branchId: branchObjectId }],
-          'statusHistory.note': { $ne: 'Branch claim and inventory allocation' },
+          claimedAt: null,
         },
         {
-          $set: { branchId: branchObjectId, statusUpdatedAt: now },
+          $set: {
+            branchId: branchObjectId,
+            claimedAt: now,
+            claimedBy: staffUserId,
+            statusUpdatedAt: now,
+          },
           $push: {
             statusHistory: {
               status: ORDER_STATUS_VALUES.PROCESSING,
               changedAt: now,
               changedBy: staffUserId,
-              note: 'Branch claim and inventory allocation',
+              source: 'USER',
             },
           },
         },
