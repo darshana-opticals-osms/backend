@@ -758,7 +758,7 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
 
         expect(Order.find).toHaveBeenCalledWith({
           $or: [
-            { status: ORDER_STATUS_VALUES.ORDER_CREATED },
+            { status: ORDER_STATUS_VALUES.ORDER_CREATED, branchId: null },
             { status: ORDER_STATUS_VALUES.PROCESSING, branchId: null },
             { branchId: new mongoose.Types.ObjectId(STAFF_BRANCH_ID_STR) },
           ],
@@ -876,7 +876,7 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
 
       expect(Order.find).toHaveBeenCalledWith({
         $or: [
-          { status: ORDER_STATUS_VALUES.ORDER_CREATED },
+          { status: ORDER_STATUS_VALUES.ORDER_CREATED, branchId: null },
           { status: ORDER_STATUS_VALUES.PROCESSING, branchId: null },
           { branchId: new mongoose.Types.ObjectId(BRANCH_A_STR) },
         ],
