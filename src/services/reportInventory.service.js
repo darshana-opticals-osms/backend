@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Inventory = require('../models/inventory.model');
 const { REPORTING_CURRENCY, PAGINATION_LIMITS } = require('../constants/report.constants');
+const { ROLE_VALUES } = require('../constants/roles');
 const { getGlobalReorderThreshold } = require('./reorderAlert.service');
 const { ForbiddenError } = require('../errors/AppError');
 
@@ -66,9 +67,16 @@ function buildReorderStatusStages() {
  * @param {string|null} [options.branchId]
  * @param {string|null} [options.category]
  * @param {string|null} [options.reorderStatus] - 'OK' | 'LOW_STOCK' | 'REORDER_TRIGGERED'
+ * @param {string|null} [options.userRole] - Role of authenticated user
  * @returns {Promise<Object>}
  */
-async function getInventoryReport({ branchId = null, category = null, reorderStatus = null } = {}) {
+async function getInventoryReport({
+  branchId = null,
+  category = null,
+  reorderStatus = null,
+  userRole = null,
+} = {}) {
+  const isBranchManager = userRole === ROLE_VALUES.BRANCH_MANAGER;
   const threshold = await getGlobalReorderThreshold();
 
   const matchStage = {
@@ -177,7 +185,7 @@ async function getInventoryReport({ branchId = null, category = null, reorderSta
     Inventory.aggregate(categoryPipeline),
   ]);
 
-  const summary = summaryResult[0] || {
+  const summaryData = summaryResult[0] || {
     totalStockOnHand: 0,
     totalRetailValuation: 0,
     totalUniqueProducts: 0,
@@ -190,7 +198,7 @@ async function getInventoryReport({ branchId = null, category = null, reorderSta
     branchId: b.branchId ? b.branchId.toString() : null,
     branchName: b.branchName,
     totalStock: b.totalStock,
-    totalRetailValuation: roundToTwo(b.totalRetailValuation),
+    ...(!isBranchManager ? { totalRetailValuation: roundToTwo(b.totalRetailValuation) } : {}),
     itemCount: b.itemCount,
     lowStockCount: b.lowStockCount,
     reorderTriggeredCount: b.reorderTriggeredCount,
@@ -199,7 +207,7 @@ async function getInventoryReport({ branchId = null, category = null, reorderSta
   const categories = categoryResults.map((c) => ({
     category: c._id || 'Uncategorized',
     totalStock: c.totalStock,
-    totalRetailValuation: roundToTwo(c.totalRetailValuation),
+    ...(!isBranchManager ? { totalRetailValuation: roundToTwo(c.totalRetailValuation) } : {}),
     itemCount: c.itemCount,
   }));
 
@@ -210,12 +218,14 @@ async function getInventoryReport({ branchId = null, category = null, reorderSta
       snapshotTimestamp: new Date().toISOString(),
       reorderThresholdUsed: threshold,
       summary: {
-        totalStockOnHand: summary.totalStockOnHand,
-        totalRetailValuation: roundToTwo(summary.totalRetailValuation),
-        totalUniqueProducts: summary.totalUniqueProducts,
-        lowStockCount: summary.lowStockCount,
-        reorderTriggeredCount: summary.reorderTriggeredCount,
-        okStockCount: summary.okStockCount,
+        totalStockOnHand: summaryData.totalStockOnHand,
+        ...(!isBranchManager
+          ? { totalRetailValuation: roundToTwo(summaryData.totalRetailValuation) }
+          : {}),
+        totalUniqueProducts: summaryData.totalUniqueProducts,
+        lowStockCount: summaryData.lowStockCount,
+        reorderTriggeredCount: summaryData.reorderTriggeredCount,
+        okStockCount: summaryData.okStockCount,
       },
       breakdowns: {
         byBranch: branches,
@@ -237,6 +247,7 @@ async function getInventoryReport({ branchId = null, category = null, reorderSta
  * @param {string} [options.sortBy='quantity']
  * @param {string} [options.sortOrder='asc']
  * @param {boolean} [options.isExport=false]
+ * @param {string|null} [options.userRole]
  * @returns {Promise<Object>}
  */
 async function getInventoryItemsList({
@@ -248,7 +259,9 @@ async function getInventoryItemsList({
   sortBy = 'quantity',
   sortOrder = 'asc',
   isExport = false,
+  userRole = null,
 } = {}) {
+  const isBranchManager = userRole === ROLE_VALUES.BRANCH_MANAGER;
   const threshold = await getGlobalReorderThreshold();
 
   const matchStage = {
@@ -320,6 +333,12 @@ async function getInventoryItemsList({
   const total = facetResult?.metadata[0]?.total || 0;
   const rawItems = facetResult?.data || [];
 
+  // Policy Clarification (ADR-014 §9 & Finding 4):
+  // Branch Managers legitimately require operational item-level unitPrice and quantity for daily store
+  // operations, physical stock counts, and counter sales (consistent with product catalog and inventory APIs).
+  // The role-based restriction under ADR-014 specifically targets precomputed executive valuation metrics
+  // (totalRetailValuation and item-level retailValuation) to prevent macro balance-sheet valuation exposure
+  // on managerial reporting dashboards, rather than restricting public catalog retail pricing.
   const items = rawItems.map((item) => ({
     id: item._id.toString(),
     sku: item._id.toString(),
@@ -330,7 +349,7 @@ async function getInventoryItemsList({
     quantity: item.quantity,
     reorderThreshold: threshold,
     reorderStatus: item.reorderStatus,
-    retailValuation: roundToTwo(item.quantity * item.price),
+    ...(!isBranchManager ? { retailValuation: roundToTwo(item.quantity * item.price) } : {}),
     branchId: item.branchId ? item.branchId.toString() : null,
     branchName:
       item.branch?.codeName || item.branch?.name || item.branch?.address || 'Unassigned Branch',

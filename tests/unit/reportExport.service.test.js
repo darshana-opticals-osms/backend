@@ -524,5 +524,108 @@ describe('reportExport.service (ADR-014 §11, §14.2 & RFC-4180)', () => {
       expect(wb.worksheets).toHaveLength(1);
       expect(wb.worksheets[0].name).toBe('COLOMBO_CENTRAL');
     });
+
+    it('excludes Retail Valuation from CSV export for BRANCH_MANAGER', async () => {
+      await Inventory.create({
+        itemName: 'Scoped Branch A Frame',
+        category: 'Frames',
+        brand: 'Oakley',
+        price: 20000,
+        quantity: 7,
+        branchId: branchA._id,
+      });
+
+      const user = {
+        userId: 'bm-1',
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branchA._id.toString(),
+      };
+
+      const result = await exportInventoryReport({
+        format: 'csv',
+        user,
+      });
+
+      expect(result.csvContent).not.toContain('Retail Valuation (LKR)');
+      expect(result.csvContent).toContain(
+        'SKU,Item Name,Category,Brand,Quantity,Unit Price (LKR),Reorder Status,Branch'
+      );
+    });
+
+    it('excludes Retail Valuation from Excel export for BRANCH_MANAGER', async () => {
+      await Inventory.create({
+        itemName: 'Scoped Branch A Frame',
+        category: 'Frames',
+        brand: 'Oakley',
+        price: 20000,
+        quantity: 7,
+        branchId: branchA._id,
+      });
+
+      const user = {
+        userId: 'bm-1',
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branchA._id.toString(),
+      };
+
+      const result = await exportInventoryReport({
+        format: 'xlsx',
+        user,
+      });
+
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(result.buffer);
+
+      const sheet = wb.worksheets[0];
+      const headers = sheet.getRow(1).values;
+      expect(headers).not.toContain('Retail Valuation (LKR)');
+    });
+
+    it('excludes Refund Deductions and AOV from Sales Excel export for BRANCH_MANAGER', async () => {
+      const now = new Date();
+      const order = await Order.create({
+        customerId: customerA._id,
+        branchId: branchA._id,
+        orderAmount: 10000,
+        status: 'COMPLETED',
+        orderDate: now,
+      });
+
+      await Payment.create({
+        orderId: order._id,
+        amount: 10000,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.CARD,
+        paidAt: now,
+      });
+
+      const user = {
+        userId: 'bm-1',
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: branchA._id.toString(),
+      };
+
+      const result = await exportSalesReport({
+        preset: 'today',
+        format: 'xlsx',
+        user,
+      });
+
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(result.buffer);
+
+      const summarySheet = wb.getWorksheet('Executive Summary');
+      expect(summarySheet).toBeDefined();
+
+      const metricNames = [];
+      summarySheet.eachRow((row) => {
+        metricNames.push(row.getCell(1).value);
+      });
+
+      expect(metricNames).not.toContain('Refund Deductions (LKR)');
+      expect(metricNames).not.toContain('Average Order Value (LKR)');
+      expect(metricNames).toContain('Recognized Gross Revenue (LKR)');
+      expect(metricNames).toContain('Recognized Net Revenue (LKR)');
+    });
   });
 });

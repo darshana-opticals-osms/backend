@@ -15,6 +15,7 @@ const {
 } = require('../constants/report.constants');
 const { resolveReportDateRange } = require('../utils/reportDates');
 const { shapeReportCustomer } = require('../utils/reportMasking');
+const { ROLE_VALUES } = require('../constants/roles');
 const { ForbiddenError } = require('../errors/AppError');
 
 /**
@@ -72,9 +73,18 @@ function roundToTwo(num) {
  * @param {string} [options.endDate]
  * @param {string|null} [options.branchId]
  * @param {string} [options.groupBy] - 'day' | 'week' | 'month' | 'branch' | 'category'
+ * @param {string} [options.userRole] - Role of authenticated user
  * @returns {Promise<Object>}
  */
-async function getSalesReport({ preset, startDate, endDate, branchId = null, groupBy = 'day' }) {
+async function getSalesReport({
+  preset,
+  startDate,
+  endDate,
+  branchId = null,
+  groupBy = 'day',
+  userRole = null,
+}) {
+  const isBranchManager = userRole === ROLE_VALUES.BRANCH_MANAGER;
   const dateRange = resolveReportDateRange({ preset, startDate, endDate });
   const { startUtc, endUtc } = dateRange;
 
@@ -122,7 +132,7 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
     await Promise.all([
       Payment.aggregate(salesPipeline),
 
-      // Refund deductions query - grouped by branch for branch breakdown and summary
+      // Refund deductions query - project refund details for branch and time breakdowns
       Payment.aggregate([
         { $match: buildRefundMatch({ startUtc, endUtc }) },
         {
@@ -136,16 +146,18 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
         { $unwind: { path: '$order', preserveNullAndEmptyArrays: true } },
         ...(targetBranchObjectId ? [{ $match: { 'order.branchId': targetBranchObjectId } }] : []),
         {
-          $group: {
-            _id: { $ifNull: ['$order.branchId', 'UNASSIGNED'] },
-            refundDeductions: {
-              $sum: {
-                $cond: [
-                  { $gt: ['$refundAmount', 0] },
-                  '$refundAmount',
-                  { $cond: [{ $eq: ['$status', REFUNDED_PAYMENT_STATUS] }, '$amount', 0] },
-                ],
-              },
+          $project: {
+            amount: 1,
+            refundAmount: 1,
+            status: 1,
+            refundedAt: 1,
+            branchId: '$order.branchId',
+            refundDeduction: {
+              $cond: [
+                { $gt: ['$refundAmount', 0] },
+                '$refundAmount',
+                { $cond: [{ $eq: ['$status', REFUNDED_PAYMENT_STATUS] }, '$amount', 0] },
+              ],
             },
           },
         },
@@ -206,22 +218,6 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
       ]),
     ]);
 
-  // Compute total and branch refund deductions
-  const branchRefundMap = new Map();
-  let totalRefundDeductions = 0;
-  for (const ref of refundsAggregation) {
-    const bKey = ref._id && ref._id !== 'UNASSIGNED' ? ref._id.toString() : 'UNASSIGNED';
-    const amt = ref.refundDeductions || 0;
-    branchRefundMap.set(bKey, amt);
-    totalRefundDeductions += amt;
-  }
-  totalRefundDeductions = roundToTwo(totalRefundDeductions);
-
-  // Compute operational qualifying orders (SM-04 per ADR-014: Order.createdAt within [startUtc, endUtc])
-  const totalQualifyingOrders = qualifyingOrdersAggregation.length;
-  const branchOperationalOrderCountMap = new Map();
-  const timeOperationalOrderCountMap = new Map();
-
   // Helper for time grouping format
   const getTimeKey = (date) => {
     // Format date in Asia/Colombo
@@ -242,6 +238,28 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
     }
     return `${y}-${m}-${d}`;
   };
+
+  // Compute total, branch, and period refund deductions
+  const branchRefundMap = new Map();
+  const timeRefundMap = new Map();
+  let totalRefundDeductions = 0;
+  for (const ref of refundsAggregation) {
+    const bKey = ref.branchId ? ref.branchId.toString() : 'UNASSIGNED';
+    const amt = ref.refundDeduction || 0;
+    branchRefundMap.set(bKey, (branchRefundMap.get(bKey) || 0) + amt);
+    totalRefundDeductions += amt;
+
+    if (['day', 'week', 'month'].includes(groupBy) && ref.refundedAt) {
+      const timeKey = getTimeKey(new Date(ref.refundedAt));
+      timeRefundMap.set(timeKey, (timeRefundMap.get(timeKey) || 0) + amt);
+    }
+  }
+  totalRefundDeductions = roundToTwo(totalRefundDeductions);
+
+  // Compute operational qualifying orders (SM-04 per ADR-014: Order.createdAt within [startUtc, endUtc])
+  const totalQualifyingOrders = qualifyingOrdersAggregation.length;
+  const branchOperationalOrderCountMap = new Map();
+  const timeOperationalOrderCountMap = new Map();
 
   for (const qOrder of qualifyingOrdersAggregation) {
     const bKey = qOrder.branchId ? qOrder.branchId.toString() : 'UNASSIGNED';
@@ -392,7 +410,7 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
       branchName:
         bId === 'UNASSIGNED' ? 'Unassigned / Online' : branchNameById.get(bId) || 'Unknown Branch',
       grossRevenue: bGross,
-      refundDeductions: bRefund,
+      ...(!isBranchManager ? { refundDeductions: bRefund } : {}),
       netRevenue: bNet,
       orderCount: bOrders,
       itemCount: bItems,
@@ -406,20 +424,30 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
     volume: roundToTwo(m.volume),
   }));
 
-  // Ensure time periods with operational orders are also present in timeMap
+  // Ensure time periods with operational orders or refunds are also present in timeMap
   for (const timeKey of timeOperationalOrderCountMap.keys()) {
     if (!timeMap.has(timeKey)) {
       timeMap.set(timeKey, { period: timeKey, grossRevenue: 0 });
     }
   }
+  for (const timeKey of timeRefundMap.keys()) {
+    if (!timeMap.has(timeKey)) {
+      timeMap.set(timeKey, { period: timeKey, grossRevenue: 0 });
+    }
+  }
 
-  // Format time series breakdown sorted chronologically
+  // Format time series breakdown sorted chronologically with authoritative netRevenue
   const timeSeriesBreakdown = Array.from(timeMap.values())
-    .map((t) => ({
-      period: t.period,
-      grossRevenue: roundToTwo(t.grossRevenue),
-      orderCount: timeOperationalOrderCountMap.get(t.period) || 0,
-    }))
+    .map((t) => {
+      const periodGross = roundToTwo(t.grossRevenue);
+      const periodRefund = roundToTwo(timeRefundMap.get(t.period) || 0);
+      return {
+        period: t.period,
+        grossRevenue: periodGross,
+        netRevenue: roundToTwo(periodGross - periodRefund),
+        orderCount: timeOperationalOrderCountMap.get(t.period) || 0,
+      };
+    })
     .sort((a, b) => a.period.localeCompare(b.period));
 
   const netRevenue = roundToTwo(grossRevenue - totalRefundDeductions);
@@ -441,19 +469,21 @@ async function getSalesReport({ preset, startDate, endDate, branchId = null, gro
       },
       summary: {
         grossRevenue: roundToTwo(grossRevenue),
-        refundDeductions: totalRefundDeductions,
+        ...(!isBranchManager ? { refundDeductions: totalRefundDeductions } : {}),
         netRevenue,
         totalOrders: totalQualifyingOrders,
         itemsSold: itemsSoldQuantity,
-        averageOrderValue,
+        ...(!isBranchManager ? { averageOrderValue } : {}),
         cancelledOrdersCount,
         cancelledOrdersValue,
       },
+      // Breakdowns: byPaymentMethod (SM-09) is restricted to SYSTEM_ADMIN per ADR-014 §10.1;
+      // byCategory is scoped strictly to the branch's qualifying orders when targetBranchObjectId is set.
       breakdowns: {
         byTime: timeSeriesBreakdown,
         byBranch: branchBreakdown,
         byCategory: categoryBreakdown,
-        byPaymentMethod: paymentMethodBreakdown,
+        ...(!isBranchManager ? { byPaymentMethod: paymentMethodBreakdown } : {}),
       },
     },
   };
@@ -486,6 +516,7 @@ async function getSalesOrdersList({
   sortOrder = 'desc',
   orderStatus,
   isExport = false,
+  _userRole = null,
 }) {
   const dateRange = resolveReportDateRange({ preset, startDate, endDate });
   const { startUtc, endUtc } = dateRange;

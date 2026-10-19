@@ -453,7 +453,15 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.summary.grossRevenue).toBe(5000);
+      expect(res.body.data.summary.netRevenue).toBe(5000);
       expect(res.body.data.summary.totalOrders).toBe(1);
+      // ADR-014 restricted financial fields omitted for BRANCH_MANAGER
+      expect(res.body.data.summary.refundDeductions).toBeUndefined();
+      expect(res.body.data.summary.averageOrderValue).toBeUndefined();
+      expect(res.body.data.breakdowns.byPaymentMethod).toBeUndefined();
+      expect(res.body.data.breakdowns.byBranch[0].refundDeductions).toBeUndefined();
+      // Period-wise net revenue present
+      expect(res.body.data.breakdowns.byTime[0].netRevenue).toBe(5000);
 
       const resB = await request(app)
         .get('/api/reports/sales')
@@ -462,7 +470,12 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
 
       expect(resB.status).toBe(200);
       expect(resB.body.data.summary.grossRevenue).toBe(9000);
+      expect(resB.body.data.summary.netRevenue).toBe(9000);
       expect(resB.body.data.summary.totalOrders).toBe(1);
+      expect(resB.body.data.summary.refundDeductions).toBeUndefined();
+      expect(resB.body.data.summary.averageOrderValue).toBeUndefined();
+      expect(resB.body.data.breakdowns.byPaymentMethod).toBeUndefined();
+      expect(resB.body.data.breakdowns.byTime[0].netRevenue).toBe(9000);
     });
   });
 
@@ -572,7 +585,7 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       expect(res.body.data.items[0].reorderStatus).toBe('REORDER_TRIGGERED');
     });
 
-    it('filters inventory by branch for BRANCH_MANAGER', async () => {
+    it('filters inventory by branch for BRANCH_MANAGER and omits totalRetailValuation', async () => {
       const res = await request(app)
         .get('/api/reports/inventory')
         .set('Authorization', `Bearer ${branchManagerAToken}`);
@@ -580,6 +593,20 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.summary.totalStockOnHand).toBe(15); // Items in Branch A
       expect(res.body.data.summary.reorderTriggeredCount).toBe(0); // Solution in Branch B excluded
+      // ADR-014 restricted field totalRetailValuation omitted for BRANCH_MANAGER
+      expect(res.body.data.summary.totalRetailValuation).toBeUndefined();
+      expect(res.body.data.breakdowns.byBranch[0].totalRetailValuation).toBeUndefined();
+      expect(res.body.data.breakdowns.byCategory[0].totalRetailValuation).toBeUndefined();
+    });
+
+    it('omits retailValuation in inventory items listing for BRANCH_MANAGER', async () => {
+      const res = await request(app)
+        .get('/api/reports/inventory/items')
+        .set('Authorization', `Bearer ${branchManagerAToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.items.length).toBeGreaterThan(0);
+      expect(res.body.data.items[0].retailValuation).toBeUndefined();
     });
   });
 

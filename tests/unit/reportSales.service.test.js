@@ -5,6 +5,7 @@ const OrderItem = require('../../src/models/orderItem.model');
 const Branch = require('../../src/models/branch.model');
 const Customer = require('../../src/models/customer.model');
 const { ORDER_STATUS_VALUES } = require('../../src/constants/orderStatuses');
+const { ROLE_VALUES } = require('../../src/constants/roles');
 const { PAYMENT_STATUS, PAYMENT_METHOD } = require('../../src/constants/payment');
 const { getSalesReport, getSalesOrdersList } = require('../../src/services/reportSales.service');
 
@@ -370,6 +371,148 @@ describe('reportSales.service (ADR-014 §6, §7, §8)', () => {
       // Zero clinical fields
       expect(orderItem.prescription).toBeUndefined();
       expect(orderItem.clinicalNotes).toBeUndefined();
+    });
+  });
+
+  describe('Period-wise Net Revenue & Role-based Field Restrictions (DDP-064)', () => {
+    it('computes authoritative period-wise netRevenue in breakdowns.byTime', async () => {
+      const order = await Order.create({
+        customerId: customerA._id,
+        branchId: branchA._id,
+        orderDate: new Date('2026-03-01T10:00:00.000Z'),
+        orderAmount: 20000,
+        status: ORDER_STATUS_VALUES.PROCESSING,
+      });
+
+      // Payment on 2026-03-01
+      await Payment.create({
+        orderId: order._id,
+        amount: 20000,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.CARD,
+        paidAt: new Date('2026-03-01T10:30:00.000Z'),
+      });
+
+      // Partial refund on 2026-03-02
+      const order2 = await Order.create({
+        customerId: customerA._id,
+        branchId: branchA._id,
+        orderDate: new Date('2026-02-28T10:00:00.000Z'),
+        orderAmount: 20000,
+        status: ORDER_STATUS_VALUES.PROCESSING,
+      });
+
+      await Payment.create({
+        orderId: order2._id,
+        amount: 20000,
+        refundAmount: 5000,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.CARD,
+        paidAt: new Date('2026-02-28T10:00:00.000Z'), // Outside range
+        refundedAt: new Date('2026-03-02T14:00:00.000Z'),
+      });
+
+      const report = await getSalesReport({
+        preset: 'custom',
+        startDate: '2026-03-01',
+        endDate: '2026-03-03',
+        groupBy: 'day',
+      });
+
+      expect(report.success).toBe(true);
+      expect(report.data.summary.grossRevenue).toBe(20000);
+      expect(report.data.summary.refundDeductions).toBe(5000);
+      expect(report.data.summary.netRevenue).toBe(15000);
+
+      const byTime = report.data.breakdowns.byTime;
+      const day1 = byTime.find((t) => t.period === '2026-03-01');
+      const day2 = byTime.find((t) => t.period === '2026-03-02');
+
+      expect(day1).toBeDefined();
+      expect(day1.grossRevenue).toBe(20000);
+      expect(day1.netRevenue).toBe(20000);
+
+      expect(day2).toBeDefined();
+      expect(day2.grossRevenue).toBe(0);
+      expect(day2.netRevenue).toBe(-5000);
+    });
+
+    it('omits refundDeductions and averageOrderValue for BRANCH_MANAGER', async () => {
+      const order = await Order.create({
+        customerId: customerA._id,
+        branchId: branchA._id,
+        orderDate: new Date(),
+        orderAmount: 10000,
+        status: ORDER_STATUS_VALUES.PROCESSING,
+      });
+
+      await Payment.create({
+        orderId: order._id,
+        amount: 10000,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.CARD,
+        paidAt: new Date(),
+      });
+
+      const report = await getSalesReport({
+        preset: 'today',
+        branchId: branchA._id.toString(),
+        userRole: ROLE_VALUES.BRANCH_MANAGER,
+      });
+
+      expect(report.success).toBe(true);
+      // Allowed fields
+      expect(report.data.summary.grossRevenue).toBe(10000);
+      expect(report.data.summary.netRevenue).toBe(10000);
+      expect(report.data.summary.totalOrders).toBe(1);
+
+      // Restricted fields MUST BE EXCLUDED per ADR-014
+      expect(report.data.summary.refundDeductions).toBeUndefined();
+      expect(report.data.summary.averageOrderValue).toBeUndefined();
+      expect(report.data.breakdowns.byPaymentMethod).toBeUndefined();
+
+      // In breakdowns.byBranch
+      expect(report.data.breakdowns.byBranch[0].refundDeductions).toBeUndefined();
+      expect(report.data.breakdowns.byBranch[0].grossRevenue).toBe(10000);
+      expect(report.data.breakdowns.byBranch[0].netRevenue).toBe(10000);
+
+      // Category breakdown is scoped to branch
+      expect(report.data.breakdowns.byCategory).toBeDefined();
+    });
+
+    it('preserves refundDeductions, averageOrderValue, and byPaymentMethod for SYSTEM_ADMIN', async () => {
+      const order = await Order.create({
+        customerId: customerA._id,
+        branchId: branchA._id,
+        orderDate: new Date(),
+        orderAmount: 10000,
+        status: ORDER_STATUS_VALUES.PROCESSING,
+      });
+
+      await Payment.create({
+        orderId: order._id,
+        amount: 10000,
+        status: PAYMENT_STATUS.COMPLETED,
+        method: PAYMENT_METHOD.CARD,
+        paidAt: new Date(),
+      });
+
+      const report = await getSalesReport({
+        preset: 'today',
+        branchId: branchA._id.toString(),
+        userRole: ROLE_VALUES.SYSTEM_ADMIN,
+      });
+
+      expect(report.success).toBe(true);
+      expect(report.data.summary.refundDeductions).toBe(0);
+      expect(report.data.summary.averageOrderValue).toBe(10000);
+      expect(report.data.breakdowns.byBranch[0].refundDeductions).toBe(0);
+      expect(report.data.breakdowns.byPaymentMethod).toBeDefined();
+      expect(report.data.breakdowns.byPaymentMethod).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ method: 'card', count: 1, volume: 10000 }),
+        ])
+      );
     });
   });
 });

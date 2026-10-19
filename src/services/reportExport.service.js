@@ -1,5 +1,6 @@
 const ExcelJS = require('exceljs');
 const { AUDIT_ACTION, AUDIT_TARGET_TYPE, AUDIT_OUTCOME } = require('../constants/audit');
+const { ROLE_VALUES } = require('../constants/roles');
 const { resolveReportScope } = require('../utils/reportScope');
 const { getSalesOrdersList, getSalesReport } = require('./reportSales.service');
 const { getInventoryItemsList, getInventoryReport } = require('./reportInventory.service');
@@ -91,7 +92,7 @@ function sanitizeSheetName(name, existingNames = new Set()) {
  * @param {Object} [options.inventorySnapshot]
  * @param {boolean} options.isOrgWide
  * @param {boolean} [options.isTruncated=false]
- * @param {number} [options.totalMatching=0]
+ * @param {string|null} [options.userRole]
  * @returns {Promise<Buffer>}
  */
 async function buildSalesExcelWorkbook({
@@ -101,7 +102,9 @@ async function buildSalesExcelWorkbook({
   isOrgWide,
   isTruncated = false,
   totalMatching = 0,
+  userRole = null,
 }) {
+  const isBranchManager = userRole === ROLE_VALUES.BRANCH_MANAGER;
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'OSMS Darshana Opticals';
   workbook.created = new Date();
@@ -129,11 +132,13 @@ async function buildSalesExcelWorkbook({
     value: Number(summaryData.grossRevenue || 0).toFixed(2),
     refId: 'SM-01',
   });
-  summarySheet.addRow({
-    metric: 'Refund Deductions (LKR)',
-    value: Number(summaryData.refundDeductions || 0).toFixed(2),
-    refId: 'SM-02',
-  });
+  if (!isBranchManager) {
+    summarySheet.addRow({
+      metric: 'Refund Deductions (LKR)',
+      value: Number(summaryData.refundDeductions || 0).toFixed(2),
+      refId: 'SM-02',
+    });
+  }
   summarySheet.addRow({
     metric: 'Recognized Net Revenue (LKR)',
     value: Number(summaryData.netRevenue || 0).toFixed(2),
@@ -144,11 +149,13 @@ async function buildSalesExcelWorkbook({
     value: summaryData.totalOrders ?? 0,
     refId: 'SM-04',
   });
-  summarySheet.addRow({
-    metric: 'Average Order Value (LKR)',
-    value: Number(summaryData.averageOrderValue || 0).toFixed(2),
-    refId: 'SM-05',
-  });
+  if (!isBranchManager) {
+    summarySheet.addRow({
+      metric: 'Average Order Value (LKR)',
+      value: Number(summaryData.averageOrderValue || 0).toFixed(2),
+      refId: 'SM-05',
+    });
+  }
   summarySheet.addRow({
     metric: 'Items Sold Quantity',
     value: summaryData.itemsSold ?? 0,
@@ -300,7 +307,7 @@ async function buildSalesExcelWorkbook({
  * @param {Array<Object>} options.items
  * @param {boolean} options.isOrgWide
  * @param {boolean} [options.isTruncated=false]
- * @param {number} [options.totalMatching=0]
+ * @param {string|null} [options.userRole]
  * @returns {Promise<Buffer>}
  */
 async function buildInventoryExcelWorkbook({
@@ -308,7 +315,9 @@ async function buildInventoryExcelWorkbook({
   isOrgWide,
   isTruncated = false,
   totalMatching = 0,
+  userRole = null,
 }) {
+  const isBranchManager = userRole === ROLE_VALUES.BRANCH_MANAGER;
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'OSMS Darshana Opticals';
   workbook.created = new Date();
@@ -327,6 +336,10 @@ async function buildInventoryExcelWorkbook({
     });
   }
 
+  // Policy Clarification (ADR-014 §9, §11 & Finding 4):
+  // Unit Price (LKR) and Quantity are operational store metrics retained in Branch Manager exports
+  // for store operations and stocktaking. Precomputed executive valuation metrics ('Retail Valuation (LKR)')
+  // are omitted for BRANCH_MANAGER to avoid macro balance-sheet metric exposure.
   const columns = [
     { header: 'SKU', key: 'sku', width: 20 },
     { header: 'Item Name', key: 'name', width: 30 },
@@ -334,22 +347,29 @@ async function buildInventoryExcelWorkbook({
     { header: 'Brand', key: 'brand', width: 20 },
     { header: 'Quantity', key: 'quantity', width: 14 },
     { header: 'Unit Price (LKR)', key: 'unitPrice', width: 18 },
-    { header: 'Retail Valuation (LKR)', key: 'retailValuation', width: 22 },
+    ...(!isBranchManager
+      ? [{ header: 'Retail Valuation (LKR)', key: 'retailValuation', width: 22 }]
+      : []),
     { header: 'Reorder Status', key: 'reorderStatus', width: 20 },
     { header: 'Branch', key: 'branchName', width: 22 },
   ];
 
-  const mapItemToRow = (item) => ({
-    sku: item.sku || item.id,
-    name: item.name,
-    category: item.category,
-    brand: item.brand || '',
-    quantity: item.quantity,
-    unitPrice: Number(item.unitPrice || 0).toFixed(2),
-    retailValuation: Number(item.retailValuation || 0).toFixed(2),
-    reorderStatus: item.reorderStatus,
-    branchName: item.branchName,
-  });
+  const mapItemToRow = (item) => {
+    const row = {
+      sku: item.sku || item.id,
+      name: item.name,
+      category: item.category,
+      brand: item.brand || '',
+      quantity: item.quantity,
+      unitPrice: Number(item.unitPrice || 0).toFixed(2),
+      reorderStatus: item.reorderStatus,
+      branchName: item.branchName,
+    };
+    if (!isBranchManager) {
+      row.retailValuation = Number(item.retailValuation || 0).toFixed(2);
+    }
+    return row;
+  };
 
   const setupSheet = (sheetName, sheetItems) => {
     const sheet = workbook.addWorksheet(sheetName);
@@ -448,14 +468,18 @@ async function exportSalesReport({
       orderStatus,
       isExport: true,
       limit: null,
+      userRole: scope.role,
     }),
     getSalesReport({
       preset,
       startDate,
       endDate,
       branchId: scope.branchId,
+      userRole: scope.role,
     }),
-    scope.isOrgWide ? getInventoryReport({ branchId: null }).catch(() => null) : null,
+    scope.isOrgWide
+      ? getInventoryReport({ branchId: null, userRole: scope.role }).catch(() => null)
+      : null,
   ]);
 
   const orders = result?.data?.orders || [];
@@ -518,6 +542,7 @@ async function exportSalesReport({
       isOrgWide: scope.isOrgWide,
       isTruncated,
       totalMatching,
+      userRole: scope.role,
     });
     filename = `sales-report-${startStr}-to-${endStr}.xlsx`;
     contentType = EXCEL_MIME_TYPE;
@@ -601,12 +626,14 @@ async function exportInventoryReport({
   const scope = resolveReportScope(effectiveReq, 'inventory');
 
   // 2. Fetch inventory items (unbounded complete export)
+  const isBranchManager = scope.role === ROLE_VALUES.BRANCH_MANAGER;
   const result = await getInventoryItemsList({
     branchId: scope.branchId,
     category,
     reorderStatus,
     isExport: true,
     limit: null,
+    userRole: scope.role,
   });
 
   const items = result?.data?.items || [];
@@ -629,22 +656,27 @@ async function exportInventoryReport({
       'Brand',
       'Quantity',
       'Unit Price (LKR)',
-      'Retail Valuation (LKR)',
+      ...(!isBranchManager ? ['Retail Valuation (LKR)'] : []),
       'Reorder Status',
       'Branch',
     ];
 
-    const rows = items.map((item) => [
-      item.sku || item.id,
-      item.name,
-      item.category,
-      item.brand || '',
-      item.quantity,
-      Number(item.unitPrice || 0).toFixed(2),
-      Number(item.retailValuation || 0).toFixed(2),
-      item.reorderStatus,
-      item.branchName,
-    ]);
+    const rows = items.map((item) => {
+      const row = [
+        item.sku || item.id,
+        item.name,
+        item.category,
+        item.brand || '',
+        item.quantity,
+        Number(item.unitPrice || 0).toFixed(2),
+      ];
+      if (!isBranchManager) {
+        row.push(Number(item.retailValuation || 0).toFixed(2));
+      }
+      row.push(item.reorderStatus);
+      row.push(item.branchName);
+      return row;
+    });
 
     csvContent = buildCsvString(headers, rows);
     filename = `inventory-report-${todayStr}.csv`;
@@ -655,6 +687,7 @@ async function exportInventoryReport({
       isOrgWide: scope.isOrgWide,
       isTruncated,
       totalMatching,
+      userRole: scope.role,
     });
     filename = `inventory-report-${todayStr}.xlsx`;
     contentType = EXCEL_MIME_TYPE;

@@ -69,6 +69,152 @@ const {
  *     responses:
  *       200:
  *         description: Sales metrics and breakdowns retrieved successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [success, data]
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   required: [currency, timezone, dateRange, summary, breakdowns]
+ *                   properties:
+ *                     currency:
+ *                       type: string
+ *                       example: LKR
+ *                     timezone:
+ *                       type: string
+ *                       example: Asia/Colombo
+ *                     dateRange:
+ *                       type: object
+ *                       required: [preset, startDate, endDate]
+ *                       properties:
+ *                         preset:
+ *                           type: string
+ *                           example: today
+ *                         startDate:
+ *                           type: string
+ *                           format: date
+ *                           example: '2026-10-19'
+ *                         endDate:
+ *                           type: string
+ *                           format: date
+ *                           example: '2026-10-19'
+ *                     summary:
+ *                       type: object
+ *                       required: [grossRevenue, netRevenue, totalOrders, itemsSold, cancelledOrdersCount, cancelledOrdersValue]
+ *                       properties:
+ *                         grossRevenue:
+ *                           type: number
+ *                           example: 25000
+ *                         refundDeductions:
+ *                           type: number
+ *                           description: Restricted financial metric; omitted for BRANCH_MANAGER per ADR-014.
+ *                           example: 2000
+ *                         netRevenue:
+ *                           type: number
+ *                           example: 23000
+ *                         totalOrders:
+ *                           type: integer
+ *                           example: 2
+ *                         itemsSold:
+ *                           type: integer
+ *                           example: 3
+ *                         averageOrderValue:
+ *                           type: number
+ *                           description: Restricted financial metric; omitted for BRANCH_MANAGER per ADR-014.
+ *                           example: 12500
+ *                         cancelledOrdersCount:
+ *                           type: integer
+ *                           example: 1
+ *                         cancelledOrdersValue:
+ *                           type: number
+ *                           example: 4000
+ *                     breakdowns:
+ *                       type: object
+ *                       required: [byTime, byBranch, byCategory, byPaymentMethod]
+ *                       properties:
+ *                         byTime:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             required: [period, grossRevenue, netRevenue, orderCount]
+ *                             properties:
+ *                               period:
+ *                                 type: string
+ *                                 example: '2026-10-19'
+ *                               grossRevenue:
+ *                                 type: number
+ *                                 example: 25000
+ *                               netRevenue:
+ *                                 type: number
+ *                                 example: 23000
+ *                               orderCount:
+ *                                 type: integer
+ *                                 example: 2
+ *                         byBranch:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             required: [branchName, grossRevenue, netRevenue, orderCount, itemCount]
+ *                             properties:
+ *                               branchId:
+ *                                 type: string
+ *                                 nullable: true
+ *                                 example: '60d5ec49f1b2c8b1f8e4e1a1'
+ *                               branchName:
+ *                                 type: string
+ *                                 example: Colombo Central
+ *                               grossRevenue:
+ *                                 type: number
+ *                                 example: 25000
+ *                               refundDeductions:
+ *                                 type: number
+ *                                 description: Restricted financial metric; omitted for BRANCH_MANAGER per ADR-014.
+ *                                 example: 2000
+ *                               netRevenue:
+ *                                 type: number
+ *                                 example: 23000
+ *                               orderCount:
+ *                                 type: integer
+ *                                 example: 2
+ *                               itemCount:
+ *                                 type: integer
+ *                                 example: 3
+ *                         byCategory:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             required: [category, quantity, revenue]
+ *                             properties:
+ *                               category:
+ *                                 type: string
+ *                                 example: Sunglasses
+ *                               quantity:
+ *                                 type: integer
+ *                                 example: 3
+ *                               revenue:
+ *                                 type: number
+ *                                 example: 25000
+ *                         byPaymentMethod:
+ *                           type: array
+ *                           description: Restricted payment method breakdown (SM-09); omitted for BRANCH_MANAGER per ADR-014 §10.1.
+ *                           items:
+ *                             type: object
+ *                             required: [method, count, volume]
+ *                             properties:
+ *                               method:
+ *                                 type: string
+ *                                 example: card
+ *                               count:
+ *                                 type: integer
+ *                                 example: 1
+ *                               volume:
+ *                                 type: number
+ *                                 example: 15000
  *       422:
  *         $ref: '#/components/responses/ValidationError'
  *       401:
@@ -148,6 +294,115 @@ router.get(
  *     responses:
  *       200:
  *         description: Paginated orders retrieved successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [success, data]
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   required: [orders, pagination, dateRange]
+ *                   properties:
+ *                     orders:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         required: [orderId, paymentId, paidAt, orderDate, paidAmount, orderAmount, orderStatus, paymentMethod, branchName, itemCount, customer]
+ *                         properties:
+ *                           orderId:
+ *                             type: string
+ *                             example: '60d5ec49f1b2c8b1f8e4e1a1'
+ *                           paymentId:
+ *                             type: string
+ *                             example: '60d5ec49f1b2c8b1f8e4e1a2'
+ *                           paidAt:
+ *                             type: string
+ *                             format: date-time
+ *                           orderDate:
+ *                             type: string
+ *                             format: date-time
+ *                           paidAmount:
+ *                             type: number
+ *                             example: 15000
+ *                           orderAmount:
+ *                             type: number
+ *                             example: 15000
+ *                           orderStatus:
+ *                             type: string
+ *                             example: COMPLETED
+ *                           paymentMethod:
+ *                             type: string
+ *                             example: card
+ *                           branchId:
+ *                             type: string
+ *                             nullable: true
+ *                             example: '60d5ec49f1b2c8b1f8e4e1a1'
+ *                           branchName:
+ *                             type: string
+ *                             example: Colombo Central
+ *                           itemCount:
+ *                             type: integer
+ *                             example: 2
+ *                           customer:
+ *                             type: object
+ *                             required: [name, email, phone, address]
+ *                             properties:
+ *                               name:
+ *                                 type: string
+ *                                 example: K*** P***
+ *                               email:
+ *                                 type: string
+ *                                 example: k***@gmail.com
+ *                               phone:
+ *                                 type: string
+ *                                 example: +94 77 **** 567
+ *                               address:
+ *                                 type: string
+ *                                 example: Colombo 03
+ *                     pagination:
+ *                       type: object
+ *                       required: [page, limit, totalRecords, totalPages, isTruncated, totalMatching, exportedCount]
+ *                       properties:
+ *                         page:
+ *                           type: integer
+ *                           example: 1
+ *                         limit:
+ *                           type: integer
+ *                           example: 20
+ *                         totalRecords:
+ *                           type: integer
+ *                           example: 1
+ *                         totalPages:
+ *                           type: integer
+ *                           example: 1
+ *                         isTruncated:
+ *                           type: boolean
+ *                           example: false
+ *                         totalMatching:
+ *                           type: integer
+ *                           example: 1
+ *                         exportedCount:
+ *                           type: integer
+ *                           example: 1
+ *                     dateRange:
+ *                       type: object
+ *                       required: [preset, startDate, endDate]
+ *                       properties:
+ *                         preset:
+ *                           type: string
+ *                           example: today
+ *                         startDate:
+ *                           type: string
+ *                           format: date
+ *                           example: '2026-10-19'
+ *                         endDate:
+ *                           type: string
+ *                           format: date
+ *                           example: '2026-10-19'
  *       422:
  *         $ref: '#/components/responses/ValidationError'
  *       401:
@@ -272,6 +527,103 @@ router.get(
  *     responses:
  *       200:
  *         description: Inventory snapshot metrics retrieved successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [success, data]
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   required: [currency, snapshotTimestamp, reorderThresholdUsed, summary, breakdowns]
+ *                   properties:
+ *                     currency:
+ *                       type: string
+ *                       example: LKR
+ *                     snapshotTimestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     reorderThresholdUsed:
+ *                       type: integer
+ *                       example: 5
+ *                     summary:
+ *                       type: object
+ *                       required: [totalStockOnHand, totalUniqueProducts, lowStockCount, reorderTriggeredCount, okStockCount]
+ *                       properties:
+ *                         totalStockOnHand:
+ *                           type: integer
+ *                           example: 15
+ *                         totalRetailValuation:
+ *                           type: number
+ *                           description: Restricted financial metric; omitted for BRANCH_MANAGER per ADR-014.
+ *                           example: 435000
+ *                         totalUniqueProducts:
+ *                           type: integer
+ *                           example: 3
+ *                         lowStockCount:
+ *                           type: integer
+ *                           example: 1
+ *                         reorderTriggeredCount:
+ *                           type: integer
+ *                           example: 1
+ *                         okStockCount:
+ *                           type: integer
+ *                           example: 1
+ *                     breakdowns:
+ *                       type: object
+ *                       required: [byBranch, byCategory]
+ *                       properties:
+ *                         byBranch:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             required: [branchName, totalStock, itemCount, lowStockCount, reorderTriggeredCount]
+ *                             properties:
+ *                               branchId:
+ *                                 type: string
+ *                                 nullable: true
+ *                                 example: '60d5ec49f1b2c8b1f8e4e1a1'
+ *                               branchName:
+ *                                 type: string
+ *                                 example: Colombo Central
+ *                               totalStock:
+ *                                 type: integer
+ *                                 example: 15
+ *                               totalRetailValuation:
+ *                                 type: number
+ *                                 description: Restricted financial metric; omitted for BRANCH_MANAGER per ADR-014.
+ *                                 example: 435000
+ *                               itemCount:
+ *                                 type: integer
+ *                                 example: 2
+ *                               lowStockCount:
+ *                                 type: integer
+ *                                 example: 1
+ *                               reorderTriggeredCount:
+ *                                 type: integer
+ *                                 example: 0
+ *                         byCategory:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             required: [category, totalStock, itemCount]
+ *                             properties:
+ *                               category:
+ *                                 type: string
+ *                                 example: Frames
+ *                               totalStock:
+ *                                 type: integer
+ *                                 example: 15
+ *                               totalRetailValuation:
+ *                                 type: number
+ *                                 description: Restricted financial metric; omitted for BRANCH_MANAGER per ADR-014.
+ *                                 example: 435000
+ *                               itemCount:
+ *                                 type: integer
+ *                                 example: 2
  *       422:
  *         $ref: '#/components/responses/ValidationError'
  *       401:
@@ -340,6 +692,93 @@ router.get(
  *     responses:
  *       200:
  *         description: Paginated stock items retrieved successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [success, data]
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   required: [items, reorderThresholdUsed, pagination]
+ *                   properties:
+ *                     items:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         required: [id, sku, name, category, brand, unitPrice, quantity, reorderThreshold, reorderStatus, branchName]
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                             example: '60d5ec49f1b2c8b1f8e4e1a1'
+ *                           sku:
+ *                             type: string
+ *                             example: '60d5ec49f1b2c8b1f8e4e1a1'
+ *                           name:
+ *                             type: string
+ *                             example: RayBan Aviator Classic
+ *                           category:
+ *                             type: string
+ *                             example: Frames
+ *                           brand:
+ *                             type: string
+ *                             example: RayBan
+ *                           unitPrice:
+ *                             type: number
+ *                             description: Operational item retail price; retained across roles for store operations and stocktaking.
+ *                             example: 25000
+ *                           quantity:
+ *                             type: integer
+ *                             example: 12
+ *                           reorderThreshold:
+ *                             type: integer
+ *                             example: 5
+ *                           reorderStatus:
+ *                             type: string
+ *                             enum: [OK, LOW_STOCK, REORDER_TRIGGERED]
+ *                             example: OK
+ *                           retailValuation:
+ *                             type: number
+ *                             description: Restricted financial metric; omitted for BRANCH_MANAGER per ADR-014.
+ *                             example: 300000
+ *                           branchId:
+ *                             type: string
+ *                             nullable: true
+ *                             example: '60d5ec49f1b2c8b1f8e4e1a1'
+ *                           branchName:
+ *                             type: string
+ *                             example: Colombo Central
+ *                     reorderThresholdUsed:
+ *                       type: integer
+ *                       example: 5
+ *                     pagination:
+ *                       type: object
+ *                       required: [page, limit, totalRecords, totalPages, isTruncated, totalMatching, exportedCount]
+ *                       properties:
+ *                         page:
+ *                           type: integer
+ *                           example: 1
+ *                         limit:
+ *                           type: integer
+ *                           example: 20
+ *                         totalRecords:
+ *                           type: integer
+ *                           example: 1
+ *                         totalPages:
+ *                           type: integer
+ *                           example: 1
+ *                         isTruncated:
+ *                           type: boolean
+ *                           example: false
+ *                         totalMatching:
+ *                           type: integer
+ *                           example: 1
+ *                         exportedCount:
+ *                           type: integer
+ *                           example: 1
  *       422:
  *         $ref: '#/components/responses/ValidationError'
  *       401:
