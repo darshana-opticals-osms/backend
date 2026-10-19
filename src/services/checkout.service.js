@@ -177,10 +177,13 @@ async function checkoutCustomer(customerId) {
       const reservationExpiresAt = new Date(now.getTime() + RESERVATION_WINDOW_MS);
       const status = ORDER_STATUS_VALUES.ORDER_CREATED;
 
+      const orderBranchId = inventories.length > 0 ? inventories[0].branchId : null;
+
       const [order] = await Order.create(
         [
           {
             customerId: customer._id,
+            branchId: orderBranchId,
             orderDate: now,
             orderAmount,
             status,

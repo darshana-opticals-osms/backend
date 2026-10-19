@@ -213,4 +213,83 @@ describe('Product catalog API (Integration tests)', () => {
       expect(product.__v).toBeUndefined();
     }
   });
+
+  describe('Online fulfillment branch scoping (Gampaha Central Hub)', () => {
+    let gampahaBranch;
+    let colomboBranch;
+    let colomboProduct;
+    let gampahaInStockProduct;
+    let gampahaOutOfStockProduct;
+
+    beforeEach(async () => {
+      await Promise.all([Inventory.deleteMany({}), Branch.deleteMany({})]);
+
+      gampahaBranch = await Branch.create({
+        codeName: 'GAMPAHA_CENTRAL',
+        address: '12 Main Street, Gampaha',
+        contactNumber: '+94 33 222 0000',
+      });
+
+      colomboBranch = await Branch.create({
+        codeName: 'COLOMBO_MAIN',
+        address: '100 Galle Road, Colombo 03',
+        contactNumber: '+94 11 250 0000',
+      });
+
+      gampahaInStockProduct = await createInventory({
+        branchId: gampahaBranch._id,
+        itemName: 'Gampaha Ray-Ban Aviator',
+        category: 'Sunglasses',
+        brand: 'Ray-Ban',
+        price: 25000,
+        quantity: 10,
+      });
+
+      gampahaOutOfStockProduct = await createInventory({
+        branchId: gampahaBranch._id,
+        itemName: 'Gampaha Out-of-Stock Frame',
+        category: 'Frames',
+        brand: 'Oakley',
+        price: 15000,
+        quantity: 0,
+      });
+
+      colomboProduct = await createInventory({
+        branchId: colomboBranch._id,
+        itemName: 'Colombo Exclusive Prada',
+        category: 'Sunglasses',
+        brand: 'Prada',
+        price: 45000,
+        quantity: 8,
+      });
+    });
+
+    it('should only return in-stock products from the Gampaha fulfillment branch', async () => {
+      const response = await request(app).get('/api/products');
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toHaveLength(1);
+      expect(response.body.data[0].itemName).toBe('Gampaha Ray-Ban Aviator');
+      expect(
+        response.body.data.some((item) => item.id === gampahaOutOfStockProduct._id.toString())
+      ).toBe(false);
+    });
+
+    it('should not allow retrieving items from other branches by ID', async () => {
+      const response = await request(app).get(`/api/products/${colomboProduct._id}`);
+
+      expect(response.status).toBe(404);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error.code).toBe('PRODUCT_NOT_FOUND');
+    });
+
+    it('should retrieve a valid Gampaha product by ID', async () => {
+      const response = await request(app).get(`/api/products/${gampahaInStockProduct._id}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.itemName).toBe('Gampaha Ray-Ban Aviator');
+    });
+  });
 });
