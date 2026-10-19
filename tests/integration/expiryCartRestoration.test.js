@@ -92,8 +92,20 @@ describe('Automatic unpaid expiry Cart recovery (isolated HTTP and transactions)
       phone: '+94711234567',
       passwordHash,
     });
+  async function ensureFulfillmentBranch() {
+    let branch = await Branch.findOne({ codeName: 'GAMPAHA_CENTRAL' });
+    if (!branch) {
+      branch = await Branch.create({
+        codeName: 'GAMPAHA_CENTRAL',
+        address: 'Test Branch',
+        contactNumber: '+94332000000',
+      });
+    }
+    return branch;
+  }
+
   async function inventory(overrides = {}) {
-    const branch = await Branch.create({ address: 'Test Branch', contactNumber: '+94332000000' });
+    const branch = await ensureFulfillmentBranch();
     return Inventory.create({
       branchId: branch._id,
       itemName: 'Frame',
