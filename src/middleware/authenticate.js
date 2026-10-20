@@ -17,6 +17,7 @@ const authenticate = async (req, _res, next) => {
     req.auth = verifyAccessToken(token);
 
     if (
+      mongoose.connection.readyState === 1 &&
       req.auth &&
       req.auth.userId &&
       mongoose.isValidObjectId(req.auth.userId) &&
