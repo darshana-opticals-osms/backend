@@ -15,7 +15,7 @@ const buildAdminActor = (adminUser) => ({
 /**
  * Records an immutable audit event for staff role modification (AC14, ADR-012).
  */
-const recordStaffRoleChange = async ({ adminUser, staffId, oldRole, newRole }) => {
+const recordStaffRoleChange = async ({ adminUser, staffId, oldRole, newRole, session = null }) => {
   return auditService.record({
     action: AUDIT_ACTION.USER_ROLE_PERMISSIONS_MODIFIED,
     actor: buildAdminActor(adminUser),
@@ -29,13 +29,20 @@ const recordStaffRoleChange = async ({ adminUser, staffId, oldRole, newRole }) =
       previousRole: oldRole,
       newRole,
     },
+    ...(session ? { session } : {}),
   });
 };
 
 /**
  * Records an immutable audit event for staff branch reassignment (AC14, ADR-012).
  */
-const recordStaffBranchReassigned = async ({ adminUser, staffId, oldBranchId, newBranchId }) => {
+const recordStaffBranchReassigned = async ({
+  adminUser,
+  staffId,
+  oldBranchId,
+  newBranchId,
+  session = null,
+}) => {
   return auditService.record({
     action: AUDIT_ACTION.STAFF_BRANCH_REASSIGNED,
     actor: buildAdminActor(adminUser),
@@ -49,13 +56,20 @@ const recordStaffBranchReassigned = async ({ adminUser, staffId, oldBranchId, ne
       previousBranchId: oldBranchId ? String(oldBranchId) : null,
       newBranchId: newBranchId ? String(newBranchId) : null,
     },
+    ...(session ? { session } : {}),
   });
 };
 
 /**
  * Records an immutable audit event for staff account activation or deactivation (AC14, ADR-012).
  */
-const recordStaffStatusToggled = async ({ adminUser, staffId, oldStatus, newStatus }) => {
+const recordStaffStatusToggled = async ({
+  adminUser,
+  staffId,
+  oldStatus,
+  newStatus,
+  session = null,
+}) => {
   return auditService.record({
     action: AUDIT_ACTION.USER_ACCOUNT_STATUS_TOGGLED,
     actor: buildAdminActor(adminUser),
@@ -69,13 +83,19 @@ const recordStaffStatusToggled = async ({ adminUser, staffId, oldStatus, newStat
       previousStatus: Boolean(oldStatus),
       newStatus: Boolean(newStatus),
     },
+    ...(session ? { session } : {}),
   });
 };
 
 /**
  * Records an immutable audit event for staff profile updates (AC14, ADR-012).
  */
-const recordStaffProfileUpdated = async ({ adminUser, staffId, updatedFields = {} }) => {
+const recordStaffProfileUpdated = async ({
+  adminUser,
+  staffId,
+  updatedFields = {},
+  session = null,
+}) => {
   // Strip any security sensitive or prohibited fields
   const safeFields = { ...updatedFields };
   delete safeFields.password;
@@ -95,13 +115,14 @@ const recordStaffProfileUpdated = async ({ adminUser, staffId, updatedFields = {
     metadata: {
       updatedFields: Object.keys(safeFields),
     },
+    ...(session ? { session } : {}),
   });
 };
 
 /**
  * Records an immutable audit event for doctor record updates (AC14, ADR-012).
  */
-const recordDoctorUpdated = async ({ adminUser, doctorId, updatedFields = {} }) => {
+const recordDoctorUpdated = async ({ adminUser, doctorId, updatedFields = {}, session = null }) => {
   return auditService.record({
     action: AUDIT_ACTION.DOCTOR_RECORD_UPDATED,
     actor: buildAdminActor(adminUser),
@@ -113,13 +134,20 @@ const recordDoctorUpdated = async ({ adminUser, doctorId, updatedFields = {} }) 
     metadata: {
       updatedFields: Object.keys(updatedFields),
     },
+    ...(session ? { session } : {}),
   });
 };
 
 /**
  * Records an immutable audit event for doctor activation / deactivation (AC14, ADR-012).
  */
-const recordDoctorStatusToggled = async ({ adminUser, doctorId, oldStatus, newStatus }) => {
+const recordDoctorStatusToggled = async ({
+  adminUser,
+  doctorId,
+  oldStatus,
+  newStatus,
+  session = null,
+}) => {
   return auditService.record({
     action: AUDIT_ACTION.DOCTOR_STATUS_TOGGLED,
     actor: buildAdminActor(adminUser),
@@ -133,6 +161,7 @@ const recordDoctorStatusToggled = async ({ adminUser, doctorId, oldStatus, newSt
       previousStatus: Boolean(oldStatus),
       newStatus: Boolean(newStatus),
     },
+    ...(session ? { session } : {}),
   });
 };
 

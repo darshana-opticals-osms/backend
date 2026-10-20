@@ -18,6 +18,72 @@ const {
 
 const phonePattern = /^\+?[0-9\s()-]{7,20}$/;
 
+/**
+ * Executes an administrative mutation and audit record atomically via MongoDB replica-set transaction,
+ * falling back to an explicit compensation/recovery mechanism on standalone deployments (ADR-012, AC14).
+ *
+ * @param {Function} mutationFn - async (session) => { return { result, rollback } }
+ * @param {Function|null} auditFn - async (session) => { ... }
+ */
+async function executeAdministrativeMutationWithAudit(mutationFn, auditFn) {
+  const isDbConnected = mongoose.connection && mongoose.connection.readyState === 1;
+
+  if (isDbConnected) {
+    let session = null;
+    try {
+      session = await mongoose.startSession();
+      if (session && typeof session.withTransaction === 'function') {
+        let executionResult;
+        await session.withTransaction(async () => {
+          const outcome = await mutationFn(session);
+          executionResult = outcome?.result !== undefined ? outcome.result : outcome;
+          if (auditFn) {
+            await auditFn(session);
+          }
+        });
+        return executionResult;
+      }
+    } catch (err) {
+      const isStandaloneUnsupported =
+        (err.name === 'MongoServerError' &&
+          (err.code === 20 ||
+            err.codeName === 'IllegalOperation' ||
+            (err.message && err.message.includes('Transaction numbers are only allowed')))) ||
+        (err.message && err.message.includes('replica set'));
+
+      if (!isStandaloneUnsupported) {
+        throw err;
+      }
+    } finally {
+      if (session && session.endSession) {
+        await session.endSession();
+      }
+    }
+  }
+
+  // Standalone fallback: execute mutation, then audit. If audit fails, execute rollback compensation.
+  const outcome = await mutationFn(null);
+  const executionResult = outcome?.result !== undefined ? outcome.result : outcome;
+  const rollback = outcome?.rollback;
+
+  if (auditFn) {
+    try {
+      await auditFn(null);
+    } catch (auditError) {
+      if (typeof rollback === 'function') {
+        try {
+          await rollback();
+        } catch {
+          // preserve original auditError
+        }
+      }
+      throw auditError;
+    }
+  }
+
+  return executionResult;
+}
+
 const toStaffManagementDto = (staff) => {
   if (!staff) return null;
   return {
@@ -152,7 +218,7 @@ const updateStaffProfile = async (id, payload = {}, adminUser = null) => {
     ) {
       throw new ValidationError('name must be 2-100 alphabetic characters.', { field: 'name' });
     }
-    staff.name = trimmedName;
+    updates.name = trimmedName;
   }
 
   if (updates.phone !== undefined) {
@@ -169,7 +235,7 @@ const updateStaffProfile = async (id, payload = {}, adminUser = null) => {
     ) {
       throw new ValidationError('phone format is invalid.', { field: 'phone' });
     }
-    staff.phone = trimmedPhone;
+    updates.phone = trimmedPhone;
   }
 
   if (updates.address !== undefined) {
@@ -184,7 +250,7 @@ const updateStaffProfile = async (id, payload = {}, adminUser = null) => {
         field: 'address',
       });
     }
-    staff.address = trimmedAddress;
+    updates.address = trimmedAddress;
   }
 
   if (updates.email !== undefined) {
@@ -200,21 +266,44 @@ const updateStaffProfile = async (id, payload = {}, adminUser = null) => {
       if (existing) {
         throw new ConflictError('An account with this email already exists.');
       }
-      staff.email = normalizedEmail;
+      updates.email = normalizedEmail;
     }
   }
 
-  await staff.save();
-
-  if (adminUser) {
-    await recordStaffProfileUpdated({
-      adminUser,
-      staffId: staff._id,
-      updatedFields: updates,
-    });
+  const originalValues = {};
+  for (const key of Object.keys(updates)) {
+    originalValues[key] = staff[key];
   }
 
-  return toStaffManagementDto(staff);
+  const updatedStaff = await executeAdministrativeMutationWithAudit(
+    async (session) => {
+      for (const [key, value] of Object.entries(updates)) {
+        staff[key] = value;
+      }
+      await staff.save(session ? { session } : undefined);
+      return {
+        result: staff,
+        rollback: async () => {
+          for (const [key, value] of Object.entries(originalValues)) {
+            staff[key] = value;
+          }
+          await staff.save();
+        },
+      };
+    },
+    adminUser
+      ? async (session) => {
+          await recordStaffProfileUpdated({
+            adminUser,
+            staffId: staff._id,
+            updatedFields: updates,
+            session,
+          });
+        }
+      : null
+  );
+
+  return toStaffManagementDto(updatedStaff);
 };
 
 /**
@@ -241,19 +330,33 @@ const updateStaffRole = async (id, newRole, adminUser = null) => {
   }
 
   const oldRole = staff.role;
-  staff.role = newRole;
-  await staff.save();
 
-  if (adminUser) {
-    await recordStaffRoleChange({
-      adminUser,
-      staffId: staff._id,
-      oldRole,
-      newRole,
-    });
-  }
+  const updatedStaff = await executeAdministrativeMutationWithAudit(
+    async (session) => {
+      staff.role = newRole;
+      await staff.save(session ? { session } : undefined);
+      return {
+        result: staff,
+        rollback: async () => {
+          staff.role = oldRole;
+          await staff.save();
+        },
+      };
+    },
+    adminUser
+      ? async (session) => {
+          await recordStaffRoleChange({
+            adminUser,
+            staffId: staff._id,
+            oldRole,
+            newRole,
+            session,
+          });
+        }
+      : null
+  );
 
-  return toStaffManagementDto(staff);
+  return toStaffManagementDto(updatedStaff);
 };
 
 /**
@@ -284,19 +387,33 @@ const updateStaffBranch = async (id, branchId, adminUser = null) => {
   }
 
   const oldBranchId = staff.branchId;
-  staff.branchId = validatedBranchId;
-  await staff.save();
 
-  if (adminUser) {
-    await recordStaffBranchReassigned({
-      adminUser,
-      staffId: staff._id,
-      oldBranchId,
-      newBranchId: validatedBranchId,
-    });
-  }
+  const updatedStaff = await executeAdministrativeMutationWithAudit(
+    async (session) => {
+      staff.branchId = validatedBranchId;
+      await staff.save(session ? { session } : undefined);
+      return {
+        result: staff,
+        rollback: async () => {
+          staff.branchId = oldBranchId;
+          await staff.save();
+        },
+      };
+    },
+    adminUser
+      ? async (session) => {
+          await recordStaffBranchReassigned({
+            adminUser,
+            staffId: staff._id,
+            oldBranchId,
+            newBranchId: validatedBranchId,
+            session,
+          });
+        }
+      : null
+  );
 
-  return toStaffManagementDto(staff);
+  return toStaffManagementDto(updatedStaff);
 };
 
 /**
@@ -342,19 +459,33 @@ const updateStaffStatus = async (id, isActive, adminUser = null) => {
   }
 
   const oldStatus = staff.isActive !== false;
-  staff.isActive = normalizedStatus;
-  await staff.save();
 
-  if (adminUser) {
-    await recordStaffStatusToggled({
-      adminUser,
-      staffId: staff._id,
-      oldStatus,
-      newStatus: normalizedStatus,
-    });
-  }
+  const updatedStaff = await executeAdministrativeMutationWithAudit(
+    async (session) => {
+      staff.isActive = normalizedStatus;
+      await staff.save(session ? { session } : undefined);
+      return {
+        result: staff,
+        rollback: async () => {
+          staff.isActive = oldStatus;
+          await staff.save();
+        },
+      };
+    },
+    adminUser
+      ? async (session) => {
+          await recordStaffStatusToggled({
+            adminUser,
+            staffId: staff._id,
+            oldStatus,
+            newStatus: normalizedStatus,
+            session,
+          });
+        }
+      : null
+  );
 
-  return toStaffManagementDto(staff);
+  return toStaffManagementDto(updatedStaff);
 };
 
 module.exports = {

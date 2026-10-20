@@ -4,6 +4,72 @@ const { NotFoundError, ValidationError } = require('../errors/AppError');
 const { recordDoctorUpdated, recordDoctorStatusToggled } = require('./adminAudit.service');
 
 /**
+ * Executes an administrative mutation and audit record atomically via MongoDB replica-set transaction,
+ * falling back to an explicit compensation/recovery mechanism on standalone deployments (ADR-012, AC14).
+ *
+ * @param {Function} mutationFn - async (session) => { return { result, rollback } }
+ * @param {Function|null} auditFn - async (session) => { ... }
+ */
+async function executeAdministrativeMutationWithAudit(mutationFn, auditFn) {
+  const isDbConnected = mongoose.connection && mongoose.connection.readyState === 1;
+
+  if (isDbConnected) {
+    let session = null;
+    try {
+      session = await mongoose.startSession();
+      if (session && typeof session.withTransaction === 'function') {
+        let executionResult;
+        await session.withTransaction(async () => {
+          const outcome = await mutationFn(session);
+          executionResult = outcome?.result !== undefined ? outcome.result : outcome;
+          if (auditFn) {
+            await auditFn(session);
+          }
+        });
+        return executionResult;
+      }
+    } catch (err) {
+      const isStandaloneUnsupported =
+        (err.name === 'MongoServerError' &&
+          (err.code === 20 ||
+            err.codeName === 'IllegalOperation' ||
+            (err.message && err.message.includes('Transaction numbers are only allowed')))) ||
+        (err.message && err.message.includes('replica set'));
+
+      if (!isStandaloneUnsupported) {
+        throw err;
+      }
+    } finally {
+      if (session && session.endSession) {
+        await session.endSession();
+      }
+    }
+  }
+
+  // Standalone fallback: execute mutation, then audit. If audit fails, execute rollback compensation.
+  const outcome = await mutationFn(null);
+  const executionResult = outcome?.result !== undefined ? outcome.result : outcome;
+  const rollback = outcome?.rollback;
+
+  if (auditFn) {
+    try {
+      await auditFn(null);
+    } catch (auditError) {
+      if (typeof rollback === 'function') {
+        try {
+          await rollback();
+        } catch {
+          // preserve original auditError
+        }
+      }
+      throw auditError;
+    }
+  }
+
+  return executionResult;
+}
+
+/**
  * Format a raw Doctor Mongoose document or lean object into a safe DTO (AC7, AC11).
  *
  * @param {Object} doc - Doctor document
@@ -149,7 +215,7 @@ const updateDoctor = async (doctorId, payload = {}, adminUser = null) => {
     if (trimmed.length > 100) {
       throw new ValidationError('name must not exceed 100 characters.', { field: 'name' });
     }
-    doctor.name = trimmed;
+    updates.name = trimmed;
   }
 
   if (updates.specialization !== undefined) {
@@ -164,20 +230,46 @@ const updateDoctor = async (doctorId, payload = {}, adminUser = null) => {
         field: 'specialization',
       });
     }
-    doctor.specialization = trimmed;
+    updates.specialization = trimmed;
   }
 
-  await doctor.save();
-
-  if (adminUser) {
-    await recordDoctorUpdated({
-      adminUser,
-      doctorId: doctor._id,
-      updatedFields: updates,
-    });
+  const originalValues = {};
+  if (updates.name !== undefined) originalValues.name = doctor.name;
+  if (updates.specialization !== undefined) {
+    originalValues.specialization = doctor.specialization;
   }
 
-  return toAdminDoctorDto(doctor);
+  const updatedDoctor = await executeAdministrativeMutationWithAudit(
+    async (session) => {
+      if (updates.name !== undefined) doctor.name = updates.name.trim();
+      if (updates.specialization !== undefined) {
+        doctor.specialization = updates.specialization.trim();
+      }
+      await doctor.save(session ? { session } : undefined);
+      return {
+        result: doctor,
+        rollback: async () => {
+          if (originalValues.name !== undefined) doctor.name = originalValues.name;
+          if (originalValues.specialization !== undefined) {
+            doctor.specialization = originalValues.specialization;
+          }
+          await doctor.save();
+        },
+      };
+    },
+    adminUser
+      ? async (session) => {
+          await recordDoctorUpdated({
+            adminUser,
+            doctorId: doctor._id,
+            updatedFields: updates,
+            session,
+          });
+        }
+      : null
+  );
+
+  return toAdminDoctorDto(updatedDoctor);
 };
 
 /**
@@ -220,19 +312,33 @@ const updateDoctorStatus = async (doctorId, isActive, adminUser = null) => {
   }
 
   const oldStatus = doctor.isActive !== false;
-  doctor.isActive = normalizedStatus;
-  await doctor.save();
 
-  if (adminUser) {
-    await recordDoctorStatusToggled({
-      adminUser,
-      doctorId: doctor._id,
-      oldStatus,
-      newStatus: normalizedStatus,
-    });
-  }
+  const updatedDoctor = await executeAdministrativeMutationWithAudit(
+    async (session) => {
+      doctor.isActive = normalizedStatus;
+      await doctor.save(session ? { session } : undefined);
+      return {
+        result: doctor,
+        rollback: async () => {
+          doctor.isActive = oldStatus;
+          await doctor.save();
+        },
+      };
+    },
+    adminUser
+      ? async (session) => {
+          await recordDoctorStatusToggled({
+            adminUser,
+            doctorId: doctor._id,
+            oldStatus,
+            newStatus: normalizedStatus,
+            session,
+          });
+        }
+      : null
+  );
 
-  return toAdminDoctorDto(doctor);
+  return toAdminDoctorDto(updatedDoctor);
 };
 
 module.exports = {

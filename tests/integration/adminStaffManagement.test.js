@@ -10,6 +10,7 @@ const { ROLE_VALUES } = require('../../src/constants/roles');
 const { AUDIT_ACTION } = require('../../src/constants/audit');
 const { createAccessToken } = require('../../src/utils/jwt');
 const { hashPassword } = require('../../src/services/auth.service');
+const auditService = require('../../src/services/audit.service');
 
 const PASSWORD = 'StrongPassword123!';
 
@@ -653,6 +654,76 @@ describe('Staff Management APIs (/api/admin/staff) - Issue #93', () => {
 
       expect(response.status).toBe(403);
       expect(response.body.error.message).toMatch(/cannot deactivate your own/i);
+    });
+  });
+
+  describe('Audit Persistence Failure and Rollback Behavior (ADR-012, AC14)', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('rolls back staff profile update if audit write fails', async () => {
+      jest
+        .spyOn(auditService, 'record')
+        .mockRejectedValueOnce(new Error('Audit persistence failed'));
+
+      const response = await request(app)
+        .patch(`/api/admin/staff/${testStaff1._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'Should Not Persist' });
+
+      expect(response.status).toBe(500);
+
+      const staffInDb = await Staff.findById(testStaff1._id);
+      expect(staffInDb.name).toBe(testStaff1.name);
+    });
+
+    it('rolls back staff role change if audit write fails', async () => {
+      jest
+        .spyOn(auditService, 'record')
+        .mockRejectedValueOnce(new Error('Audit persistence failed'));
+
+      const response = await request(app)
+        .patch(`/api/admin/staff/${testStaff1._id}/role`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ role: ROLE_VALUES.OPTOMETRIST });
+
+      expect(response.status).toBe(500);
+
+      const staffInDb = await Staff.findById(testStaff1._id);
+      expect(staffInDb.role).toBe(testStaff1.role);
+    });
+
+    it('rolls back staff branch reassignment if audit write fails', async () => {
+      jest
+        .spyOn(auditService, 'record')
+        .mockRejectedValueOnce(new Error('Audit persistence failed'));
+
+      const response = await request(app)
+        .patch(`/api/admin/staff/${testStaff1._id}/branch`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ branchId: branchB._id.toString() });
+
+      expect(response.status).toBe(500);
+
+      const staffInDb = await Staff.findById(testStaff1._id);
+      expect(staffInDb.branchId.toString()).toBe(branchA._id.toString());
+    });
+
+    it('rolls back staff status toggle if audit write fails', async () => {
+      jest
+        .spyOn(auditService, 'record')
+        .mockRejectedValueOnce(new Error('Audit persistence failed'));
+
+      const response = await request(app)
+        .patch(`/api/admin/staff/${testStaff1._id}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ isActive: false });
+
+      expect(response.status).toBe(500);
+
+      const staffInDb = await Staff.findById(testStaff1._id);
+      expect(staffInDb.isActive).toBe(true);
     });
   });
 });

@@ -5,6 +5,8 @@ const authenticate = require('../../src/middleware/authenticate');
 const { authorizeRoles } = require('../../src/middleware/authorizeRoles');
 const errorHandler = require('../../src/middleware/errorHandler');
 const { ROLE_VALUES } = require('../../src/constants/roles');
+const { connectDatabase, disconnectDatabase } = require('../../src/config/database');
+const Staff = require('../../src/models/staff.model');
 
 const JWT_SECRET = 'controlled-ddp-009-test-secret';
 const JWT_EXPIRES_IN = '1h';
@@ -48,12 +50,19 @@ const createTestApp = () => {
   return app;
 };
 
-const createToken = ({
-  userId = '507f1f77bcf86cd799439011',
-  role,
-  expiresIn = JWT_EXPIRES_IN,
-} = {}) =>
-  jwt.sign({ userId, role }, JWT_SECRET, {
+let staffOptometrist;
+let staffBranchManager;
+let staffBranchAssistant;
+
+const getStaffIdForRole = (role) => {
+  if (role === ROLE_VALUES.OPTOMETRIST) return staffOptometrist?._id?.toString();
+  if (role === ROLE_VALUES.BRANCH_MANAGER) return staffBranchManager?._id?.toString();
+  if (role === ROLE_VALUES.BRANCH_ASSISTANT) return staffBranchAssistant?._id?.toString();
+  return '507f1f77bcf86cd799439011';
+};
+
+const createToken = ({ userId, role, expiresIn = JWT_EXPIRES_IN } = {}) =>
+  jwt.sign({ userId: userId || getStaffIdForRole(role), role }, JWT_SECRET, {
     algorithm: 'HS256',
     expiresIn,
   });
@@ -64,16 +73,53 @@ describe('RBAC integration tests', () => {
   let originalJwtSecret;
   let originalJwtExpiresIn;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     process.env.NODE_ENV = 'test';
     originalJwtSecret = process.env.JWT_SECRET;
     originalJwtExpiresIn = process.env.JWT_EXPIRES_IN;
     process.env.JWT_SECRET = JWT_SECRET;
     process.env.JWT_EXPIRES_IN = JWT_EXPIRES_IN;
+    delete process.env.MONGODB_URI;
+    await connectDatabase();
+
+    const syntheticHash = '$2b$12$' + 'a'.repeat(53);
+    [staffOptometrist, staffBranchManager, staffBranchAssistant] = await Promise.all([
+      Staff.create({
+        name: 'RBAC Optometrist',
+        email: 'rbac.optom@darshana.local',
+        phone: '0771112222',
+        address: 'Main Street',
+        role: ROLE_VALUES.OPTOMETRIST,
+        passwordHash: syntheticHash,
+        isActive: true,
+      }),
+      Staff.create({
+        name: 'RBAC Manager',
+        email: 'rbac.manager@darshana.local',
+        phone: '0771112223',
+        address: 'Main Street',
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        passwordHash: syntheticHash,
+        isActive: true,
+      }),
+      Staff.create({
+        name: 'RBAC Assistant',
+        email: 'rbac.assistant@darshana.local',
+        phone: '0771112224',
+        address: 'Main Street',
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
+        passwordHash: syntheticHash,
+        isActive: true,
+      }),
+    ]);
+
     app = createTestApp();
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    await Staff.deleteMany({});
+    await disconnectDatabase();
+
     process.env.NODE_ENV = 'test';
     if (originalJwtSecret !== undefined) {
       process.env.JWT_SECRET = originalJwtSecret;

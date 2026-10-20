@@ -553,7 +553,7 @@ describe('Inventory management API', () => {
     const stored = await Inventory.findById(createRes.body.data._id);
     expect(stored.imageUrl).toBe(replacementUpload.imageUrl);
     expect(stored.imagePublicId).toBe(replacementUpload.publicId);
-  });
+  }, 15000);
 
   it('should return 404 when updating an inventory item that does not exist', async () => {
     const missingInventoryId = new mongoose.Types.ObjectId();

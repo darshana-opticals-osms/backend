@@ -11,6 +11,7 @@ const { ROLE_VALUES } = require('../../src/constants/roles');
 const { AUDIT_ACTION, AUDIT_TARGET_TYPE } = require('../../src/constants/audit');
 const { createAccessToken } = require('../../src/utils/jwt');
 const { hashPassword } = require('../../src/services/auth.service');
+const auditService = require('../../src/services/audit.service');
 
 const PASSWORD = 'StrongPassword123!';
 
@@ -416,6 +417,45 @@ describe('Doctor Management APIs (/api/admin/doctors) - Issue #93', () => {
       expect(preservedSession).not.toBeNull();
       expect(preservedSession.doctorId.toString()).toBe(doctor1._id.toString());
       expect(preservedSession.confirmedCount).toBe(2);
+    });
+  });
+
+  describe('Audit Persistence Failure and Rollback Behavior (ADR-012, AC14)', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('rolls back doctor update if audit write fails', async () => {
+      jest
+        .spyOn(auditService, 'record')
+        .mockRejectedValueOnce(new Error('Audit persistence failed'));
+
+      const response = await request(app)
+        .patch(`/api/admin/doctors/${doctor1._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'Should Not Persist', specialization: 'Updated Spec' });
+
+      expect(response.status).toBe(500);
+
+      const doctorInDb = await Doctor.findById(doctor1._id);
+      expect(doctorInDb.name).toBe(doctor1.name);
+      expect(doctorInDb.specialization).toBe(doctor1.specialization);
+    });
+
+    it('rolls back doctor status toggle if audit write fails', async () => {
+      jest
+        .spyOn(auditService, 'record')
+        .mockRejectedValueOnce(new Error('Audit persistence failed'));
+
+      const response = await request(app)
+        .patch(`/api/admin/doctors/${doctor1._id}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ isActive: false });
+
+      expect(response.status).toBe(500);
+
+      const doctorInDb = await Doctor.findById(doctor1._id);
+      expect(doctorInDb.isActive).toBe(true);
     });
   });
 });

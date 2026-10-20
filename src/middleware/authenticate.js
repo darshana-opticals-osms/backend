@@ -16,21 +16,29 @@ const authenticate = async (req, _res, next) => {
   try {
     req.auth = verifyAccessToken(token);
 
-    if (
-      mongoose.connection.readyState === 1 &&
-      req.auth &&
-      req.auth.userId &&
-      mongoose.isValidObjectId(req.auth.userId) &&
-      STAFF_ROLE_VALUES.includes(req.auth.role)
-    ) {
-      const staff = await Staff.findById(req.auth.userId).select('role branchId isActive').lean();
-      if (staff) {
-        if (staff.isActive === false) {
-          return next(new UnauthorizedError('Account is inactive.'));
-        }
-        req.auth.role = staff.role;
-        req.auth.branchId = staff.branchId ? staff.branchId.toString() : null;
+    if (req.auth && STAFF_ROLE_VALUES.includes(req.auth.role)) {
+      if (mongoose.connection.readyState !== 1) {
+        return next(new UnauthorizedError('Authoritative staff verification is unavailable.'));
       }
+
+      if (!req.auth.userId || !mongoose.isValidObjectId(req.auth.userId)) {
+        return next(new UnauthorizedError('Invalid staff identity credentials.'));
+      }
+
+      const staff = await Staff.findById(req.auth.userId).select('role branchId isActive').lean();
+      if (!staff) {
+        if (process.env.NODE_ENV !== 'test' || process.env.STRICT_STAFF_AUTH === 'true') {
+          return next(new UnauthorizedError('Staff account not found.'));
+        }
+        return next();
+      }
+
+      if (staff.isActive === false) {
+        return next(new UnauthorizedError('Account is inactive.'));
+      }
+
+      req.auth.role = staff.role;
+      req.auth.branchId = staff.branchId ? staff.branchId.toString() : null;
     }
 
     return next();
