@@ -9,6 +9,11 @@ const {
   updateStaffBranchHandler,
   updateStaffStatusHandler,
 } = require('../controllers/admin.controller');
+const {
+  getAdminDoctorsHandler,
+  updateDoctorHandler,
+  updateDoctorStatusHandler,
+} = require('../controllers/doctor.controller');
 const { ROLE_VALUES, STAFF_ROLE_VALUES } = require('../constants/roles');
 const authenticate = require('../middleware/authenticate');
 const { authorizeRoles } = require('../middleware/authorizeRoles');
@@ -241,6 +246,27 @@ router.patch(
   authenticate,
   authorizeRoles(ROLE_VALUES.SYSTEM_ADMIN),
   updateStaffStatusHandler
+);
+
+router.get(
+  '/admin/doctors',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.SYSTEM_ADMIN),
+  getAdminDoctorsHandler
+);
+
+router.patch(
+  '/admin/doctors/:id',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.SYSTEM_ADMIN),
+  updateDoctorHandler
+);
+
+router.patch(
+  '/admin/doctors/:id/status',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.SYSTEM_ADMIN),
+  updateDoctorStatusHandler
 );
 
 module.exports = router;
