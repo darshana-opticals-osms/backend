@@ -206,6 +206,68 @@ router.post(
   createStaff
 );
 
+/**
+ * @openapi
+ * /admin/staff:
+ *   get:
+ *     summary: List staff accounts with filtering and pagination
+ *     description: SYSTEM_ADMIN only. Returns paginated staff member records with optional filters for role, branchId, isActive status, and text search across name/email.
+ *     tags:
+ *       - Administration
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: role
+ *         schema:
+ *           type: string
+ *           enum: [BRANCH_MANAGER, OPTOMETRIST, BRANCH_ASSISTANT]
+ *         description: Filter staff by role
+ *       - in: query
+ *         name: branchId
+ *         schema:
+ *           type: string
+ *           pattern: '^[a-fA-F0-9]{24}$'
+ *         description: Filter staff by branch ID
+ *       - in: query
+ *         name: isActive
+ *         schema:
+ *           type: string
+ *           enum: ['true', 'false']
+ *         description: Filter staff by active status
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search query matching staff name or email
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *         description: Items per page
+ *     responses:
+ *       200:
+ *         description: Paginated staff records retrieved successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/StaffListResponse'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
+ */
 router.get(
   '/admin/staff',
   authenticate,
@@ -213,6 +275,42 @@ router.get(
   listStaffHandler
 );
 
+/**
+ * @openapi
+ * /admin/staff/{id}:
+ *   get:
+ *     summary: Get single staff account by identifier
+ *     description: SYSTEM_ADMIN only. Retrieves detailed staff member profile excluding credentials or secrets.
+ *     tags:
+ *       - Administration
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           pattern: '^[a-fA-F0-9]{24}$'
+ *         description: Staff MongoDB ObjectId
+ *     responses:
+ *       200:
+ *         description: Staff details retrieved successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/StaffResponse'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
+ */
 router.get(
   '/admin/staff/:id',
   authenticate,
@@ -220,6 +318,50 @@ router.get(
   getStaffByIdHandler
 );
 
+/**
+ * @openapi
+ * /admin/staff/{id}:
+ *   patch:
+ *     summary: Update staff member contact profile
+ *     description: SYSTEM_ADMIN only. Updates name, email, phone, and/or address of a staff member. Emits a STAFF_PROFILE_UPDATED audit log.
+ *     tags:
+ *       - Administration
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           pattern: '^[a-fA-F0-9]{24}$'
+ *         description: Staff MongoDB ObjectId
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/StaffProfileUpdateRequest'
+ *     responses:
+ *       200:
+ *         description: Staff profile updated successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/StaffResponse'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       409:
+ *         $ref: '#/components/responses/Conflict'
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
+ */
 router.patch(
   '/admin/staff/:id',
   authenticate,
@@ -227,6 +369,48 @@ router.patch(
   updateStaffProfileHandler
 );
 
+/**
+ * @openapi
+ * /admin/staff/{id}/role:
+ *   patch:
+ *     summary: Update staff member role
+ *     description: SYSTEM_ADMIN only. Reassigns staff role to another canonical staff role (BRANCH_MANAGER, OPTOMETRIST, BRANCH_ASSISTANT). Emits a STAFF_ROLE_REASSIGNED audit log.
+ *     tags:
+ *       - Administration
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           pattern: '^[a-fA-F0-9]{24}$'
+ *         description: Staff MongoDB ObjectId
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/StaffRoleUpdateRequest'
+ *     responses:
+ *       200:
+ *         description: Staff role updated successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/StaffResponse'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
+ */
 router.patch(
   '/admin/staff/:id/role',
   authenticate,
@@ -234,6 +418,48 @@ router.patch(
   updateStaffRoleHandler
 );
 
+/**
+ * @openapi
+ * /admin/staff/{id}/branch:
+ *   patch:
+ *     summary: Update staff branch assignment
+ *     description: SYSTEM_ADMIN only. Reassigns staff member to a valid branch or clears assignment with null. Emits a STAFF_BRANCH_REASSIGNED audit log.
+ *     tags:
+ *       - Administration
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           pattern: '^[a-fA-F0-9]{24}$'
+ *         description: Staff MongoDB ObjectId
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/StaffBranchUpdateRequest'
+ *     responses:
+ *       200:
+ *         description: Staff branch updated successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/StaffResponse'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
+ */
 router.patch(
   '/admin/staff/:id/branch',
   authenticate,
@@ -241,6 +467,48 @@ router.patch(
   updateStaffBranchHandler
 );
 
+/**
+ * @openapi
+ * /admin/staff/{id}/status:
+ *   patch:
+ *     summary: Update staff active/inactive status
+ *     description: SYSTEM_ADMIN only. Activates or deactivates a staff member account. Emits a STAFF_STATUS_TOGGLED audit log. Deactivated staff cannot log in and have active sessions immediately rejected.
+ *     tags:
+ *       - Administration
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           pattern: '^[a-fA-F0-9]{24}$'
+ *         description: Staff MongoDB ObjectId
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/StaffStatusUpdateRequest'
+ *     responses:
+ *       200:
+ *         description: Staff status updated successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/StaffResponse'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
+ */
 router.patch(
   '/admin/staff/:id/status',
   authenticate,
@@ -248,6 +516,42 @@ router.patch(
   updateStaffStatusHandler
 );
 
+/**
+ * @openapi
+ * /admin/doctors:
+ *   get:
+ *     summary: List all doctors for admin management
+ *     description: SYSTEM_ADMIN only. Retrieves all registered doctors including their active/inactive status, with optional filters for isActive and search query.
+ *     tags:
+ *       - Administration
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: isActive
+ *         schema:
+ *           type: string
+ *           enum: ['true', 'false']
+ *         description: Filter doctors by active status
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search query matching doctor name or specialization
+ *     responses:
+ *       200:
+ *         description: List of doctors with management status retrieved successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AdminDoctorListResponse'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
+ */
 router.get(
   '/admin/doctors',
   authenticate,
@@ -255,6 +559,48 @@ router.get(
   getAdminDoctorsHandler
 );
 
+/**
+ * @openapi
+ * /admin/doctors/{id}:
+ *   patch:
+ *     summary: Update doctor name and/or specialization
+ *     description: SYSTEM_ADMIN only. Updates external doctor profile details. Emits a DOCTOR_RECORD_UPDATED audit log.
+ *     tags:
+ *       - Administration
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           pattern: '^[a-fA-F0-9]{24}$'
+ *         description: Doctor MongoDB ObjectId
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/DoctorUpdateRequest'
+ *     responses:
+ *       200:
+ *         description: Doctor updated successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AdminDoctorResponse'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
+ */
 router.patch(
   '/admin/doctors/:id',
   authenticate,
@@ -262,6 +608,48 @@ router.patch(
   updateDoctorHandler
 );
 
+/**
+ * @openapi
+ * /admin/doctors/{id}/status:
+ *   patch:
+ *     summary: Update doctor active/inactive status
+ *     description: SYSTEM_ADMIN only. Activates or deactivates a doctor. Emits a DOCTOR_STATUS_TOGGLED audit log. Inactive doctors cannot be assigned to new sessions; existing historical sessions are retained.
+ *     tags:
+ *       - Administration
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           pattern: '^[a-fA-F0-9]{24}$'
+ *         description: Doctor MongoDB ObjectId
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/DoctorStatusUpdateRequest'
+ *     responses:
+ *       200:
+ *         description: Doctor status updated successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AdminDoctorResponse'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       422:
+ *         $ref: '#/components/responses/ValidationError'
+ *       500:
+ *         $ref: '#/components/responses/InternalServerError'
+ */
 router.patch(
   '/admin/doctors/:id/status',
   authenticate,
