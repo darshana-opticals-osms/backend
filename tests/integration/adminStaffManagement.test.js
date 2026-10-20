@@ -165,6 +165,38 @@ describe('Staff Management APIs (/api/admin/staff) - Issue #93', () => {
       expect(response.body.data[0].name).toBe('Alice Manager');
     });
 
+    it('returns empty list and total: 0 when search yields no matches', async () => {
+      const response = await request(app)
+        .get('/api/admin/staff?search=nonexistentstaffmember')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.data).toHaveLength(0);
+      expect(response.body.pagination.total).toBe(0);
+    });
+
+    it('correctly handles pagination parameters page and limit', async () => {
+      const page1Res = await request(app)
+        .get('/api/admin/staff?page=1&limit=1')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(page1Res.status).toBe(200);
+      expect(page1Res.body.data).toHaveLength(1);
+      expect(page1Res.body.pagination.page).toBe(1);
+      expect(page1Res.body.pagination.limit).toBe(1);
+      expect(page1Res.body.pagination.total).toBe(2);
+      expect(page1Res.body.pagination.totalPages).toBe(2);
+
+      const page2Res = await request(app)
+        .get('/api/admin/staff?page=2&limit=1')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(page2Res.status).toBe(200);
+      expect(page2Res.body.data).toHaveLength(1);
+      expect(page2Res.body.pagination.page).toBe(2);
+      expect(page2Res.body.data[0].id).not.toBe(page1Res.body.data[0].id);
+    });
+
     it('rejects unauthenticated requests with 401', async () => {
       const response = await request(app).get('/api/admin/staff');
       expect(response.status).toBe(401);
@@ -300,6 +332,81 @@ describe('Staff Management APIs (/api/admin/staff) - Issue #93', () => {
         .send({ address: 'abc' });
       expect(shortAddress.status).toBe(422);
     });
+
+    it('returns 404 when updating non-existent staff identifier', async () => {
+      const nonExistentId = '507f1f77bcf86cd799439099';
+      const response = await request(app)
+        .patch(`/api/admin/staff/${nonExistentId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'Valid Name' });
+
+      expect(response.status).toBe(404);
+    });
+
+    it('returns 422 when updating malformed staff identifier', async () => {
+      const response = await request(app)
+        .patch('/api/admin/staff/malformed-id')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'Valid Name' });
+
+      expect(response.status).toBe(422);
+    });
+
+    it('returns 422 when update payload is empty', async () => {
+      const response = await request(app)
+        .patch(`/api/admin/staff/${testStaff1._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({});
+
+      expect(response.status).toBe(422);
+      expect(response.body.error.message).toMatch(/at least one editable field/i);
+    });
+
+    it('allows updating email to the staff members own existing email without 409 conflict', async () => {
+      const response = await request(app)
+        .patch(`/api/admin/staff/${testStaff1._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          email: testStaff1.email, // Same email
+          name: 'Alice Re-confirmed',
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.data.email).toBe(testStaff1.email);
+      expect(response.body.data.name).toBe('Alice Re-confirmed');
+    });
+
+    it('trims whitespace and normalizes email to lowercase on update', async () => {
+      const response = await request(app)
+        .patch(`/api/admin/staff/${testStaff1._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          name: '   Alice Trimmed   ',
+          email: '   ALICE.TRIMMED@DARSHANA.COM   ',
+          phone: '   0771112233   ',
+          address: '   123 Trimmed Street, Colombo   ',
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.data.name).toBe('Alice Trimmed');
+      expect(response.body.data.email).toBe('alice.trimmed@darshana.com');
+      expect(response.body.data.phone).toBe('0771112233');
+      expect(response.body.data.address).toBe('123 Trimmed Street, Colombo');
+    });
+
+    it('rejects name shorter than 2 chars or longer than 100 chars with 422', async () => {
+      const shortName = await request(app)
+        .patch(`/api/admin/staff/${testStaff1._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'A' });
+      expect(shortName.status).toBe(422);
+
+      const longName = await request(app)
+        .patch(`/api/admin/staff/${testStaff1._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'A'.repeat(101) });
+      expect(longName.status).toBe(422);
+    });
   });
 
   describe('PATCH /api/admin/staff/:id/role (AC4, AC12, AC14)', () => {
@@ -344,6 +451,40 @@ describe('Staff Management APIs (/api/admin/staff) - Issue #93', () => {
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ role: 'SUPER_DOCTOR' });
       expect(invalidRoleRes.status).toBe(422);
+    });
+
+    it('returns 404 when role update targets non-existent staff identifier', async () => {
+      const nonExistentId = '507f1f77bcf86cd799439099';
+      const response = await request(app)
+        .patch(`/api/admin/staff/${nonExistentId}/role`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ role: ROLE_VALUES.OPTOMETRIST });
+
+      expect(response.status).toBe(404);
+    });
+
+    it('returns 422 when role update targets malformed staff identifier', async () => {
+      const response = await request(app)
+        .patch('/api/admin/staff/invalid-id/role')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ role: ROLE_VALUES.OPTOMETRIST });
+
+      expect(response.status).toBe(422);
+    });
+
+    it('prevents self-role change if caller tries to modify their own account', async () => {
+      const selfToken = createAccessToken({
+        userId: testStaff1._id.toString(),
+        role: ROLE_VALUES.SYSTEM_ADMIN,
+      });
+
+      const response = await request(app)
+        .patch(`/api/admin/staff/${testStaff1._id}/role`)
+        .set('Authorization', `Bearer ${selfToken}`)
+        .send({ role: ROLE_VALUES.OPTOMETRIST });
+
+      expect(response.status).toBe(403);
+      expect(response.body.error.message).toMatch(/cannot change your own administrative role/i);
     });
   });
 
@@ -390,6 +531,34 @@ describe('Staff Management APIs (/api/admin/staff) - Issue #93', () => {
 
       expect(response.status).toBe(404);
       expect(response.body.error.message).toMatch(/branch not found/i);
+    });
+
+    it('returns 404 when branch update targets non-existent staff identifier', async () => {
+      const nonExistentId = '507f1f77bcf86cd799439099';
+      const response = await request(app)
+        .patch(`/api/admin/staff/${nonExistentId}/branch`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ branchId: branchA._id.toString() });
+
+      expect(response.status).toBe(404);
+    });
+
+    it('returns 422 when branch update targets malformed staff identifier', async () => {
+      const response = await request(app)
+        .patch('/api/admin/staff/invalid-id/branch')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ branchId: branchA._id.toString() });
+
+      expect(response.status).toBe(422);
+    });
+
+    it('returns 422 when branchId is malformed', async () => {
+      const response = await request(app)
+        .patch(`/api/admin/staff/${testStaff1._id}/branch`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ branchId: 'invalid-branch-id' });
+
+      expect(response.status).toBe(422);
     });
   });
 
@@ -448,6 +617,40 @@ describe('Staff Management APIs (/api/admin/staff) - Issue #93', () => {
         .send({ isActive: 'INVALID_STATUS' });
 
       expect(response.status).toBe(422);
+    });
+
+    it('returns 404 when status update targets non-existent staff identifier', async () => {
+      const nonExistentId = '507f1f77bcf86cd799439099';
+      const response = await request(app)
+        .patch(`/api/admin/staff/${nonExistentId}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ isActive: false });
+
+      expect(response.status).toBe(404);
+    });
+
+    it('returns 422 when status update targets malformed staff identifier', async () => {
+      const response = await request(app)
+        .patch('/api/admin/staff/invalid-id/status')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ isActive: false });
+
+      expect(response.status).toBe(422);
+    });
+
+    it('prevents caller from deactivating their own account with 403', async () => {
+      const selfToken = createAccessToken({
+        userId: testStaff1._id.toString(),
+        role: ROLE_VALUES.SYSTEM_ADMIN,
+      });
+
+      const response = await request(app)
+        .patch(`/api/admin/staff/${testStaff1._id}/status`)
+        .set('Authorization', `Bearer ${selfToken}`)
+        .send({ isActive: false });
+
+      expect(response.status).toBe(403);
+      expect(response.body.error.message).toMatch(/cannot deactivate your own/i);
     });
   });
 });

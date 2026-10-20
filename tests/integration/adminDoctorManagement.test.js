@@ -123,6 +123,15 @@ describe('Doctor Management APIs (/api/admin/doctors) - Issue #93', () => {
       expect(specSearch.body.data[0].name).toBe('Dr. Anne Perera');
     });
 
+    it('returns empty list when search yields no matches', async () => {
+      const response = await request(app)
+        .get('/api/admin/doctors?search=nonexistentdoctor')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.data).toHaveLength(0);
+    });
+
     it('rejects unauthenticated requests with 401', async () => {
       const response = await request(app).get('/api/admin/doctors');
       expect(response.status).toBe(401);
@@ -246,6 +255,48 @@ describe('Doctor Management APIs (/api/admin/doctors) - Issue #93', () => {
       expect(response.status).toBe(422);
       expect(response.body.error.message).toMatch(/not allowed/i);
     });
+
+    it('rejects empty update payload with 422', async () => {
+      const response = await request(app)
+        .patch(`/api/admin/doctors/${doctor1._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({});
+
+      expect(response.status).toBe(422);
+      expect(response.body.error.message).toMatch(/at least one editable field/i);
+    });
+
+    it('rejects whitespace-only specialization with 422', async () => {
+      const response = await request(app)
+        .patch(`/api/admin/doctors/${doctor1._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ specialization: '   ' });
+
+      expect(response.status).toBe(422);
+    });
+
+    it('rejects specialization exceeding 100 characters with 422', async () => {
+      const response = await request(app)
+        .patch(`/api/admin/doctors/${doctor1._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ specialization: 'S'.repeat(101) });
+
+      expect(response.status).toBe(422);
+    });
+
+    it('trims whitespace on doctor name and specialization updates', async () => {
+      const response = await request(app)
+        .patch(`/api/admin/doctors/${doctor1._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          name: '   Dr. Trimmed Doctor   ',
+          specialization: '   Cataract Specialist   ',
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.data.name).toBe('Dr. Trimmed Doctor');
+      expect(response.body.data.specialization).toBe('Cataract Specialist');
+    });
   });
 
   describe('PATCH /api/admin/doctors/:id/status (AC9, AC10, AC14)', () => {
@@ -301,6 +352,34 @@ describe('Doctor Management APIs (/api/admin/doctors) - Issue #93', () => {
         .patch(`/api/admin/doctors/${doctor1._id}/status`)
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ isActive: 'UNKNOWN_STATUS' });
+
+      expect(response.status).toBe(422);
+    });
+
+    it('returns 404 when status update targets non-existent doctor identifier', async () => {
+      const nonExistentId = '507f1f77bcf86cd799439099';
+      const response = await request(app)
+        .patch(`/api/admin/doctors/${nonExistentId}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ isActive: false });
+
+      expect(response.status).toBe(404);
+    });
+
+    it('returns 422 when status update targets malformed doctor identifier', async () => {
+      const response = await request(app)
+        .patch('/api/admin/doctors/malformed-id/status')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ isActive: false });
+
+      expect(response.status).toBe(422);
+    });
+
+    it('returns 422 when status update payload is empty', async () => {
+      const response = await request(app)
+        .patch(`/api/admin/doctors/${doctor1._id}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({});
 
       expect(response.status).toBe(422);
     });
