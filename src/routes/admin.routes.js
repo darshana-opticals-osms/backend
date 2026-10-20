@@ -1,6 +1,14 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const { createStaff } = require('../controllers/admin.controller');
+const {
+  createStaff,
+  listStaffHandler,
+  getStaffByIdHandler,
+  updateStaffProfileHandler,
+  updateStaffRoleHandler,
+  updateStaffBranchHandler,
+  updateStaffStatusHandler,
+} = require('../controllers/admin.controller');
 const { ROLE_VALUES, STAFF_ROLE_VALUES } = require('../constants/roles');
 const authenticate = require('../middleware/authenticate');
 const { authorizeRoles } = require('../middleware/authorizeRoles');
@@ -191,6 +199,48 @@ router.post(
   authorizeRoles(ROLE_VALUES.SYSTEM_ADMIN),
   validate(staffProvisioningValidation),
   createStaff
+);
+
+router.get(
+  '/admin/staff',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.SYSTEM_ADMIN),
+  listStaffHandler
+);
+
+router.get(
+  '/admin/staff/:id',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.SYSTEM_ADMIN),
+  getStaffByIdHandler
+);
+
+router.patch(
+  '/admin/staff/:id',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.SYSTEM_ADMIN),
+  updateStaffProfileHandler
+);
+
+router.patch(
+  '/admin/staff/:id/role',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.SYSTEM_ADMIN),
+  updateStaffRoleHandler
+);
+
+router.patch(
+  '/admin/staff/:id/branch',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.SYSTEM_ADMIN),
+  updateStaffBranchHandler
+);
+
+router.patch(
+  '/admin/staff/:id/status',
+  authenticate,
+  authorizeRoles(ROLE_VALUES.SYSTEM_ADMIN),
+  updateStaffStatusHandler
 );
 
 module.exports = router;
