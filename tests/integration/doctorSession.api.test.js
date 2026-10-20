@@ -202,6 +202,34 @@ describe('DoctorSession Provider Integration (AC14 - AC18, AC25, AC26)', () => {
       expect(response.body.error.message).toMatch(/doctor not found/i);
     });
 
+    it('should reject session creation referencing an inactive Doctor (AC10)', async () => {
+      const inactiveDoc = await Doctor.create({
+        name: 'Dr. Inactive Specialist',
+        specialization: 'Ophthalmology',
+        isActive: false,
+      });
+
+      const payload = {
+        doctorId: inactiveDoc._id.toString(),
+        branchId: branch._id.toString(),
+        startAt: '2026-11-20T09:00:00Z',
+        endAt: '2026-11-20T12:00:00Z',
+        capacity: 10,
+      };
+
+      const response = await request(app)
+        .post('/api/doctor-sessions')
+        .set(
+          'Authorization',
+          `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`
+        )
+        .send(payload);
+
+      expect(response.status).toBe(422);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error.message).toMatch(/inactive/i);
+    });
+
     it('should reject malformed doctorId with 422 (AC15)', async () => {
       const payload = {
         doctorId: 'invalid-id-format',

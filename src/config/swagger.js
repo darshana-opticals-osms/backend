@@ -373,7 +373,7 @@ const options = {
         },
         ProvisionedStaff: {
           type: 'object',
-          required: ['id', 'name', 'email', 'phone', 'address', 'role', 'branchId'],
+          required: ['id', 'name', 'email', 'phone', 'address', 'role', 'branchId', 'isActive'],
           properties: {
             id: { type: 'string', example: '64d4a3ff3baf9d2b8a33d1a1' },
             name: { type: 'string', example: 'Jordan Staff' },
@@ -385,6 +385,181 @@ const options = {
               enum: ['BRANCH_MANAGER', 'OPTOMETRIST', 'BRANCH_ASSISTANT'],
             },
             branchId: { type: 'string', nullable: true, example: null },
+            isActive: { type: 'boolean', example: true },
+          },
+        },
+        StaffMember: {
+          type: 'object',
+          required: [
+            'id',
+            'name',
+            'email',
+            'phone',
+            'address',
+            'role',
+            'branchId',
+            'isActive',
+            'createdAt',
+            'updatedAt',
+          ],
+          properties: {
+            id: { type: 'string', example: '64d4a3ff3baf9d2b8a33d1a1' },
+            name: { type: 'string', example: 'Jordan Staff' },
+            email: { type: 'string', format: 'email', example: 'jordan.staff@example.com' },
+            phone: { type: 'string', example: '+94711234567' },
+            address: { type: 'string', example: '12 Main Street, Colombo' },
+            role: {
+              type: 'string',
+              enum: ['BRANCH_MANAGER', 'OPTOMETRIST', 'BRANCH_ASSISTANT'],
+            },
+            branchId: { type: 'string', nullable: true, example: '64d4a3ff3baf9d2b8a33d1b2' },
+            isActive: { type: 'boolean', example: true },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        StaffPagination: {
+          type: 'object',
+          required: ['page', 'limit', 'total', 'totalPages'],
+          properties: {
+            page: { type: 'integer', example: 1 },
+            limit: { type: 'integer', example: 10 },
+            total: { type: 'integer', example: 25 },
+            totalPages: { type: 'integer', example: 3 },
+          },
+        },
+        StaffListResponse: {
+          type: 'object',
+          required: ['success', 'data'],
+          properties: {
+            success: { type: 'boolean', example: true },
+            data: {
+              type: 'object',
+              required: ['staff', 'pagination'],
+              properties: {
+                staff: {
+                  type: 'array',
+                  items: { $ref: '#/components/schemas/StaffMember' },
+                },
+                pagination: { $ref: '#/components/schemas/StaffPagination' },
+              },
+            },
+          },
+        },
+        StaffResponse: {
+          type: 'object',
+          required: ['success', 'data'],
+          properties: {
+            success: { type: 'boolean', example: true },
+            data: { $ref: '#/components/schemas/StaffMember' },
+          },
+        },
+        StaffProfileUpdateRequest: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            name: { type: 'string', example: 'Jordan Updated' },
+            email: { type: 'string', format: 'email', example: 'jordan.updated@example.com' },
+            phone: { type: 'string', example: '+94719876543' },
+            address: { type: 'string', example: '45 Flower Road, Kandy' },
+          },
+        },
+        StaffRoleUpdateRequest: {
+          type: 'object',
+          required: ['role'],
+          additionalProperties: false,
+          properties: {
+            role: {
+              type: 'string',
+              enum: ['BRANCH_MANAGER', 'OPTOMETRIST', 'BRANCH_ASSISTANT'],
+              example: 'OPTOMETRIST',
+            },
+          },
+        },
+        StaffBranchUpdateRequest: {
+          type: 'object',
+          required: ['branchId'],
+          additionalProperties: false,
+          properties: {
+            branchId: {
+              type: 'string',
+              nullable: true,
+              pattern: '^[a-fA-F0-9]{24}$',
+              example: '64d4a3ff3baf9d2b8a33d1b2',
+            },
+          },
+        },
+        StaffStatusUpdateRequest: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            status: {
+              type: 'string',
+              enum: ['ACTIVE', 'INACTIVE'],
+              example: 'INACTIVE',
+            },
+            isActive: {
+              type: 'boolean',
+              example: false,
+            },
+          },
+        },
+        AdminDoctor: {
+          type: 'object',
+          required: ['id', 'name', 'specialization', 'isActive', 'createdAt', 'updatedAt'],
+          properties: {
+            id: { type: 'string', example: '66c5d2a9d7e2b8f2d7c4ff12' },
+            name: { type: 'string', example: 'Dr. Nimal Perera' },
+            specialization: { type: 'string', example: 'Ophthalmologist' },
+            isActive: { type: 'boolean', example: true },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        AdminDoctorListResponse: {
+          type: 'object',
+          required: ['success', 'data'],
+          properties: {
+            success: { type: 'boolean', example: true },
+            data: {
+              type: 'array',
+              items: { $ref: '#/components/schemas/AdminDoctor' },
+            },
+          },
+        },
+        AdminDoctorResponse: {
+          type: 'object',
+          required: ['success', 'data'],
+          properties: {
+            success: { type: 'boolean', example: true },
+            data: { $ref: '#/components/schemas/AdminDoctor' },
+          },
+        },
+        DoctorUpdateRequest: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            name: { type: 'string', maxLength: 100, example: 'Dr. Sunimal Silva' },
+            specialization: {
+              type: 'string',
+              maxLength: 100,
+              example: 'Pediatric Ophthalmologist',
+            },
+          },
+        },
+        DoctorStatusUpdateRequest: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            status: {
+              type: 'string',
+              enum: ['ACTIVE', 'INACTIVE'],
+              example: 'INACTIVE',
+            },
+            isActive: {
+              type: 'boolean',
+              example: false,
+            },
           },
         },
         LoginResponse: {

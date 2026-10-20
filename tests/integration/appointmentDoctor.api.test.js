@@ -294,4 +294,104 @@ describe('Appointment Provider Integration (AC19 - AC22, AC27, AC28)', () => {
       expect(updatedSessionB.confirmedCount).toBe(1);
     });
   });
+
+  describe('Doctor Deactivation Protection & Lifecycle (Issue #93 AC9/AC10)', () => {
+    it('should exclude sessions of deactivated doctors, reject new bookings and reassignments, but preserve existing records', async () => {
+      // 1. Pre-existing confirmed appointment for Customer on Session A (Doctor A)
+      const bookRes = await request(app)
+        .post('/api/appointments')
+        .set('Authorization', `Bearer ${createToken(ROLE_VALUES.CUSTOMER, customer._id)}`)
+        .send({ sessionId: sessionA._id.toString() });
+      expect(bookRes.status).toBe(201);
+      const appointmentId = bookRes.body.data.id;
+
+      // 2. Doctor A is subsequently deactivated
+      await Doctor.findByIdAndUpdate(doctorA._id, { isActive: false });
+
+      // 3. GET /api/doctor-sessions/available excludes Session A (inactive Doctor A)
+      const availableRes = await request(app)
+        .get('/api/doctor-sessions/available')
+        .set('Authorization', `Bearer ${createToken(ROLE_VALUES.CUSTOMER, customer._id)}`);
+      expect(availableRes.status).toBe(200);
+      const sessionIds = availableRes.body.data.map((s) => s.id);
+      expect(sessionIds).not.toContain(sessionA._id.toString());
+      expect(sessionIds).toContain(sessionB._id.toString());
+
+      // 4. New appointment booking for Session A is rejected (409 DOCTOR_INACTIVE)
+      const newCustomer = await Customer.create({
+        name: 'Sunil Silva',
+        email: 'sunil@example.com',
+        phone: '+94 71 888 9999',
+        address: '20 Market Street, Gampaha',
+        role: ROLE_VALUES.CUSTOMER,
+        passwordHash: syntheticHash,
+      });
+
+      const newBookingRes = await request(app)
+        .post('/api/appointments')
+        .set('Authorization', `Bearer ${createToken(ROLE_VALUES.CUSTOMER, newCustomer._id)}`)
+        .send({ sessionId: sessionA._id.toString() });
+      expect(newBookingRes.status).toBe(409);
+      expect(newBookingRes.body.error.code).toBe('DOCTOR_INACTIVE');
+
+      // 5. Updating an active session (Session B) to assign inactive Doctor A is rejected (422)
+      const updateAssignInactiveRes = await request(app)
+        .patch(`/api/doctor-sessions/${sessionB._id}`)
+        .set(
+          'Authorization',
+          `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`
+        )
+        .send({ doctorId: doctorA._id.toString() });
+      expect(updateAssignInactiveRes.status).toBe(422);
+
+      // 6. Updating Session A whose doctor is inactive is rejected (409 DOCTOR_INACTIVE)
+      const updateInactiveSessionRes = await request(app)
+        .patch(`/api/doctor-sessions/${sessionA._id}`)
+        .set(
+          'Authorization',
+          `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`
+        )
+        .send({ capacity: 20 });
+      expect(updateInactiveSessionRes.status).toBe(409);
+      expect(updateInactiveSessionRes.body.error.code).toBe('DOCTOR_INACTIVE');
+
+      // 7. Booking Session B (Doctor B) and attempting reassignment to Session A (inactive Doctor A) is rejected (409)
+      const bookBRes = await request(app)
+        .post('/api/appointments')
+        .set('Authorization', `Bearer ${createToken(ROLE_VALUES.CUSTOMER, newCustomer._id)}`)
+        .send({ sessionId: sessionB._id.toString() });
+      expect(bookBRes.status).toBe(201);
+      const apptBId = bookBRes.body.data.id;
+
+      const reassignToInactiveRes = await request(app)
+        .patch(`/api/appointments/${apptBId}/reassign`)
+        .set(
+          'Authorization',
+          `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`
+        )
+        .send({ sessionId: sessionA._id.toString() });
+      expect(reassignToInactiveRes.status).toBe(409);
+      expect(reassignToInactiveRes.body.error.code).toBe('DOCTOR_INACTIVE');
+
+      // 8. Existing appointments and historical sessions are preserved without cancellation
+      const existingApptRes = await request(app)
+        .get(`/api/appointments/${appointmentId}`)
+        .set('Authorization', `Bearer ${createToken(ROLE_VALUES.CUSTOMER, customer._id)}`);
+      expect(existingApptRes.status).toBe(200);
+      expect(existingApptRes.body.data.status).toBe('CONFIRMED');
+      expect(existingApptRes.body.data.doctorId).toBe(doctorA._id.toString());
+      expect(existingApptRes.body.data.doctorName).toBe('Dr. Nimal Perera');
+
+      // Historical branch sessions list for staff still retains Session A
+      const staffSessionsRes = await request(app)
+        .get('/api/doctor-sessions')
+        .set(
+          'Authorization',
+          `Bearer ${createToken(ROLE_VALUES.BRANCH_ASSISTANT, branchAssistant._id)}`
+        );
+      expect(staffSessionsRes.status).toBe(200);
+      const staffSessionIds = staffSessionsRes.body.data.map((s) => s.id);
+      expect(staffSessionIds).toContain(sessionA._id.toString());
+    });
+  });
 });

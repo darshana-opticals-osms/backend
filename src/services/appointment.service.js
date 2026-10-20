@@ -454,12 +454,12 @@ async function listAvailableSessions(authUser = null) {
     startAt: { $gte: earliestBookable },
     $expr: { $lt: ['$confirmedCount', '$capacity'] },
   })
-    .populate('doctorId', 'name specialization')
+    .populate('doctorId', 'name specialization isActive')
     .sort({ startAt: 1 })
     .lean();
 
   return sessions
-    .filter((session) => Boolean(session.doctorId))
+    .filter((session) => Boolean(session.doctorId) && session.doctorId.isActive !== false)
     .map((session) => toPublicSession(session));
 }
 
@@ -493,6 +493,11 @@ async function createDoctorSession(input, authUser) {
     const assignedDoctor = await Doctor.findById(doctorId).session(mongoSession).lean();
     if (!assignedDoctor) {
       throw new NotFoundError('Doctor not found.');
+    }
+    if (assignedDoctor.isActive === false) {
+      throw new ValidationError('Doctor is inactive and cannot be assigned to new sessions.', {
+        field: 'doctorId',
+      });
     }
 
     const approvedBranch = await getApprovedGampahaBranch(mongoSession);
@@ -645,6 +650,19 @@ async function updateDoctorSession(sessionId, input, authUser) {
       if (!assignedDoctor) {
         throw new NotFoundError('Doctor not found.');
       }
+      if (assignedDoctor.isActive === false) {
+        if (patch.doctorId !== undefined) {
+          throw new ValidationError(
+            'Doctor is inactive and cannot be assigned to doctor sessions.',
+            { field: 'doctorId' }
+          );
+        }
+        throw new ConflictError(
+          'The doctor associated with this session is inactive.',
+          null,
+          'DOCTOR_INACTIVE'
+        );
+      }
 
       if (session.staffId) {
         await lockFormerProviderScheduling(session.staffId, mongoSession);
@@ -785,6 +803,13 @@ async function createAppointment(input, authUser) {
     const doctor = await Doctor.findById(session.doctorId).session(mongoSession).lean();
     if (!doctor) {
       throw new ValidationError('Selected session does not reference a valid doctor.');
+    }
+    if (doctor.isActive === false) {
+      throw new ConflictError(
+        'The doctor associated with this session is inactive. Appointments cannot be booked.',
+        null,
+        'DOCTOR_INACTIVE'
+      );
     }
 
     const now = new Date(Date.now());
@@ -1076,6 +1101,13 @@ async function reassignAppointment(appointmentId, sessionId, authUser) {
     const targetDoctor = await Doctor.findById(targetSession.doctorId).session(mongoSession).lean();
     if (!targetDoctor) {
       throw new ValidationError('Selected target session does not reference a valid doctor.');
+    }
+    if (targetDoctor.isActive === false) {
+      throw new ConflictError(
+        'The doctor associated with the target session is inactive. Appointments cannot be reassigned.',
+        null,
+        'DOCTOR_INACTIVE'
+      );
     }
 
     const approvedBranch = await getApprovedGampahaBranch(mongoSession);

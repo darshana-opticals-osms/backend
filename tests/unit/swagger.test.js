@@ -38,6 +38,15 @@ describe('Swagger documentation integrity', () => {
     'POST /auth/forgot-password',
     'POST /auth/reset-password',
     'POST /admin/staff',
+    'GET /admin/staff',
+    'GET /admin/staff/{id}',
+    'PATCH /admin/staff/{id}',
+    'PATCH /admin/staff/{id}/role',
+    'PATCH /admin/staff/{id}/branch',
+    'PATCH /admin/staff/{id}/status',
+    'GET /admin/doctors',
+    'PATCH /admin/doctors/{id}',
+    'PATCH /admin/doctors/{id}/status',
     'GET /profile/me',
     'PATCH /profile/me',
     'GET /products',
@@ -149,6 +158,13 @@ describe('Swagger documentation integrity', () => {
       '/payments/{paymentId}/refunds',
       '/profile/me',
       '/admin/staff',
+      '/admin/staff/{id}',
+      '/admin/staff/{id}/role',
+      '/admin/staff/{id}/branch',
+      '/admin/staff/{id}/status',
+      '/admin/doctors',
+      '/admin/doctors/{id}',
+      '/admin/doctors/{id}/status',
       '/inventory',
       '/inventory/images',
       '/inventory/branch/{branchId}',
@@ -217,6 +233,19 @@ describe('Swagger documentation integrity', () => {
       'RegisterRequest',
       'StaffProvisioningRequest',
       'ProvisionedStaff',
+      'StaffMember',
+      'StaffPagination',
+      'StaffListResponse',
+      'StaffResponse',
+      'StaffProfileUpdateRequest',
+      'StaffRoleUpdateRequest',
+      'StaffBranchUpdateRequest',
+      'StaffStatusUpdateRequest',
+      'AdminDoctor',
+      'AdminDoctorListResponse',
+      'AdminDoctorResponse',
+      'DoctorUpdateRequest',
+      'DoctorStatusUpdateRequest',
       'CartAddItemRequest',
       'CartQuantityRequest',
       'CartResponse',
@@ -625,5 +654,49 @@ describe('Swagger documentation integrity', () => {
     expect(
       invItemsSchema.properties.data.properties.items.items.properties.reorderStatus
     ).toBeDefined();
+  });
+
+  it('documents staff and doctor management endpoints as SYSTEM_ADMIN-only with safe schemas (Issue #93)', () => {
+    // Staff listing
+    const listStaff = swaggerSpec.paths['/admin/staff'].get;
+    expect(listStaff.description).toMatch(/SYSTEM_ADMIN only/);
+    expect(listStaff.security).toEqual([{ bearerAuth: [] }]);
+    expect(listStaff.responses['200'].content['application/json'].schema).toBeDefined();
+
+    // Staff detail & patch
+    const getStaff = swaggerSpec.paths['/admin/staff/{id}'].get;
+    expect(getStaff.security).toEqual([{ bearerAuth: [] }]);
+    expect(getStaff.responses['404']).toBeDefined();
+
+    const patchProfile = swaggerSpec.paths['/admin/staff/{id}'].patch;
+    expect(patchProfile.security).toEqual([{ bearerAuth: [] }]);
+    expect(patchProfile.responses['409']).toBeDefined();
+
+    const patchRole = swaggerSpec.paths['/admin/staff/{id}/role'].patch;
+    expect(patchRole.security).toEqual([{ bearerAuth: [] }]);
+
+    const patchBranch = swaggerSpec.paths['/admin/staff/{id}/branch'].patch;
+    expect(patchBranch.security).toEqual([{ bearerAuth: [] }]);
+
+    const patchStatus = swaggerSpec.paths['/admin/staff/{id}/status'].patch;
+    expect(patchStatus.security).toEqual([{ bearerAuth: [] }]);
+
+    // Doctor admin listing & editing
+    const listDoctors = swaggerSpec.paths['/admin/doctors'].get;
+    expect(listDoctors.description).toMatch(/SYSTEM_ADMIN only/);
+    expect(listDoctors.security).toEqual([{ bearerAuth: [] }]);
+
+    const patchDoctor = swaggerSpec.paths['/admin/doctors/{id}'].patch;
+    expect(patchDoctor.security).toEqual([{ bearerAuth: [] }]);
+    expect(patchDoctor.responses['404']).toBeDefined();
+
+    const patchDocStatus = swaggerSpec.paths['/admin/doctors/{id}/status'].patch;
+    expect(patchDocStatus.security).toEqual([{ bearerAuth: [] }]);
+
+    // Schema security check - ensure credentials/secrets are not in public StaffMember
+    const staffSchema = swaggerSpec.components.schemas.StaffMember;
+    expect(staffSchema.properties).not.toHaveProperty('password');
+    expect(staffSchema.properties).not.toHaveProperty('passwordHash');
+    expect(staffSchema.properties).toHaveProperty('isActive');
   });
 });
