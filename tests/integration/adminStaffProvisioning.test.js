@@ -107,6 +107,7 @@ describe('POST /api/admin/staff', () => {
           'branchId',
           'createdAt',
           'email',
+          'isActive',
           'name',
           'passwordHash',
           'phone',

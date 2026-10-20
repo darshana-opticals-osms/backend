@@ -26,6 +26,11 @@ const doctorSchema = new mongoose.Schema(
         message: 'specialization must be a non-empty string.',
       },
     },
+    isActive: {
+      type: Boolean,
+      default: true,
+      required: true,
+    },
   },
   {
     timestamps: true,
@@ -33,5 +38,6 @@ const doctorSchema = new mongoose.Schema(
 );
 
 doctorSchema.index({ name: 1, _id: 1 }, { name: 'doctor_name_id_deterministic_index' });
+doctorSchema.index({ isActive: 1, name: 1, _id: 1 }, { name: 'doctor_active_name_id_index' });
 
 module.exports = mongoose.model('Doctor', doctorSchema);

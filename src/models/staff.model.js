@@ -43,6 +43,11 @@ const staffSchema = new mongoose.Schema(
       required: true,
       enum: STAFF_ROLE_VALUES,
     },
+    isActive: {
+      type: Boolean,
+      default: true,
+      required: true,
+    },
     passwordHash: {
       type: String,
       required: true,

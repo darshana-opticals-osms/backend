@@ -63,6 +63,10 @@ const login = async ({ email, password }) => {
     throw new UnauthorizedError('Invalid email or password.');
   }
 
+  if (identity.isActive === false) {
+    throw new UnauthorizedError('Account is inactive.');
+  }
+
   const user = buildSafeIdentityResponse(identity);
   const token = createAccessToken({
     userId: user.id,

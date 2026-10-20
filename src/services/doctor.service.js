@@ -15,31 +15,55 @@ const toDoctorDto = (doc) => {
   };
 };
 
+const toAdminDoctorDto = (doc) => {
+  if (!doc) return null;
+  return {
+    id: (doc._id || doc.id).toString(),
+    name: doc.name,
+    specialization: doc.specialization,
+    isActive: doc.isActive !== false,
+  };
+};
+
 /**
  * Persists a new Doctor (AC5, AC6, AC7).
  *
  * @param {{ name: string, specialization: string }} payload
- * @returns {Promise<{ id: string, name: string, specialization: string }>}
+ * @returns {Promise<{ id: string, name: string, specialization: string, isActive: boolean }>}
  */
 const createDoctor = async ({ name, specialization }) => {
   const doctor = await Doctor.create({
     name: name.trim(),
     specialization: specialization.trim(),
+    isActive: true,
   });
 
   return toDoctorDto(doctor);
 };
 
 /**
- * Retrieves the authoritative Doctor directory sorted deterministically (AC9, AC11, AC12, AC13).
+ * Retrieves eligible active Doctors for appointment workflows (AC10).
  * Sorting: name ascending, _id ascending tie-breaker.
  *
- * @returns {Promise<Array<{ id: string, name: string, specialization: string }>>}
+ * @returns {Promise<Array<{ id: string, name: string, specialization: string, isActive: boolean }>>}
  */
 const listDoctors = async () => {
-  const doctors = await Doctor.find().sort({ name: 1, _id: 1 }).lean();
+  const doctors = await Doctor.find({ isActive: { $ne: false } })
+    .sort({ name: 1, _id: 1 })
+    .lean();
 
   return doctors.map(toDoctorDto);
+};
+
+/**
+ * Retrieves all Doctor directory records for administrative management (AC7).
+ *
+ * @returns {Promise<Array<{ id: string, name: string, specialization: string, isActive: boolean }>>}
+ */
+const listAllDoctorsAdmin = async () => {
+  const doctors = await Doctor.find().sort({ name: 1, _id: 1 }).lean();
+
+  return doctors.map(toAdminDoctorDto);
 };
 
 /**
@@ -54,7 +78,9 @@ const getDoctorById = async (doctorId) => {
 
 module.exports = {
   toDoctorDto,
+  toAdminDoctorDto,
   createDoctor,
   listDoctors,
+  listAllDoctorsAdmin,
   getDoctorById,
 };

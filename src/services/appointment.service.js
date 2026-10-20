@@ -494,6 +494,11 @@ async function createDoctorSession(input, authUser) {
     if (!assignedDoctor) {
       throw new NotFoundError('Doctor not found.');
     }
+    if (assignedDoctor.isActive === false) {
+      throw new ValidationError('Doctor is inactive and cannot be assigned to new sessions.', {
+        field: 'doctorId',
+      });
+    }
 
     const approvedBranch = await getApprovedGampahaBranch(mongoSession);
     const branchId = suppliedBranchId || approvedBranch._id;
