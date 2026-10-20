@@ -61,8 +61,13 @@ const createToken = ({
 describe('RBAC integration tests', () => {
   let app;
 
+  let originalJwtSecret;
+  let originalJwtExpiresIn;
+
   beforeAll(() => {
     process.env.NODE_ENV = 'test';
+    originalJwtSecret = process.env.JWT_SECRET;
+    originalJwtExpiresIn = process.env.JWT_EXPIRES_IN;
     process.env.JWT_SECRET = JWT_SECRET;
     process.env.JWT_EXPIRES_IN = JWT_EXPIRES_IN;
     app = createTestApp();
@@ -70,8 +75,16 @@ describe('RBAC integration tests', () => {
 
   afterAll(() => {
     process.env.NODE_ENV = 'test';
-    delete process.env.JWT_SECRET;
-    delete process.env.JWT_EXPIRES_IN;
+    if (originalJwtSecret !== undefined) {
+      process.env.JWT_SECRET = originalJwtSecret;
+    } else {
+      delete process.env.JWT_SECRET;
+    }
+    if (originalJwtExpiresIn !== undefined) {
+      process.env.JWT_EXPIRES_IN = originalJwtExpiresIn;
+    } else {
+      delete process.env.JWT_EXPIRES_IN;
+    }
   });
 
   it('should reject a request with a missing JWT', async () => {
