@@ -1130,12 +1130,34 @@ const options = {
             },
           },
         },
+        OrderCustomerSummary: {
+          type: 'object',
+          nullable: true,
+          description:
+            'Basic Customer identification returned in staff order responses (Issue #95, AC1, AC2, AC3). ' +
+            'Contains only name and phone for operational contact and identity verification. ' +
+            'Omitted from customer-facing responses. Nullable if customer document is missing (AC7).',
+          required: ['name', 'phone'],
+          properties: {
+            name: {
+              type: 'string',
+              description: "Customer's full name.",
+              example: 'Kamal Perera',
+            },
+            phone: {
+              type: 'string',
+              description: "Customer's contact phone number.",
+              example: '+94712345678',
+            },
+          },
+        },
         OrderSummary: {
           type: 'object',
           description:
-            'Safe customer-facing Order summary. Returned in order-history list responses. ' +
+            'Safe Order summary returned in order list responses. ' +
             'Uses canonical ADR-004 status values (AC7). ' +
             'Includes embedded status history (AC8 — Option B). ' +
+            'Includes basic customer identification (name and phone) for authorized staff requests (Issue #95). ' +
             'Does not expose password hashes, secrets, stack traces, or internal fields (AC18).',
           required: [
             'id',
@@ -1158,6 +1180,12 @@ const options = {
               type: 'string',
               description: 'MongoDB ObjectId of the owning Customer.',
               example: '507f1f77bcf86cd799439011',
+            },
+            customer: {
+              $ref: '#/components/schemas/OrderCustomerSummary',
+              description:
+                'Basic Customer identification returned for authorized staff requests (Issue #95). ' +
+                'Omitted in customer-facing responses.',
             },
             branchId: {
               type: 'string',

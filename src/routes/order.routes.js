@@ -95,6 +95,8 @@ const router = express.Router();
  *
  *       For authorized staff: Returns all Orders in reverse chronological order
  *       for operational tracking, inspection, and fulfillment (AC6, ADR-004 §13).
+ *       Includes the associated Customer's name and contact phone number
+ *       (customer: { name, phone }) or null if missing (Issue #95).
  *
  *       Responses do not expose password hashes, JWT secrets, stack traces, or
  *       unrelated PII (AC18).
@@ -138,8 +140,9 @@ router.get('/orders', authenticate, authorizeRoles(...ALL_ORDER_VIEW_ROLES), get
  *       the Order is owned by the authenticated Customer. Ownership is enforced
  *       server-side to prevent IDOR (AC4).
  *
- *       For authorized staff: Returns tracking information, audit history, and
- *       line items for the requested order to facilitate customer care and fulfillment.
+ *       For authorized staff: Returns tracking information, audit history,
+ *       line items, and associated Customer basic identification (name and phone)
+ *       to facilitate customer care and fulfillment (Issue #95).
  *
  *       A malformed Order ID returns a 422 Validation Error (AC5).
  *       A valid but inaccessible or non-existent Order returns a 404 response
