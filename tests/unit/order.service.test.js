@@ -25,6 +25,7 @@ const {
   updateOrderStatus,
   shapeOrderItem,
   shapeOrderSummary,
+  shapeCustomerSummary,
   shapeHistoryEntry,
 } = require('../../src/services/order.service');
 const {
@@ -57,6 +58,7 @@ jest.mock('../../src/models/inventory.model', () => ({
 }));
 jest.mock('../../src/models/customer.model', () => ({
   findById: jest.fn(),
+  find: jest.fn(),
 }));
 jest.mock('../../src/models/payment.model', () => ({
   exists: jest.fn(),
@@ -88,6 +90,7 @@ const Order = require('../../src/models/order.model');
 const OrderItem = require('../../src/models/orderItem.model');
 const Inventory = require('../../src/models/inventory.model');
 const Payment = require('../../src/models/payment.model');
+const Customer = require('../../src/models/customer.model');
 
 // ─── Test Fixtures ─────────────────────────────────────────────────────────────
 
@@ -205,6 +208,44 @@ describe('shapeOrderItem()', () => {
   });
 });
 
+// ─── shapeCustomerSummary ─────────────────────────────────────────────────────
+
+describe('shapeCustomerSummary()', () => {
+  it('returns name and phone for a valid customer document or object (AC1, AC2)', () => {
+    const customer = {
+      _id: CUSTOMER_ID,
+      name: 'Kamal Perera',
+      phone: '+94712345678',
+      email: 'kamal@example.com',
+      passwordHash: '$2b$10$abcdefghijklmnopqrstuvwxyz1234567890abcdefghijklmnopqr',
+      loyaltyBalance: '150.00',
+    };
+    const shaped = shapeCustomerSummary(customer);
+    expect(shaped).toEqual({
+      name: 'Kamal Perera',
+      phone: '+94712345678',
+    });
+    // Ensure sensitive customer fields are omitted (AC6)
+    expect(shaped).not.toHaveProperty('email');
+    expect(shaped).not.toHaveProperty('passwordHash');
+    expect(shaped).not.toHaveProperty('loyaltyBalance');
+    expect(shaped).not.toHaveProperty('_id');
+  });
+
+  it('returns null when customer is null or undefined (AC7)', () => {
+    expect(shapeCustomerSummary(null)).toBeNull();
+    expect(shapeCustomerSummary(undefined)).toBeNull();
+  });
+
+  it('falls back to empty strings when name or phone are missing on the customer object', () => {
+    const shaped = shapeCustomerSummary({});
+    expect(shaped).toEqual({
+      name: '',
+      phone: '',
+    });
+  });
+});
+
 // ─── shapeOrderSummary ────────────────────────────────────────────────────────
 
 describe('shapeOrderSummary()', () => {
@@ -261,6 +302,28 @@ describe('shapeOrderSummary()', () => {
     const shaped = shapeOrderSummary(order);
     expect(shaped.statusHistory).toEqual([]);
   });
+
+  it('omits customer property for customer callers (isStaff: false) (AC4, AC6)', () => {
+    const order = makeOrder();
+    const shaped = shapeOrderSummary(order, { isStaff: false });
+    expect(shaped).not.toHaveProperty('customer');
+  });
+
+  it('includes customer object when isStaff is true and customer is provided (AC1, AC2)', () => {
+    const order = makeOrder();
+    const customer = { name: 'Nimal Bandara', phone: '+94771234567' };
+    const shaped = shapeOrderSummary(order, { isStaff: true, customer });
+    expect(shaped.customer).toEqual({
+      name: 'Nimal Bandara',
+      phone: '+94771234567',
+    });
+  });
+
+  it('includes customer: null when isStaff is true and customer is missing (AC7)', () => {
+    const order = makeOrder();
+    const shaped = shapeOrderSummary(order, { isStaff: true, customer: null });
+    expect(shaped.customer).toBeNull();
+  });
 });
 
 // ─── getCustomerOrders ────────────────────────────────────────────────────────
@@ -281,6 +344,7 @@ describe('getCustomerOrders()', () => {
     expect(result).toHaveLength(1);
     expect(result[0]).toHaveProperty('id', ORDER_ID_STR);
     expect(result[0]).toHaveProperty('status', ORDER_STATUS_VALUES.ORDER_CREATED);
+    expect(result[0]).not.toHaveProperty('customer');
   });
 
   it('returns an empty array when the customer has no Orders (AC2)', async () => {
@@ -337,6 +401,7 @@ describe('getCustomerOrderById()', () => {
 
     expect(result).toHaveProperty('id', ORDER_ID_STR);
     expect(result).toHaveProperty('items');
+    expect(result).not.toHaveProperty('customer');
     expect(result.items).toHaveLength(2);
     expect(result.items[0]).toEqual({
       id: ITEM_ID_1.toString(),
@@ -768,6 +833,90 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
       }
     );
 
+    it('includes customer name and phone in order summaries for staff (AC1, AC2)', async () => {
+      const mockOrders = [makeOrder({ customerId: CUSTOMER_ID })];
+      Order.find.mockReturnValue({
+        sort: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(mockOrders) }),
+      });
+      Customer.find.mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue([
+            { _id: CUSTOMER_ID, name: 'Kamal Perera', phone: '+94712345678' },
+          ]),
+        }),
+      });
+
+      const results = await getOrders({
+        userId: STAFF_ID_STR,
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
+        branchId: STAFF_BRANCH_ID_STR,
+      });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].customer).toEqual({
+        name: 'Kamal Perera',
+        phone: '+94712345678',
+      });
+    });
+
+    it('batches customer queries using $in to avoid N+1 queries when multiple orders exist (AC8)', async () => {
+      const CUSTOMER_2_ID = new mongoose.Types.ObjectId();
+      const mockOrders = [
+        makeOrder({ _id: new mongoose.Types.ObjectId(), customerId: CUSTOMER_ID }),
+        makeOrder({ _id: new mongoose.Types.ObjectId(), customerId: CUSTOMER_2_ID }),
+        makeOrder({ _id: new mongoose.Types.ObjectId(), customerId: CUSTOMER_ID }), // duplicate customer
+      ];
+      Order.find.mockReturnValue({
+        sort: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(mockOrders) }),
+      });
+      const customerFindMock = jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue([
+            { _id: CUSTOMER_ID, name: 'Kamal Perera', phone: '+94712345678' },
+            { _id: CUSTOMER_2_ID, name: 'Sunil Silva', phone: '+94771122334' },
+          ]),
+        }),
+      });
+      Customer.find = customerFindMock;
+
+      const results = await getOrders({
+        userId: STAFF_ID_STR,
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
+        branchId: STAFF_BRANCH_ID_STR,
+      });
+
+      expect(results).toHaveLength(3);
+      // N+1 prevention: Customer.find must only be called ONCE with distinct IDs
+      expect(customerFindMock).toHaveBeenCalledTimes(1);
+      expect(customerFindMock).toHaveBeenCalledWith({
+        _id: { $in: expect.arrayContaining([CUSTOMER_ID_STR, CUSTOMER_2_ID.toString()]) },
+      });
+      expect(results[0].customer).toEqual({ name: 'Kamal Perera', phone: '+94712345678' });
+      expect(results[1].customer).toEqual({ name: 'Sunil Silva', phone: '+94771122334' });
+      expect(results[2].customer).toEqual({ name: 'Kamal Perera', phone: '+94712345678' });
+    });
+
+    it('safely handles missing customer record with customer: null (AC7)', async () => {
+      const mockOrders = [makeOrder({ customerId: CUSTOMER_ID })];
+      Order.find.mockReturnValue({
+        sort: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(mockOrders) }),
+      });
+      Customer.find.mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue([]), // No matching customer found
+        }),
+      });
+
+      const results = await getOrders({
+        userId: STAFF_ID_STR,
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: STAFF_BRANCH_ID_STR,
+      });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].customer).toBeNull();
+    });
+
     it.each([ROLE_VALUES.BRANCH_ASSISTANT, ROLE_VALUES.BRANCH_MANAGER])(
       'rejects staff request with missing or invalid branchId with ForbiddenError (Review Comment 3)',
       async (staffRole) => {
@@ -814,6 +963,57 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
         expect(result.items).toHaveLength(1);
       }
     );
+
+    it('includes customer name and phone in single order details for staff (AC3)', async () => {
+      Order.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(makeOrder()) });
+      OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([makeItem()]) });
+      Customer.findById.mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue({
+            _id: CUSTOMER_ID,
+            name: 'Anura Kumara',
+            phone: '+94719876543',
+            email: 'anura@example.com',
+            loyaltyBalance: '200.00',
+          }),
+        }),
+      });
+
+      const result = await getOrderById({
+        orderId: ORDER_ID_STR,
+        userId: STAFF_ID_STR,
+        role: ROLE_VALUES.BRANCH_ASSISTANT,
+        branchId: STAFF_BRANCH_ID_STR,
+      });
+
+      expect(result.customer).toEqual({
+        name: 'Anura Kumara',
+        phone: '+94719876543',
+      });
+      // Ensure no sensitive fields leak (AC6)
+      expect(result.customer).not.toHaveProperty('email');
+      expect(result.customer).not.toHaveProperty('loyaltyBalance');
+      expect(result.customer).not.toHaveProperty('_id');
+    });
+
+    it('safely sets customer: null when customer record is missing in getOrderById (AC7)', async () => {
+      Order.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(makeOrder()) });
+      OrderItem.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([makeItem()]) });
+      Customer.findById.mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue(null),
+        }),
+      });
+
+      const result = await getOrderById({
+        orderId: ORDER_ID_STR,
+        userId: STAFF_ID_STR,
+        role: ROLE_VALUES.BRANCH_MANAGER,
+        branchId: STAFF_BRANCH_ID_STR,
+      });
+
+      expect(result.customer).toBeNull();
+    });
 
     it.each([ROLE_VALUES.BRANCH_ASSISTANT, ROLE_VALUES.BRANCH_MANAGER])(
       'rejects staff request without valid branchId with ForbiddenError (Review Comment 3)',
