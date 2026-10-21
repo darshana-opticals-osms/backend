@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Order = require('../models/order.model');
 const OrderItem = require('../models/orderItem.model');
+const Customer = require('../models/customer.model');
 const Inventory = require('../models/inventory.model');
 const Payment = require('../models/payment.model');
 const LoyaltyTransaction = require('../models/loyaltyTransaction.model');
@@ -78,20 +79,42 @@ function shapeHistoryEntry(entry, options = {}) {
 }
 
 /**
- * Shapes an Order document into the safe customer-facing order summary used
- * in the order-history list endpoint.
+ * Shapes a Customer document or plain object into the safe customer representation
+ * for authorized staff order responses (Issue #95, AC1, AC2, AC6, AC7).
+ *
+ * Exposes only name and phone. Internal fields (password, tokens, loyalty balance,
+ * address, email, etc.) are omitted to preserve customer privacy.
+ *
+ * @param {object|null} customer - Mongoose Customer document or plain object
+ * @returns {{ name: string, phone: string } | null}
+ */
+function shapeCustomerSummary(customer) {
+  if (!customer) return null;
+  return {
+    name: customer.name || '',
+    phone: customer.phone || '',
+  };
+}
+
+/**
+ * Shapes an Order document into the safe order summary used in order list endpoints.
  *
  * Does not include OrderItems (fetched separately on single-order request).
+ * For authorized staff requests (options.isStaff=true), includes basic customer
+ * identification (name and phone) alongside customerId (Issue #95, AC1, AC2).
+ * For customer requests (options.isStaff=false), preserves existing response contract (AC4, AC6).
  *
- * AC1, AC7, AC8, AC18.
+ * AC1, AC2, AC4, AC6, AC7, AC8, AC18.
  *
  * @param {object} order - Mongoose Order document or plain object
  * @param {object} [options]
  * @param {boolean} [options.isStaff=false]
+ * @param {object|null} [options.customer] - Customer document or plain object
  * @returns {object}
  */
 function shapeOrderSummary(order, options = {}) {
-  return {
+  const isStaff = options.isStaff || false;
+  const shaped = {
     id: order._id.toString(),
     customerId: order.customerId.toString(),
     branchId: order.branchId ? order.branchId.toString() : null,
@@ -103,6 +126,17 @@ function shapeOrderSummary(order, options = {}) {
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
   };
+
+  if (isStaff) {
+    shaped.customer =
+      options.customer !== undefined
+        ? shapeCustomerSummary(options.customer)
+        : order.customer
+          ? shapeCustomerSummary(order.customer)
+          : null;
+  }
+
+  return shaped;
 }
 
 /**
@@ -175,7 +209,32 @@ async function getOrders({ userId, role, branchId = null }) {
     };
 
     const orders = await Order.find(filter).sort({ createdAt: -1 }).lean();
-    return orders.map((order) => shapeOrderSummary(order, { isStaff: true }));
+
+    // Batch lookup associated customers to prevent N+1 queries (AC8)
+    const rawCustomerIds = orders
+      .map((o) => o.customerId)
+      .filter((id) => Boolean(id) && mongoose.isValidObjectId(id));
+    const distinctCustomerIds = [...new Set(rawCustomerIds.map((id) => id.toString()))];
+
+    let customerMap = new Map();
+    if (distinctCustomerIds.length > 0 && typeof Customer?.find === 'function') {
+      const rawQuery = Customer.find({ _id: { $in: distinctCustomerIds } });
+      if (rawQuery) {
+        const q = typeof rawQuery.select === 'function' ? rawQuery.select('name phone') : rawQuery;
+        const customers = typeof q?.lean === 'function' ? await q.lean() : await q;
+        if (Array.isArray(customers)) {
+          customerMap = new Map(customers.map((c) => [c._id.toString(), c]));
+        }
+      }
+    }
+
+    return orders.map((order) => {
+      const customer =
+        (order.customerId && customerMap.get(order.customerId.toString())) ||
+        order.customer ||
+        null;
+      return shapeOrderSummary(order, { isStaff: true, customer });
+    });
   }
 
   throw new ValidationError('Role not authorized for order tracking retrieval.');
@@ -258,7 +317,18 @@ async function getOrderById({ orderId, userId, role, branchId = null }) {
   // Retrieve associated OrderItems for this Order.
   const items = await OrderItem.find({ orderId: order._id }).lean();
 
-  return shapeOrderDetail(order, items, { isStaff });
+  let customer = null;
+  if (isStaff && order.customerId && typeof Customer?.findById === 'function') {
+    const rawQuery = Customer.findById(order.customerId);
+    if (rawQuery) {
+      const q = typeof rawQuery.select === 'function' ? rawQuery.select('name phone') : rawQuery;
+      customer = typeof q?.lean === 'function' ? await q.lean() : await q;
+    }
+  } else if (isStaff && order.customer) {
+    customer = order.customer;
+  }
+
+  return shapeOrderDetail(order, items, { isStaff, customer });
 }
 
 /**
@@ -1073,5 +1143,6 @@ module.exports = {
   shapeOrderSummary,
   shapeOrderDetail,
   shapeOrderItem,
+  shapeCustomerSummary,
   shapeHistoryEntry,
 };
