@@ -20,6 +20,8 @@ const INVALID_INVENTORY_STOCK = 'INVALID_INVENTORY_STOCK';
 const CHECKOUT_CONFLICT = 'CHECKOUT_CONFLICT';
 const FULFILLMENT_BRANCH_UNAVAILABLE = 'FULFILLMENT_BRANCH_UNAVAILABLE';
 const CROSS_BRANCH_CHECKOUT_CONFLICT = 'CROSS_BRANCH_CHECKOUT_CONFLICT';
+const CHECKOUT_ITEM_CLASSIFICATION_INVALID = 'CHECKOUT_ITEM_CLASSIFICATION_INVALID';
+const VALID_CHECKOUT_CLASSIFICATIONS = Object.freeze(['MERCHANDISE', 'CLINICAL']);
 const RESERVATION_WINDOW_MS = 30 * 60 * 1000;
 
 function validateCartItems(items) {
@@ -98,9 +100,18 @@ function buildOrderItems(cartItems, inventoryById) {
       throw new ValidationError('Order amount exceeds the supported monetary range.');
     }
 
-    const itemClassification = ITEM_CLASSIFICATIONS.includes(inventory.itemClassification)
-      ? inventory.itemClassification
-      : 'UNKNOWN';
+    if (
+      !inventory.itemClassification ||
+      !VALID_CHECKOUT_CLASSIFICATIONS.includes(inventory.itemClassification)
+    ) {
+      throw new ValidationError(
+        'One or more cart items are unavailable for checkout because their classification is incomplete. Please contact the store.',
+        null,
+        CHECKOUT_ITEM_CLASSIFICATION_INVALID
+      );
+    }
+
+    const itemClassification = inventory.itemClassification;
     return {
       inventoryId: inventory._id,
       classificationSnapshot: {
@@ -254,4 +265,6 @@ module.exports = {
   RESERVATION_WINDOW_MS,
   FULFILLMENT_BRANCH_UNAVAILABLE,
   CROSS_BRANCH_CHECKOUT_CONFLICT,
+  CHECKOUT_ITEM_CLASSIFICATION_INVALID,
+  VALID_CHECKOUT_CLASSIFICATIONS,
 };
