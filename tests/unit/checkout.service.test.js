@@ -10,6 +10,7 @@ const {
   toCents,
   buildOrderItems,
   decrementInventoryStock,
+  CHECKOUT_ITEM_CLASSIFICATION_INVALID,
 } = require('../../src/services/checkout.service');
 
 const FULFILLMENT_BRANCH_ID = new mongoose.Types.ObjectId();
@@ -93,6 +94,7 @@ describe('checkout service', () => {
           category: 'Frames',
           price: 12.25,
           quantity: 5,
+          itemClassification: 'MERCHANDISE',
         },
       ])
     );
@@ -164,9 +166,10 @@ describe('checkout service', () => {
       _id: new mongoose.Types.ObjectId(INVENTORY_ID),
       itemName: 'Frame',
       category: 'Unmapped category',
+      itemClassification: 'MERCHANDISE',
       price: 12.25,
       quantity: 5,
-      loyaltyEligibility: 'ELIGIBLE',
+      loyaltyEligibility: 'FORGED_CLAIM',
       classificationSnapshot: { category: 'FORGED', loyaltyEligibility: 'ELIGIBLE' },
     };
     const result = buildOrderItems(
@@ -195,14 +198,16 @@ describe('checkout service', () => {
         source: 'Inventory',
         sourceInventoryId: inventory._id,
         category: 'Unmapped category',
-        loyaltyEligibility: 'UNKNOWN',
+        itemClassification: 'MERCHANDISE',
+        loyaltyEligibility: 'ELIGIBLE',
       },
     });
   });
-  it('records unavailable Inventory category as null without inferring eligibility or changing totals', () => {
+  it('records unavailable Inventory category as null while capturing valid classification and eligibility', () => {
     const inventory = {
       _id: new mongoose.Types.ObjectId(INVENTORY_ID),
       itemName: 'Legacy Frame',
+      itemClassification: 'MERCHANDISE',
       price: 10,
       quantity: 5,
     };
@@ -213,7 +218,8 @@ describe('checkout service', () => {
     expect(result.orderAmount).toBe(10);
     expect(result.orderItems[0].classificationSnapshot).toMatchObject({
       category: null,
-      loyaltyEligibility: 'UNKNOWN',
+      itemClassification: 'MERCHANDISE',
+      loyaltyEligibility: 'ELIGIBLE',
     });
   });
 
@@ -249,13 +255,13 @@ describe('checkout service', () => {
     expect(() =>
       buildOrderItems(
         cartItems,
-        new Map([[INVENTORY_ID, { quantity: 1, price: 12, itemName: 'Frame' }]])
+        new Map([[INVENTORY_ID, { quantity: 1, price: 12, itemName: 'Frame', itemClassification: 'MERCHANDISE' }]])
       )
     ).toThrow('Insufficient Inventory stock.');
     expect(() =>
       buildOrderItems(
         cartItems,
-        new Map([[INVENTORY_ID, { quantity: 5, price: -1, itemName: 'Frame' }]])
+        new Map([[INVENTORY_ID, { quantity: 5, price: -1, itemName: 'Frame', itemClassification: 'MERCHANDISE' }]])
       )
     ).toThrow('Inventory price is invalid.');
   });
@@ -275,5 +281,186 @@ describe('checkout service', () => {
         session
       )
     ).rejects.toMatchObject({ errorCode: 'INSUFFICIENT_STOCK' });
+  });
+
+  describe('Issue #97: Inventory classification validation during checkout', () => {
+    const INVENTORY_ID_2 = '507f1f77bcf86cd799439015';
+
+    it('accepts valid MERCHANDISE and sets loyaltyEligibility to ELIGIBLE', () => {
+      const inventory = {
+        _id: new mongoose.Types.ObjectId(INVENTORY_ID),
+        itemName: 'Designer Sunglasses',
+        category: 'Sunglasses',
+        price: 50.0,
+        quantity: 10,
+        itemClassification: 'MERCHANDISE',
+      };
+      const result = buildOrderItems(
+        [{ inventoryId: inventory._id, quantity: 1 }],
+        new Map([[INVENTORY_ID, inventory]])
+      );
+
+      expect(result.orderItems[0].classificationSnapshot).toEqual({
+        source: 'Inventory',
+        sourceInventoryId: inventory._id,
+        category: 'Sunglasses',
+        itemClassification: 'MERCHANDISE',
+        loyaltyEligibility: 'ELIGIBLE',
+      });
+    });
+
+    it('accepts valid CLINICAL and sets loyaltyEligibility to INELIGIBLE', () => {
+      const inventory = {
+        _id: new mongoose.Types.ObjectId(INVENTORY_ID),
+        itemName: 'Prescription Contact Lens',
+        category: 'Lenses',
+        price: 75.0,
+        quantity: 10,
+        itemClassification: 'CLINICAL',
+      };
+      const result = buildOrderItems(
+        [{ inventoryId: inventory._id, quantity: 2 }],
+        new Map([[INVENTORY_ID, inventory]])
+      );
+
+      expect(result.orderItems[0].classificationSnapshot).toEqual({
+        source: 'Inventory',
+        sourceInventoryId: inventory._id,
+        category: 'Lenses',
+        itemClassification: 'CLINICAL',
+        loyaltyEligibility: 'INELIGIBLE',
+      });
+    });
+
+    it('accepts mixed valid classifications (MERCHANDISE and CLINICAL) in the same cart', () => {
+      const invMerchandise = {
+        _id: new mongoose.Types.ObjectId(INVENTORY_ID),
+        itemName: 'Frame',
+        category: 'Frames',
+        price: 100.0,
+        quantity: 5,
+        itemClassification: 'MERCHANDISE',
+      };
+      const invClinical = {
+        _id: new mongoose.Types.ObjectId(INVENTORY_ID_2),
+        itemName: 'Lens Service',
+        category: 'Clinical',
+        price: 50.0,
+        quantity: 5,
+        itemClassification: 'CLINICAL',
+      };
+
+      const result = buildOrderItems(
+        [
+          { inventoryId: invMerchandise._id, quantity: 1 },
+          { inventoryId: invClinical._id, quantity: 1 },
+        ],
+        new Map([
+          [INVENTORY_ID, invMerchandise],
+          [INVENTORY_ID_2, invClinical],
+        ])
+      );
+
+      expect(result.orderAmount).toBe(150.0);
+      expect(result.orderItems[0].classificationSnapshot.itemClassification).toBe('MERCHANDISE');
+      expect(result.orderItems[0].classificationSnapshot.loyaltyEligibility).toBe('ELIGIBLE');
+      expect(result.orderItems[1].classificationSnapshot.itemClassification).toBe('CLINICAL');
+      expect(result.orderItems[1].classificationSnapshot.loyaltyEligibility).toBe('INELIGIBLE');
+    });
+
+    it.each([
+      ['missing / undefined', undefined],
+      ['null', null],
+      ['empty string', ''],
+      ['UNKNOWN', 'UNKNOWN'],
+      ['unsupported value', 'ACCESSORIES'],
+      ['arbitrary string', 'INVALID_CLASS'],
+    ])('rejects checkout when itemClassification is %s (AC1, AC3)', (_, invalidClassification) => {
+      const inventory = {
+        _id: new mongoose.Types.ObjectId(INVENTORY_ID),
+        itemName: 'Item with Bad Classification',
+        category: 'Frames',
+        price: 25.0,
+        quantity: 5,
+        itemClassification: invalidClassification,
+      };
+
+      let thrownError;
+      try {
+        buildOrderItems(
+          [{ inventoryId: inventory._id, quantity: 1 }],
+          new Map([[INVENTORY_ID, inventory]])
+        );
+      } catch (err) {
+        thrownError = err;
+      }
+
+      expect(thrownError).toBeDefined();
+      expect(thrownError.statusCode).toBe(422);
+      expect(thrownError.errorCode).toBe(CHECKOUT_ITEM_CLASSIFICATION_INVALID);
+      expect(thrownError.message).toBe(
+        'One or more cart items are unavailable for checkout because their classification is incomplete. Please contact the store.'
+      );
+    });
+
+    it('rejects entire checkout if any item in a mixed cart has an invalid classification (AC10)', () => {
+      const validItem = {
+        _id: new mongoose.Types.ObjectId(INVENTORY_ID),
+        itemName: 'Valid Frame',
+        price: 100.0,
+        quantity: 5,
+        itemClassification: 'MERCHANDISE',
+      };
+      const invalidItem = {
+        _id: new mongoose.Types.ObjectId(INVENTORY_ID_2),
+        itemName: 'Unknown Lens',
+        price: 50.0,
+        quantity: 5,
+        itemClassification: 'UNKNOWN',
+      };
+
+      expect(() =>
+        buildOrderItems(
+          [
+            { inventoryId: validItem._id, quantity: 1 },
+            { inventoryId: invalidItem._id, quantity: 1 },
+          ],
+          new Map([
+            [INVENTORY_ID, validItem],
+            [INVENTORY_ID_2, invalidItem],
+          ])
+        )
+      ).toThrow(
+        expect.objectContaining({
+          statusCode: 422,
+          errorCode: CHECKOUT_ITEM_CLASSIFICATION_INVALID,
+        })
+      );
+    });
+
+    it('aborts checkoutCustomer transaction and does not create Order or deduct stock on invalid classification (AC2)', async () => {
+      Inventory.find.mockReturnValue(
+        makeQuery([
+          {
+            _id: new mongoose.Types.ObjectId(INVENTORY_ID),
+            branchId: FULFILLMENT_BRANCH_ID,
+            itemName: 'Invalid Classification Item',
+            price: 15.0,
+            quantity: 5,
+            itemClassification: 'UNKNOWN',
+          },
+        ])
+      );
+
+      await expect(checkoutCustomer(CUSTOMER_ID)).rejects.toMatchObject({
+        statusCode: 422,
+        errorCode: CHECKOUT_ITEM_CLASSIFICATION_INVALID,
+      });
+
+      expect(Order.create).not.toHaveBeenCalled();
+      expect(OrderItem.insertMany).not.toHaveBeenCalled();
+      expect(Cart.deleteOne).not.toHaveBeenCalled();
+      expect(session.endSession).toHaveBeenCalled();
+    });
   });
 });
