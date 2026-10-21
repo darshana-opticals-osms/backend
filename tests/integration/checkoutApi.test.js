@@ -37,6 +37,7 @@ const createInventory = async (branchId, overrides = {}) =>
     brand: 'Optical Co',
     price: 12000,
     quantity: 7,
+    itemClassification: 'MERCHANDISE',
     ...overrides,
   });
 
@@ -171,8 +172,8 @@ describe('Secure Checkout API', () => {
         source: 'Inventory',
         sourceInventoryId: item.inventoryId,
         category: 'Frames',
-        itemClassification: 'UNKNOWN',
-        loyaltyEligibility: 'UNKNOWN',
+        itemClassification: 'MERCHANDISE',
+        loyaltyEligibility: 'ELIGIBLE',
       });
     }
     expect(response.body.data.items[0]).not.toHaveProperty('classificationSnapshot');
@@ -266,8 +267,8 @@ describe('Secure Checkout API', () => {
         source: 'Inventory',
         sourceInventoryId: fixture.inventory._id,
         category: 'Frames',
-        itemClassification: 'UNKNOWN',
-        loyaltyEligibility: 'UNKNOWN',
+        itemClassification: 'MERCHANDISE',
+        loyaltyEligibility: 'ELIGIBLE',
       });
       expect(item.inventoryId).toEqual(fixture.inventory._id);
       expect(item.price).toBe(12.25);
@@ -297,7 +298,17 @@ describe('Secure Checkout API', () => {
     );
     it('keeps original context and remains unresolved after later Inventory category/price changes', async () => {
       const { inventory, item } = await checkedOut();
-      const before = item.classificationSnapshot.toObject();
+      // Simulate an existing legacy unresolved snapshot in this disposable test DB
+      await OrderItem.collection.updateOne(
+        { _id: item._id },
+        {
+          $set: {
+            'classificationSnapshot.itemClassification': 'UNKNOWN',
+            'classificationSnapshot.loyaltyEligibility': 'UNKNOWN',
+          },
+        }
+      );
+      const before = (await OrderItem.findById(item._id)).classificationSnapshot.toObject();
       await Inventory.updateOne(
         { _id: inventory._id },
         { $set: { category: 'Clinical eye test', price: 1 } }
@@ -335,7 +346,17 @@ describe('Secure Checkout API', () => {
     });
     it('rejects unsupported eligibility rather than inferring an eligible total', async () => {
       const { item } = await checkedOut();
-      const snapshot = item.classificationSnapshot.toObject();
+      // Simulate clinical item snapshot where eligibility must be INELIGIBLE
+      await OrderItem.collection.updateOne(
+        { _id: item._id },
+        {
+          $set: {
+            'classificationSnapshot.itemClassification': 'CLINICAL',
+            'classificationSnapshot.loyaltyEligibility': 'INELIGIBLE',
+          },
+        }
+      );
+      const snapshot = (await OrderItem.findById(item._id)).classificationSnapshot.toObject();
       const invalid = new OrderItem({
         orderId: item.orderId,
         inventoryId: item.inventoryId,
@@ -891,6 +912,203 @@ describe('Secure Checkout API', () => {
       expect(response.body.success).toBe(false);
       expect(response.body.error.code).toBe('FULFILLMENT_BRANCH_UNAVAILABLE');
       expect(await Order.countDocuments({})).toBe(0);
+    });
+  });
+
+  describe('Issue #97: Inventory classification checkout validation & loyalty lifecycle integration', () => {
+    it('accepts checkout with valid MERCHANDISE and persists authoritative snapshot with ELIGIBLE loyalty', async () => {
+      const customer = await createCustomer('merchandise.checkout@example.com');
+      const branch = await createBranch();
+      const item = await createInventory(branch._id, {
+        itemName: 'Designer Frame',
+        price: 5000,
+        quantity: 10,
+        itemClassification: 'MERCHANDISE',
+      });
+      await createCart(customer._id, [{ inventoryId: item._id, quantity: 2 }]);
+      const token = createToken({ userId: customer._id.toString() });
+
+      const res = await request(app)
+        .post('/api/checkout')
+        .set('Authorization', `Bearer ${token}`)
+        .send();
+
+      expect(res.status).toBe(201);
+      const orderItem = await OrderItem.findOne({ orderId: res.body.data.order.id }).lean();
+      expect(orderItem.classificationSnapshot).toEqual({
+        source: 'Inventory',
+        sourceInventoryId: item._id,
+        category: 'Frames',
+        itemClassification: 'MERCHANDISE',
+        loyaltyEligibility: 'ELIGIBLE',
+      });
+      expect(await Cart.countDocuments({ customerId: customer._id })).toBe(0);
+      expect((await Inventory.findById(item._id)).quantity).toBe(8);
+    });
+
+    it('accepts checkout with valid CLINICAL and persists authoritative snapshot with INELIGIBLE loyalty', async () => {
+      const customer = await createCustomer('clinical.checkout@example.com');
+      const branch = await createBranch();
+      const item = await createInventory(branch._id, {
+        itemName: 'Prescription Examination Lens',
+        category: 'Lenses',
+        price: 3000,
+        quantity: 10,
+        itemClassification: 'CLINICAL',
+      });
+      await createCart(customer._id, [{ inventoryId: item._id, quantity: 1 }]);
+      const token = createToken({ userId: customer._id.toString() });
+
+      const res = await request(app)
+        .post('/api/checkout')
+        .set('Authorization', `Bearer ${token}`)
+        .send();
+
+      expect(res.status).toBe(201);
+      const orderItem = await OrderItem.findOne({ orderId: res.body.data.order.id }).lean();
+      expect(orderItem.classificationSnapshot).toEqual({
+        source: 'Inventory',
+        sourceInventoryId: item._id,
+        category: 'Lenses',
+        itemClassification: 'CLINICAL',
+        loyaltyEligibility: 'INELIGIBLE',
+      });
+      expect(await deriveEligibleSpendForOrder(orderItem.orderId)).toBe('0.00');
+    });
+
+    it('accepts mixed valid classifications (MERCHANDISE + CLINICAL) in one cart', async () => {
+      const customer = await createCustomer('mixed.valid.checkout@example.com');
+      const branch = await createBranch();
+      const merch = await createInventory(branch._id, {
+        itemName: 'Sun Frame',
+        price: 4000,
+        quantity: 5,
+        itemClassification: 'MERCHANDISE',
+      });
+      const clinical = await createInventory(branch._id, {
+        itemName: 'Clinical Lens',
+        price: 2000,
+        quantity: 5,
+        itemClassification: 'CLINICAL',
+      });
+      await createCart(customer._id, [
+        { inventoryId: merch._id, quantity: 1 },
+        { inventoryId: clinical._id, quantity: 1 },
+      ]);
+      const token = createToken({ userId: customer._id.toString() });
+
+      const res = await request(app)
+        .post('/api/checkout')
+        .set('Authorization', `Bearer ${token}`)
+        .send();
+
+      expect(res.status).toBe(201);
+      const items = await OrderItem.find({ orderId: res.body.data.order.id })
+        .sort({ price: -1 })
+        .lean();
+      expect(items[0].classificationSnapshot.itemClassification).toBe('MERCHANDISE');
+      expect(items[0].classificationSnapshot.loyaltyEligibility).toBe('ELIGIBLE');
+      expect(items[1].classificationSnapshot.itemClassification).toBe('CLINICAL');
+      expect(items[1].classificationSnapshot.loyaltyEligibility).toBe('INELIGIBLE');
+      expect(await deriveEligibleSpendForOrder(res.body.data.order.id)).toBe('4000.00');
+    });
+
+    it('rejects checkout with UNKNOWN itemClassification and rolls back without side effects (AC1, AC2, AC3)', async () => {
+      const customer = await createCustomer('unknown.class@example.com');
+      const branch = await createBranch();
+      const item = await createInventory(branch._id, {
+        itemName: 'Legacy Unclassified Frame',
+        price: 2000,
+        quantity: 5,
+        itemClassification: 'UNKNOWN',
+      });
+      await createCart(customer._id, [{ inventoryId: item._id, quantity: 1 }]);
+      const token = createToken({ userId: customer._id.toString() });
+
+      const res = await request(app)
+        .post('/api/checkout')
+        .set('Authorization', `Bearer ${token}`)
+        .send();
+
+      expect(res.status).toBe(422);
+      expect(res.body).toEqual({
+        success: false,
+        error: {
+          code: 'CHECKOUT_ITEM_CLASSIFICATION_INVALID',
+          message:
+            'One or more cart items are unavailable for checkout because their classification is incomplete. Please contact the store.',
+        },
+      });
+
+      // Assert fail-safe: no order, no orderItems, stock untouched, cart preserved
+      expect(await Order.countDocuments({})).toBe(0);
+      expect(await OrderItem.countDocuments({})).toBe(0);
+      expect((await Inventory.findById(item._id)).quantity).toBe(5);
+      expect(await Cart.countDocuments({ customerId: customer._id })).toBe(1);
+    });
+
+    it('rejects checkout with missing/null itemClassification without side effects', async () => {
+      const customer = await createCustomer('null.class@example.com');
+      const branch = await createBranch();
+      const item = await createInventory(branch._id, {
+        itemName: 'Null Classification Frame',
+        price: 2500,
+        quantity: 4,
+      });
+      await Inventory.collection.updateOne(
+        { _id: item._id },
+        { $unset: { itemClassification: '' } }
+      );
+
+      await createCart(customer._id, [{ inventoryId: item._id, quantity: 1 }]);
+      const token = createToken({ userId: customer._id.toString() });
+
+      const res = await request(app)
+        .post('/api/checkout')
+        .set('Authorization', `Bearer ${token}`)
+        .send();
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('CHECKOUT_ITEM_CLASSIFICATION_INVALID');
+      expect(await Order.countDocuments({})).toBe(0);
+      expect(await OrderItem.countDocuments({})).toBe(0);
+      expect((await Inventory.findById(item._id)).quantity).toBe(4);
+      expect(await Cart.countDocuments({ customerId: customer._id })).toBe(1);
+    });
+
+    it('rejects mixed cart containing even one invalid classification without partial changes (AC10)', async () => {
+      const customer = await createCustomer('mixed.invalid@example.com');
+      const branch = await createBranch();
+      const validItem = await createInventory(branch._id, {
+        itemName: 'Good Frame',
+        price: 1500,
+        quantity: 5,
+        itemClassification: 'MERCHANDISE',
+      });
+      const invalidItem = await createInventory(branch._id, {
+        itemName: 'Bad Frame',
+        price: 1500,
+        quantity: 5,
+        itemClassification: 'UNKNOWN',
+      });
+      await createCart(customer._id, [
+        { inventoryId: validItem._id, quantity: 2 },
+        { inventoryId: invalidItem._id, quantity: 1 },
+      ]);
+      const token = createToken({ userId: customer._id.toString() });
+
+      const res = await request(app)
+        .post('/api/checkout')
+        .set('Authorization', `Bearer ${token}`)
+        .send();
+
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('CHECKOUT_ITEM_CLASSIFICATION_INVALID');
+      expect(await Order.countDocuments({})).toBe(0);
+      expect(await OrderItem.countDocuments({})).toBe(0);
+      expect((await Inventory.findById(validItem._id)).quantity).toBe(5);
+      expect((await Inventory.findById(invalidItem._id)).quantity).toBe(5);
+      expect(await Cart.countDocuments({ customerId: customer._id })).toBe(1);
     });
   });
 });
