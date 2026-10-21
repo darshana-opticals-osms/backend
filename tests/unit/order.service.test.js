@@ -840,9 +840,9 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
       });
       Customer.find.mockReturnValue({
         select: jest.fn().mockReturnValue({
-          lean: jest.fn().mockResolvedValue([
-            { _id: CUSTOMER_ID, name: 'Kamal Perera', phone: '+94712345678' },
-          ]),
+          lean: jest
+            .fn()
+            .mockResolvedValue([{ _id: CUSTOMER_ID, name: 'Kamal Perera', phone: '+94712345678' }]),
         }),
       });
 

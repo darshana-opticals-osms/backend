@@ -285,7 +285,7 @@ describe('Staff Orders API - Customer Details Integration (Issue #95)', () => {
         statusUpdatedAt: now,
       });
 
-      const item = await OrderItem.create({
+      await OrderItem.create({
         orderId: order._id,
         inventoryId: new mongoose.Types.ObjectId(),
         itemName: 'Ray-Ban Aviator',

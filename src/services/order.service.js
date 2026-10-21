@@ -132,8 +132,8 @@ function shapeOrderSummary(order, options = {}) {
       options.customer !== undefined
         ? shapeCustomerSummary(options.customer)
         : order.customer
-        ? shapeCustomerSummary(order.customer)
-        : null;
+          ? shapeCustomerSummary(order.customer)
+          : null;
   }
 
   return shaped;
