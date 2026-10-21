@@ -950,6 +950,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
         brand: 'Essilor',
         price: 20000,
         quantity: 10,
+        itemClassification: 'MERCHANDISE',
       });
 
       // 1. Add item to Customer Cart
@@ -1037,6 +1038,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
         brand: 'Ray-Ban',
         price: 15000,
         quantity: 5,
+        itemClassification: 'MERCHANDISE',
       });
 
       await Cart.create({
@@ -1379,6 +1381,7 @@ describe('Staff Order Status Update API (PATCH /api/orders/:id/status)', () => {
         brand: 'Darshana',
         price: 15000,
         quantity: 10,
+        itemClassification: 'MERCHANDISE',
       });
       const customer = await createCustomer('unclaimed-cancel@example.com');
       const customerToken = createToken({

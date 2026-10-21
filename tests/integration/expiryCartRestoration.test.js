@@ -113,6 +113,7 @@ describe('Automatic unpaid expiry Cart recovery (isolated HTTP and transactions)
       brand: 'Test',
       price: 100,
       quantity: 8,
+      itemClassification: 'MERCHANDISE',
       ...overrides,
     });
   }
