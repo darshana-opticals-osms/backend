@@ -36,16 +36,19 @@ async function runDiagnostic() {
     const OrderItem = mongoose.connection.collection('orderitems');
 
     // Find orders in PICKED_UP status
-    const pickedUpOrders = await Order.find({ status: 'PICKED_UP' }, {
-      projection: {
-        _id: 1,
-        status: 1,
-        orderAmount: 1,
-        orderDate: 1,
-        statusUpdatedAt: 1,
-        branchId: 1,
-      },
-    }).toArray();
+    const pickedUpOrders = await Order.find(
+      { status: 'PICKED_UP' },
+      {
+        projection: {
+          _id: 1,
+          status: 1,
+          orderAmount: 1,
+          orderDate: 1,
+          statusUpdatedAt: 1,
+          branchId: 1,
+        },
+      }
+    ).toArray();
 
     console.log(`[INFO] Total Orders currently at PICKED_UP status: ${pickedUpOrders.length}`);
 
@@ -149,10 +152,16 @@ async function runDiagnostic() {
     console.log(`Total Orders at PICKED_UP:                 ${pickedUpOrders.length}`);
     console.log(`Total Affected Orders with Defects:        ${affectedCount}`);
     console.log(`- Missing Snapshot Defects:                ${defectSummary.missingSnapshot}`);
-    console.log(`- UNKNOWN Classification Defects:          ${defectSummary.unknownClassification}`);
-    console.log(`- Unsupported Classification Defects:      ${defectSummary.unsupportedClassification}`);
+    console.log(
+      `- UNKNOWN Classification Defects:          ${defectSummary.unknownClassification}`
+    );
+    console.log(
+      `- Unsupported Classification Defects:      ${defectSummary.unsupportedClassification}`
+    );
     console.log(`- Missing/Inconsistent Inventory Ref:      ${defectSummary.missingInventoryRef}`);
-    console.log(`- Inconsistent Loyalty Eligibility:        ${defectSummary.invalidEligibilityMapping}`);
+    console.log(
+      `- Inconsistent Loyalty Eligibility:        ${defectSummary.invalidEligibilityMapping}`
+    );
     console.log('='.repeat(70));
     console.log('[NOTE] In accordance with AC8, NO historical mutations were performed.');
     console.log('       Refer to docs/investigation-affected-orders-classification-97.md');

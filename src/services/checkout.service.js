@@ -7,7 +7,7 @@ const OrderItem = require('../models/orderItem.model');
 const { ORDER_STATUS_VALUES } = require('../constants/orderStatuses');
 const { ConflictError, NotFoundError, ValidationError } = require('../errors/AppError');
 const { deductInventoryStock } = require('./inventory.service');
-const { ITEM_CLASSIFICATIONS, LOYALTY_ELIGIBILITY } = require('../constants/itemClassification');
+const { LOYALTY_ELIGIBILITY } = require('../constants/itemClassification');
 const { getOnlineFulfillmentBranch } = require('./fulfillmentBranch.service');
 
 const CUSTOMER_NOT_FOUND = 'CUSTOMER_NOT_FOUND';

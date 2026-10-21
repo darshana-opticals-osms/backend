@@ -255,13 +255,23 @@ describe('checkout service', () => {
     expect(() =>
       buildOrderItems(
         cartItems,
-        new Map([[INVENTORY_ID, { quantity: 1, price: 12, itemName: 'Frame', itemClassification: 'MERCHANDISE' }]])
+        new Map([
+          [
+            INVENTORY_ID,
+            { quantity: 1, price: 12, itemName: 'Frame', itemClassification: 'MERCHANDISE' },
+          ],
+        ])
       )
     ).toThrow('Insufficient Inventory stock.');
     expect(() =>
       buildOrderItems(
         cartItems,
-        new Map([[INVENTORY_ID, { quantity: 5, price: -1, itemName: 'Frame', itemClassification: 'MERCHANDISE' }]])
+        new Map([
+          [
+            INVENTORY_ID,
+            { quantity: 5, price: -1, itemName: 'Frame', itemClassification: 'MERCHANDISE' },
+          ],
+        ])
       )
     ).toThrow('Inventory price is invalid.');
   });

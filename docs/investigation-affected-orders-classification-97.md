@@ -13,13 +13,13 @@
 
 When investigating an Order encountering `LOYALTY_ITEM_CLASSIFICATION_REQUIRED`, diagnostic analysis must differentiate between the following distinct defect types:
 
-| Defect Category | Diagnostic Criteria | Root Cause / Origin | Impact |
-| :--- | :--- | :--- | :--- |
-| **A. `UNKNOWN` Classification** | `snapshot.itemClassification === 'UNKNOWN'` | Inventory catalog item had missing or `UNKNOWN` classification at checkout time. | Blocked at `loyaltyEligibility.service.js:38`. |
-| **B. Missing Snapshot** | `item.classificationSnapshot == null` | Legacy OrderItem created prior to the introduction of snapshot schemas. | Blocked at `loyaltyEligibility.service.js:33`. |
-| **C. Inconsistent Inventory Reference** | `!snapshot.sourceInventoryId.equals(item.inventoryId)` or missing reference | Tampered or malformed item reference linking to non-authoritative inventory. | Blocked at `loyaltyEligibility.service.js:37`. |
-| **D. Inconsistent Loyalty Eligibility** | `snapshot.loyaltyEligibility !== LOYALTY_ELIGIBILITY[snapshot.itemClassification]` | Mismatch between declared classification and expected eligibility mapping. | Blocked at `loyaltyEligibility.service.js:39`. |
-| **E. Item Total vs Order Total Mismatch** | `sum(item.price * item.quantity) !== order.orderAmount` | Discrepancy between stored order amount and line items. | Blocked at `loyaltyEligibility.service.js:52`. |
+| Defect Category                           | Diagnostic Criteria                                                                | Root Cause / Origin                                                              | Impact                                         |
+| :---------------------------------------- | :--------------------------------------------------------------------------------- | :------------------------------------------------------------------------------- | :--------------------------------------------- |
+| **A. `UNKNOWN` Classification**           | `snapshot.itemClassification === 'UNKNOWN'`                                        | Inventory catalog item had missing or `UNKNOWN` classification at checkout time. | Blocked at `loyaltyEligibility.service.js:38`. |
+| **B. Missing Snapshot**                   | `item.classificationSnapshot == null`                                              | Legacy OrderItem created prior to the introduction of snapshot schemas.          | Blocked at `loyaltyEligibility.service.js:33`. |
+| **C. Inconsistent Inventory Reference**   | `!snapshot.sourceInventoryId.equals(item.inventoryId)` or missing reference        | Tampered or malformed item reference linking to non-authoritative inventory.     | Blocked at `loyaltyEligibility.service.js:37`. |
+| **D. Inconsistent Loyalty Eligibility**   | `snapshot.loyaltyEligibility !== LOYALTY_ELIGIBILITY[snapshot.itemClassification]` | Mismatch between declared classification and expected eligibility mapping.       | Blocked at `loyaltyEligibility.service.js:39`. |
+| **E. Item Total vs Order Total Mismatch** | `sum(item.price * item.quantity) !== order.orderAmount`                            | Discrepancy between stored order amount and line items.                          | Blocked at `loyaltyEligibility.service.js:52`. |
 
 ---
 
@@ -28,6 +28,7 @@ When investigating an Order encountering `LOYALTY_ITEM_CLASSIFICATION_REQUIRED`,
 To ensure zero risk to live databases and protect Customer PII and payment security, all investigation must execute through sanitized, read-only queries.
 
 ### 3.1 Privacy and Security Safeguards
+
 - **Zero Customer PII:** Never output customer names, email addresses, phone numbers, or delivery addresses.
 - **Zero Payment Secrets:** Never query or log payment transaction secrets, signatures, card details, or PayHere callback tokens.
 - **Strict Read-Only Connection:** Use `.lean()` queries and read-only MongoDB roles without write (`insert`/`update`/`delete`) permissions.
@@ -39,16 +40,16 @@ To ensure zero risk to live databases and protect Customer PII and payment secur
 db.orders.aggregate([
   {
     $match: {
-      status: 'PICKED_UP'
-    }
+      status: 'PICKED_UP',
+    },
   },
   {
     $lookup: {
       from: 'orderitems',
       localField: '_id',
       foreignField: 'orderId',
-      as: 'items'
-    }
+      as: 'items',
+    },
   },
   {
     $match: {
@@ -56,9 +57,11 @@ db.orders.aggregate([
         { 'items.classificationSnapshot': { $exists: false } },
         { 'items.classificationSnapshot': null },
         { 'items.classificationSnapshot.itemClassification': 'UNKNOWN' },
-        { 'items.classificationSnapshot.itemClassification': { $nin: ['MERCHANDISE', 'CLINICAL'] } }
-      ]
-    }
+        {
+          'items.classificationSnapshot.itemClassification': { $nin: ['MERCHANDISE', 'CLINICAL'] },
+        },
+      ],
+    },
   },
   {
     $project: {
@@ -75,15 +78,22 @@ db.orders.aggregate([
               $or: [
                 { $eq: [{ $ifNull: ['$$it.classificationSnapshot', null] }, null] },
                 { $eq: ['$$it.classificationSnapshot.itemClassification', 'UNKNOWN'] },
-                { $not: { $in: ['$$it.classificationSnapshot.itemClassification', ['MERCHANDISE', 'CLINICAL']] } }
-              ]
-            }
-          }
-        }
+                {
+                  $not: {
+                    $in: [
+                      '$$it.classificationSnapshot.itemClassification',
+                      ['MERCHANDISE', 'CLINICAL'],
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        },
       },
-      itemClassifications: '$items.classificationSnapshot.itemClassification'
-    }
-  }
+      itemClassifications: '$items.classificationSnapshot.itemClassification',
+    },
+  },
 ]);
 ```
 
@@ -105,11 +115,13 @@ Under Acceptance Criteria 8, automatic script-based mutation of historical Order
 If already-paid affected Orders exist in staging or production environments, the following three options are available. Any remediation requires prior written sign-off from the Lead Architect, Product Owner, and Security Officer.
 
 ### Option 1: Standard Customer Service Exception Flow (Recommended)
+
 - **Mechanism:** Treat the affected Order through existing staff customer service protocols. Since physical merchandise has already been picked up (`PICKED_UP`), verify physical fulfillment with the customer.
 - **Loyalty Resolution:** If loyalty eligibility cannot be verified automatically, a Customer Service supervisor grants a manual customer goodwill point adjustment via the authorized Loyalty Management API, logging full audit context (`SYSTEM_CUSTOMER_SERVICE_ADJUSTMENT`).
 - **Order Lifecycle:** Transition the order through an authorized administrative maintenance operation with explicit audit recording rather than modifying underlying item history.
 
 ### Option 2: Business-Approved Audit Correction Migration
+
 - **Mechanism:** A dedicated migration script executed in an isolated maintenance window under two-person control.
 - **Requirements:**
   1. Complete export and hashing of pre-migration collections (`orders`, `orderitems`).
@@ -119,6 +131,7 @@ If already-paid affected Orders exist in staging or production environments, the
 - **Risks:** High operational complexity; requires schema immutability bypass during migration window.
 
 ### Option 3: Manual Store Settlement
+
 - **Mechanism:** In cases where fewer than 5 orders are affected, store administrators manually finalize order records with store operations, leaving database records intact to preserve audit history.
 
 ---
@@ -126,6 +139,7 @@ If already-paid affected Orders exist in staging or production environments, the
 ## 6. Preventive Verification
 
 With the completion of Issue #97:
+
 - New checkouts validate `itemClassification` prior to order persistence.
 - Any cart item lacking valid `MERCHANDISE` or `CLINICAL` classification immediately fails checkout with HTTP 422 `CHECKOUT_ITEM_CLASSIFICATION_INVALID`.
 - No new Orders with `UNKNOWN` snapshots can ever be created.
