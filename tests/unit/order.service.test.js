@@ -25,6 +25,7 @@ const {
   updateOrderStatus,
   shapeOrderItem,
   shapeOrderSummary,
+  shapeOrderDetail,
   shapeCustomerSummary,
   shapeHistoryEntry,
 } = require('../../src/services/order.service');
@@ -248,6 +249,54 @@ describe('shapeCustomerSummary()', () => {
 
 // ─── shapeOrderSummary ────────────────────────────────────────────────────────
 
+describe('shapeOrderDetail() registered address (DDP-097)', () => {
+  const customer = {
+    name: 'Kamal Perera',
+    phone: '+94712345678',
+    address: ' 10 High Level Rd, Nugegoda ',
+    email: 'private@example.com',
+  };
+
+  it('includes the registered address only in opted-in staff order details', () => {
+    const detail = shapeOrderDetail(makeOrder(), [], {
+      isStaff: true,
+      customer,
+      includeCustomerAddress: true,
+    });
+    expect(detail.customer).toEqual({
+      name: 'Kamal Perera',
+      phone: '+94712345678',
+      address: '10 High Level Rd, Nugegoda',
+    });
+    expect(detail.customer).not.toHaveProperty('email');
+  });
+
+  it('preserves staff order list data without address', () => {
+    const summary = shapeOrderSummary(makeOrder(), { isStaff: true, customer });
+    expect(summary.customer).toEqual({
+      name: 'Kamal Perera',
+      phone: '+94712345678',
+    });
+  });
+
+  it('never adds staff-only customer data to customer-facing order details', () => {
+    const detail = shapeOrderDetail(makeOrder(), [], {
+      isStaff: false,
+      customer,
+      includeCustomerAddress: true,
+    });
+    expect(detail).not.toHaveProperty('customer');
+  });
+
+  it('uses an empty address when the customer has no registered address', () => {
+    const detail = shapeOrderDetail(makeOrder(), [], {
+      isStaff: true,
+      customer: { name: 'Kamal Perera', phone: '+94712345678' },
+      includeCustomerAddress: true,
+    });
+    expect(detail.customer.address).toBe('');
+  });
+});
 describe('shapeOrderSummary()', () => {
   it('returns expected top-level fields (AC7, AC8, AC18)', () => {
     const order = makeOrder();
@@ -989,6 +1038,7 @@ describe('Staff Order Tracking Visibility (AC6, ADR-004 §13)', () => {
       expect(result.customer).toEqual({
         name: 'Anura Kumara',
         phone: '+94719876543',
+        address: '',
       });
       // Ensure no sensitive fields leak (AC6)
       expect(result.customer).not.toHaveProperty('email');

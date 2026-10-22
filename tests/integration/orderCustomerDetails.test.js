@@ -307,10 +307,11 @@ describe('Staff Orders API - Customer Details Integration (Issue #95)', () => {
       expect(orderData.items).toHaveLength(1);
       expect(orderData.items[0].itemName).toBe('Ray-Ban Aviator');
 
-      // Customer info (AC3)
+      // Customer info (AC3, DDP-097): registered address is available in staff details only.
       expect(orderData.customer).toEqual({
         name: 'Kamal Perera',
         phone: '+94712345678',
+        address: '10 High Level Rd, Nugegoda',
       });
       // Verify no sensitive fields leaked (AC6)
       expect(orderData.customer.email).toBeUndefined();
@@ -319,6 +320,29 @@ describe('Staff Orders API - Customer Details Integration (Issue #95)', () => {
       expect(orderData.customer._id).toBeUndefined();
     });
 
+    it('returns an empty address when the registered address is blank (DDP-097)', async () => {
+      await Customer.updateOne({ _id: customerA._id }, { $set: { address: '' } });
+      const now = new Date();
+      const order = await Order.create({
+        customerId: customerA._id,
+        branchId: branch1._id,
+        orderDate: now,
+        orderAmount: 5000,
+        status: ORDER_STATUS_VALUES.ORDER_CREATED,
+        statusUpdatedAt: now,
+      });
+
+      const res = await request(app)
+        .get(`/api/orders/${order._id}`)
+        .set('Authorization', `Bearer ${staffManagerToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.customer).toEqual({
+        name: 'Kamal Perera',
+        phone: '+94712345678',
+        address: '',
+      });
+    });
     it('safely returns customer: null when customer record is missing for single order (AC7)', async () => {
       const nonExistentCustomerId = new mongoose.Types.ObjectId();
       const now = new Date();

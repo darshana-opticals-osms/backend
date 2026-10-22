@@ -152,8 +152,13 @@ function shapeOrderSummary(order, options = {}) {
  * @returns {object}
  */
 function shapeOrderDetail(order, items, options = {}) {
+  const shaped = shapeOrderSummary(order, options);
+  if (options.isStaff && options.includeCustomerAddress && shaped.customer) {
+    shaped.customer.address =
+      typeof options.customer?.address === 'string' ? options.customer.address.trim() : '';
+  }
   return {
-    ...shapeOrderSummary(order, options),
+    ...shaped,
     items: items.map(shapeOrderItem),
   };
 }
@@ -321,14 +326,15 @@ async function getOrderById({ orderId, userId, role, branchId = null }) {
   if (isStaff && order.customerId && typeof Customer?.findById === 'function') {
     const rawQuery = Customer.findById(order.customerId);
     if (rawQuery) {
-      const q = typeof rawQuery.select === 'function' ? rawQuery.select('name phone') : rawQuery;
+      const q =
+        typeof rawQuery.select === 'function' ? rawQuery.select('name phone address') : rawQuery;
       customer = typeof q?.lean === 'function' ? await q.lean() : await q;
     }
   } else if (isStaff && order.customer) {
     customer = order.customer;
   }
 
-  return shapeOrderDetail(order, items, { isStaff, customer });
+  return shapeOrderDetail(order, items, { isStaff, customer, includeCustomerAddress: isStaff });
 }
 
 /**
