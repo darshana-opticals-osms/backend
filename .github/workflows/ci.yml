@@ -51,17 +51,18 @@ jobs:
       - name: Run dependency security scan
         if: github.event_name == 'pull_request' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
         run: npm audit --audit-level=high
-  # Trigger cross-repository backend staging deployment on develop merge
+  # Trigger cross-repository backend staging deployment on develop merge (Findings 1 & 2)
+  # Guarded by vars.ENABLE_AWS_DEPLOY_DISPATCH per ADR-015 (Render.com active staging fallback)
   trigger-staging-deploy:
     name: Trigger Staging Deployment (Infra)
     needs: backend-ci
-    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push' && vars.ENABLE_AWS_DEPLOY_DISPATCH == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Dispatch deployment event to infra repository
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.INFRA_DISPATCH_TOKEN || secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.INFRA_DISPATCH_TOKEN }}
           script: |
             try {
               await github.rest.repos.createDispatchEvent({
@@ -77,4 +78,6 @@ jobs:
               console.log('Successfully dispatched backend-deploy event to darshana-opticals-osms/infra for commit: ' + context.sha);
             } catch (error) {
               console.error('Failed to dispatch deployment event to infra:', error.message);
+              // Finding 1: Propagate failure visibly so job reports failure
+              throw error;
             }
