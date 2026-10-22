@@ -1151,6 +1151,24 @@ const options = {
             },
           },
         },
+        OrderCustomerDetail: {
+          type: 'object',
+          nullable: true,
+          description:
+            'Customer details returned only for authorized staff GET /orders/{id} (DDP-097). ' +
+            'Registered address is a reference, not a confirmed shipping address. ' +
+            'Omitted from customer-facing responses; null if the Customer record is missing.',
+          required: ['name', 'phone', 'address'],
+          properties: {
+            name: { type: 'string', example: 'Kamal Perera' },
+            phone: { type: 'string', example: '+94712345678' },
+            address: {
+              type: 'string',
+              description: 'Current registered Customer address; empty string when not provided.',
+              example: '10 High Level Rd, Nugegoda',
+            },
+          },
+        },
         OrderSummary: {
           type: 'object',
           description:
@@ -1251,6 +1269,10 @@ const options = {
               description: 'Full Order detail including associated OrderItems (AC9).',
               required: ['items'],
               properties: {
+                customer: {
+                  $ref: '#/components/schemas/OrderCustomerDetail',
+                  description: 'Staff single-order detail only; omitted for customer callers.',
+                },
                 items: {
                   type: 'array',
                   description:
