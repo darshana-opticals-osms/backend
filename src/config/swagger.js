@@ -322,7 +322,7 @@ const options = {
         },
         RegisterRequest: {
           type: 'object',
-          required: ['name', 'email', 'phone', 'password'],
+          required: ['name', 'email', 'address', 'phone', 'password'],
           properties: {
             name: {
               type: 'string',
@@ -335,7 +335,7 @@ const options = {
             },
             address: {
               type: 'string',
-              nullable: true,
+              minLength: 1,
               example: '12 Main Street, Colombo',
             },
             phone: {

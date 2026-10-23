@@ -82,32 +82,26 @@ describe('POST /api/auth/register', () => {
     expect(customer.passwordHash).not.toBe(payload.password);
   });
 
-  it('should create a customer account successfully when optional address field is omitted', async () => {
-    // Arrange
-    const payloadWithoutAddress = {
+  it.each([
+    ['missing', undefined],
+    ['empty', ''],
+    ['whitespace-only', '   '],
+    ['null', null],
+  ])('rejects a %s registered address', async (_scenario, address) => {
+    const payload = {
       name: 'Bob Customer',
       email: 'bob.noaddress@example.com',
       phone: '+94719876543',
       password: 'StrongPass123!',
     };
+    if (address !== undefined) payload.address = address;
 
-    // Act
-    const response = await request(app).post('/api/auth/register').send(payloadWithoutAddress);
+    const response = await request(app).post('/api/auth/register').send(payload);
 
-    // Assert
-    expect(response.status).toBe(201);
-    expect(response.body.success).toBe(true);
-    expect(response.body.data).toMatchObject({
-      name: 'Bob Customer',
-      email: 'bob.noaddress@example.com',
-      address: '',
-      phone: '+94719876543',
-      role: ROLE_VALUES.CUSTOMER,
-    });
-
-    const customer = await Customer.findOne({ email: 'bob.noaddress@example.com' }).lean();
-    expect(customer).toBeTruthy();
-    expect(customer.address).toBe('');
+    expect(response.status).toBe(422);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error.code).toBe('VALIDATION_ERROR');
+    expect(await Customer.countDocuments({ email: payload.email })).toBe(0);
   });
 
   it('should reject registration when a provided address is not a string (e.g. number or object)', async () => {

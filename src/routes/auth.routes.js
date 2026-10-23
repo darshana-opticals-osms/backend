@@ -54,8 +54,15 @@ const registerValidation = (req) => {
   }
 
   const addressValue = body.address;
-  if (addressValue !== undefined && addressValue !== null && typeof addressValue !== 'string') {
-    validationErrors.push({ field: 'address', message: 'address must be a string' });
+  if (typeof addressValue !== 'string') {
+    validationErrors.push({
+      field: 'address',
+      message: addressValue == null ? 'address is required' : 'address must be a string',
+    });
+  } else if (!addressValue.trim()) {
+    validationErrors.push({ field: 'address', message: 'address is required' });
+  } else {
+    req.body.address = addressValue.trim();
   }
 
   const phoneValue = body.phone;
@@ -195,7 +202,7 @@ const router = express.Router();
  * /auth/register:
  *   post:
  *     summary: Register a new customer account
- *     description: Public registration for a CUSTOMER account. Address is optional, privileged role fields are rejected, and duplicate conflict detection is based on email.
+ *     description: Public registration for a CUSTOMER account. Address is required, privileged role fields are rejected, and duplicate conflict detection is based on email.
  *     tags:
  *       - Authentication
  *     requestBody:
