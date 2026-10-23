@@ -163,12 +163,16 @@ describe('Payment API and PayHere IPN', () => {
       status: PAYMENT_STATUS.PENDING,
     });
     expect(attempts[0].expiresAt.getTime()).toBe(order.reservationExpiresAt.getTime());
+    expect((await Order.findById(order._id)).orderAddress).toBe('12 Main Street');
+    expect(responses[0].body.data.gateway.fields.address).toBe('12 Main Street');
   });
 
   it('revalidates and reuses the canonical winning attempt after a duplicate-key race', async () => {
     const customer = await createCustomer('pay-duplicate-recovery@example.com');
     const order = await createOrder(customer);
     const winningPaymentId = new mongoose.Types.ObjectId();
+    // Simulate the winning transaction also having durably saved its Order address.
+    await Order.updateOne({ _id: order._id }, { $set: { orderAddress: '12 Main Street' } });
     const saveSpy = jest.spyOn(Payment.prototype, 'save').mockImplementationOnce(async () => {
       const timestamp = new Date();
       await Payment.collection.insertOne({
@@ -467,6 +471,88 @@ describe('Payment API and PayHere IPN', () => {
     const storedCustomer = await Customer.findById(customer._id);
     expect(storedCustomer.name).toBe('Payment Customer');
     expect(storedCustomer.address).toBe('12 Main Street');
+    expect((await Order.findById(order._id)).orderAddress).toBe('45 Lake Road');
+  });
+
+  it('rejects missing registered address and city before creating a payment attempt', async () => {
+    const customer = await createCustomer('pay-missing-address@example.com');
+    const order = await createOrder(customer);
+    await Customer.updateOne({ _id: customer._id }, { $set: { address: '' } });
+
+    const noAddress = await initiate(customer, order);
+    expect(noAddress.status).toBe(422);
+    expect(noAddress.body.error.code).toBe('PAYMENT_BILLING_REQUIRED');
+    expect(await Payment.countDocuments({ orderId: order._id })).toBe(0);
+    expect((await Order.findById(order._id)).orderAddress).toBe('');
+
+    const noCity = await initiate(customer, order, { address: '9 New Road', city: undefined });
+    expect(noCity.status).toBe(422);
+    expect(await Payment.countDocuments({ orderId: order._id })).toBe(0);
+
+    const valid = await initiate(customer, order, { address: ' 9 New Road ', city: 'Galle' });
+    expect(valid.status).toBe(201);
+    expect(valid.body.data.gateway.fields.address).toBe('9 New Road');
+    expect((await Order.findById(order._id)).orderAddress).toBe('9 New Road');
+  });
+
+  it('keeps one immutable address through profile changes, active reuse and failed-attempt retry', async () => {
+    const customer = await createCustomer('pay-address-reuse@example.com');
+    const order = await createOrder(customer);
+    const first = await initiate(customer, order);
+    expect(first.status).toBe(201);
+
+    await Customer.updateOne({ _id: customer._id }, { $set: { address: '88 Changed Profile Rd' } });
+    const reused = await initiate(customer, order, { address: '42 Different Road' });
+    expect(reused.status).toBe(201);
+    expect(reused.body.data.payment.paymentId).toBe(first.body.data.payment.paymentId);
+    expect(reused.body.data.gateway.fields.address).toBe('12 Main Street');
+
+    await Payment.updateOne(
+      { _id: first.body.data.payment.paymentId },
+      { $set: { status: PAYMENT_STATUS.FAILED } }
+    );
+    const retried = await initiate(customer, order, { address: '77 Another Road' });
+    expect(retried.status).toBe(201);
+    expect(retried.body.data.payment.paymentId).not.toBe(first.body.data.payment.paymentId);
+    expect(retried.body.data.gateway.fields.address).toBe('12 Main Street');
+    expect((await Order.findById(order._id)).orderAddress).toBe('12 Main Street');
+    expect(await Payment.countDocuments({ orderId: order._id })).toBe(2);
+  });
+
+  it('uses the winning address when concurrent initiations supply different overrides', async () => {
+    const customer = await createCustomer('pay-two-addresses@example.com');
+    const order = await createOrder(customer);
+    const results = await Promise.all([
+      initiate(customer, order, { address: 'First Street' }),
+      initiate(customer, order, { address: 'Second Street' }),
+    ]);
+    expect(results.map((result) => result.status)).toEqual([201, 201]);
+    const saved = (await Order.findById(order._id)).orderAddress;
+    expect(['First Street', 'Second Street']).toContain(saved);
+    for (const result of results) {
+      expect(result.body.data.gateway.fields.address).toBe(saved);
+    }
+    expect(await Payment.countDocuments({ orderId: order._id })).toBe(1);
+  });
+
+  it('fails closed on a legacy active attempt without a saved order address', async () => {
+    const customer = await createCustomer('pay-old-active@example.com');
+    const order = await createOrder(customer);
+    await Payment.create({
+      orderId: order._id,
+      amount: order.orderAmount,
+      currency: PAYMENT_CURRENCY.LKR,
+      method: PAYMENT_METHOD.ONLINE_GATEWAY,
+      provider: PAYMENT_PROVIDER.PAYHERE,
+      status: PAYMENT_STATUS.PENDING,
+      providerOrderId: `PAY-${new mongoose.Types.ObjectId()}`,
+      expiresAt: order.reservationExpiresAt,
+    });
+    const response = await initiate(customer, order, { address: 'Different Road' });
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('PAYMENT_ORDER_ADDRESS_UNAVAILABLE');
+    expect(await Payment.countDocuments({ orderId: order._id })).toBe(1);
+    expect((await Order.findById(order._id)).orderAddress).toBe('');
   });
 
   it('rejects client financial fields and cross-customer initiation/status access', async () => {

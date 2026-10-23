@@ -297,6 +297,23 @@ describe('shapeOrderDetail() registered address (DDP-097)', () => {
     expect(detail.customer.address).toBe('');
   });
 });
+describe('shapeOrderDetail() payment address snapshot (DDP-101)', () => {
+  it('includes snapshot only when explicitly selected for authorized single-order details', () => {
+    const order = makeOrder({ orderAddress: ' 45 Lake Road ' });
+    expect(shapeOrderDetail(order, [], { includeOrderAddress: true }).orderAddress).toBe(
+      '45 Lake Road'
+    );
+    expect(shapeOrderDetail(order, [])).not.toHaveProperty('orderAddress');
+    expect(shapeOrderSummary(order)).not.toHaveProperty('orderAddress');
+    expect(shapeOrderSummary(order, { isStaff: true })).not.toHaveProperty('orderAddress');
+  });
+
+  it('reports an empty snapshot for legacy orders, without using the live profile address', () => {
+    const detail = shapeOrderDetail(makeOrder(), [], { includeOrderAddress: true });
+    expect(detail.orderAddress).toBe('');
+  });
+});
+
 describe('shapeOrderSummary()', () => {
   it('returns expected top-level fields (AC7, AC8, AC18)', () => {
     const order = makeOrder();

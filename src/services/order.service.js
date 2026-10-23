@@ -153,6 +153,9 @@ function shapeOrderSummary(order, options = {}) {
  */
 function shapeOrderDetail(order, items, options = {}) {
   const shaped = shapeOrderSummary(order, options);
+  if (options.includeOrderAddress) {
+    shaped.orderAddress = typeof order.orderAddress === 'string' ? order.orderAddress.trim() : '';
+  }
   if (options.isStaff && options.includeCustomerAddress && shaped.customer) {
     shaped.customer.address =
       typeof options.customer?.address === 'string' ? options.customer.address.trim() : '';
@@ -334,7 +337,12 @@ async function getOrderById({ orderId, userId, role, branchId = null }) {
     customer = order.customer;
   }
 
-  return shapeOrderDetail(order, items, { isStaff, customer, includeCustomerAddress: isStaff });
+  return shapeOrderDetail(order, items, {
+    isStaff,
+    customer,
+    includeCustomerAddress: isStaff,
+    includeOrderAddress: true,
+  });
 }
 
 /**

@@ -55,6 +55,11 @@ const orderSchema = new mongoose.Schema(
       required: true,
       min: [0, 'Order amount cannot be negative.'],
     },
+    orderAddress: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     status: {
       type: String,
       enum: ORDER_STATUSES,

@@ -1,6 +1,16 @@
 const swaggerSpec = require('../../src/config/swagger');
 
 describe('Swagger documentation integrity', () => {
+  it('documents the Order address only in single-order detail and safe payment behavior', () => {
+    const summary = swaggerSpec.components.schemas.OrderSummary;
+    const detail = swaggerSpec.components.schemas.OrderDetail.allOf[1];
+    expect(summary.properties).not.toHaveProperty('orderAddress');
+    expect(detail.properties.orderAddress.type).toBe('string');
+    expect(detail.required).not.toContain('orderAddress');
+    expect(detail.properties.orderAddress.description).toMatch(/legacy Orders/);
+    expect(swaggerSpec.paths['/payments/initiate'].post.description).toMatch(/snapshot/);
+  });
+
   it('documents callback metadata, abuse control and operational payment unavailability', () => {
     const notify = swaggerSpec.paths['/payments/notify'].post;
     const schema = notify.requestBody.content['application/x-www-form-urlencoded'].schema;

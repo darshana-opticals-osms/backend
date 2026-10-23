@@ -274,6 +274,41 @@ describe('Staff Orders API - Customer Details Integration (Issue #95)', () => {
   });
 
   describe('GET /api/orders/:id (Staff Single Order Details)', () => {
+    it('exposes saved Order address only in authorized details, not lists, and retains registered address', async () => {
+      const now = new Date();
+      const order = await Order.create({
+        customerId: customerA._id,
+        branchId: branch1._id,
+        orderAddress: '45 Delivery Lane',
+        orderDate: now,
+        orderAmount: 2500,
+      });
+      await Customer.updateOne(
+        { _id: customerA._id },
+        { $set: { address: '99 New Profile Street' } }
+      );
+
+      for (const token of [staffAssistantToken, staffManagerToken, customerAToken]) {
+        const detail = await request(app)
+          .get(`/api/orders/${order._id}`)
+          .set('Authorization', `Bearer ${token}`);
+        expect(detail.status).toBe(200);
+        expect(detail.body.data.orderAddress).toBe('45 Delivery Lane');
+        if (token !== customerAToken) {
+          expect(detail.body.data.customer.address).toBe('99 New Profile Street');
+        }
+        const list = await request(app).get('/api/orders').set('Authorization', `Bearer ${token}`);
+        expect(list.status).toBe(200);
+        const listed = list.body.data.find((item) => item.id === order._id.toString());
+        expect(listed).toBeDefined();
+        expect(listed).not.toHaveProperty('orderAddress');
+      }
+      const otherBranch = await request(app)
+        .get(`/api/orders/${order._id}`)
+        .set('Authorization', `Bearer ${otherBranchStaffToken}`);
+      expect(otherBranch.status).toBe(403);
+    });
+
     it('returns customer name and phone alongside items in single order response (AC3, AC4)', async () => {
       const now = new Date();
       const order = await Order.create({

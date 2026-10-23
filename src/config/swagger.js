@@ -1269,6 +1269,14 @@ const options = {
               description: 'Full Order detail including associated OrderItems (AC9).',
               required: ['items'],
               properties: {
+                orderAddress: {
+                  type: 'string',
+                  description:
+                    'Immutable payment-initiation address snapshot for billing and delivery. ' +
+                    'Empty string for legacy Orders without a snapshot and unpaid Orders. ' +
+                    'Present in authorized GET /orders/{id} details only; omitted from order lists, status-update and claim responses, and financial audits.',
+                  example: '45 Lake Road, Kandy',
+                },
                 customer: {
                   $ref: '#/components/schemas/OrderCustomerDetail',
                   description: 'Staff single-order detail only; omitted for customer callers.',
