@@ -12,7 +12,9 @@ tests/performance/
 ├── config/
 │   └── artillery.config.yml      # Declarative Artillery scenarios for load testing
 ├── setup/
-│   └── seedData.js               # Safe representative data seeder (AC4)
+│   ├── perfEnvironment.js       # Safe isolated environment bootstrapper (AC3)
+│   ├── seedData.js               # Safe representative data seeder (AC4)
+│   └── verifySeed.js             # Fixture and environment verification script
 ├── benchmarks/                   # Automated API benchmarks (AC5-AC8)
 │   ├── auth.benchmark.js
 │   ├── catalog.benchmark.js

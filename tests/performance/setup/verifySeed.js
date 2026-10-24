@@ -5,7 +5,7 @@
  * verifies record counts and relationships, and reports clean status.
  */
 
-const { setupPerfEnvironment, teardownPerfEnvironment } = require('./env');
+const { setupPerfEnvironment, teardownPerfEnvironment } = require('./perfEnvironment');
 const { seedPerformanceData } = require('./seedData');
 const Branch = require('../../../src/models/branch.model');
 const Customer = require('../../../src/models/customer.model');
