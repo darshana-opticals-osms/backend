@@ -21,11 +21,12 @@ Relevant branch history:
 
 - `f7f56eb` – `fix(security): remediate vulnerable backend dependencies`
 - `1a3f864` – merged DDP-101 order-address snapshot changes from backend `develop`
-- `06c5a38` – synchronized DDP-085 branch with latest merged backend baseline at that stage
+- `06c5a38` – synchronized DDP-085 branch with the merged backend baseline at that stage
+- `804b183` – `docs(security): document OWASP assessment progress`
 
 Backend PR #107 / DDP-086 Performance and Reliability Testing remains relevant to the final security baseline because it includes security-adjacent runtime changes such as authentication rate-limiter configuration and reverse-proxy handling.
 
-Therefore, final full regression and final security sign-off must be performed after the required backend changes are merged.
+Therefore, final full regression and final security sign-off must be performed after all required backend changes are merged into `develop` and the DDP-085 branch has been synchronized again.
 
 ---
 
@@ -229,7 +230,7 @@ The force fix was intentionally **not applied** because DDP-085 requires minimal
 
 ### Current Disposition
 
-**Residual Moderate risk – documented and accepted for further review.**
+**Residual Moderate risk – documented pending final review.**
 
 This finding is not being treated as silently resolved.
 
@@ -237,7 +238,103 @@ Final dependency scanning must confirm that no newer safe compatible remediation
 
 ---
 
-## 6. MongoDB Security-Test Environment
+## 6. Security Finding SEC-003 – Account Lockout Not Implemented
+
+### Finding ID
+
+`SEC-003`
+
+### OWASP Category
+
+A07 – Identification and Authentication Failures
+
+### Compliance Impact
+
+**Release / compliance blocker until resolved or formally dispositioned.**
+
+### Affected Components
+
+- `src/services/auth.service.js`
+- Customer authentication
+- Staff authentication
+- System Administrator authentication
+- Authentication security configuration
+
+### Requirement
+
+The SENG 34213 development guideline requires account lockout after a configured number of failed authentication attempts as part of OWASP A07 protection.
+
+### Existing Behaviour
+
+The backend currently implements IP-based authentication rate limiting.
+
+However, review of the authentication implementation identified no persistent account-level mechanism for:
+
+- counting consecutive failed login attempts;
+- locking an individual account after a threshold is reached;
+- storing a lock expiry;
+- preventing correct-password login while an account is locked;
+- resetting failed-attempt state after successful authentication.
+
+`Customer`, `Staff`, and `Admin` models currently contain no failed-login counter or account-lock expiry state.
+
+Therefore, authentication rate limiting currently mitigates request-volume/brute-force traffic but does not satisfy the guideline's explicit account-lockout requirement.
+
+### Reproduction / Verification
+
+1. Inspect `src/services/auth.service.js`.
+2. Inspect Customer, Staff, and Admin identity schemas.
+3. Submit repeated invalid-password login attempts for an existing account.
+4. Observe that no account-specific failed-attempt state or lock status is persisted.
+5. A later valid password remains governed only by the existing authentication and IP rate-limiter behaviour.
+
+### Expected Behaviour
+
+After the approved number of consecutive failed authentication attempts, the affected account should enter a temporary locked state according to an approved security policy.
+
+The implementation must:
+
+- remain independent from frontend controls;
+- avoid revealing whether an account exists;
+- avoid weakening existing IP-based rate limiting;
+- apply consistently to applicable Customer, Staff, and Administrator identities;
+- reset the failed-attempt state safely after successful authentication or lock expiry;
+- remain concurrency-safe;
+- be covered by automated tests.
+
+### Actual Behaviour
+
+No account-level lockout mechanism is currently implemented.
+
+### Existing Compensating Control
+
+Authentication endpoints use an IP-based rate limiter to reduce brute-force request volume.
+
+This is retained as a complementary control but is not treated as equivalent to account lockout.
+
+### Remediation Decision
+
+Do not invent a lockout threshold or duration without an approved project requirement or security decision.
+
+Before implementation, confirm or formally define:
+
+- failed-attempt threshold (`N`);
+- lockout duration;
+- whether successful authentication resets the failure counter;
+- behaviour after lock expiry;
+- applicable identity types.
+
+The resulting implementation should be the smallest targeted change necessary to satisfy A07 without redesigning the authentication architecture.
+
+### Current Status
+
+**OPEN – VERIFIED SECURITY / COMPLIANCE GAP**
+
+Final DDP-085 sign-off must not claim A07 fully compliant until this finding is resolved or formally reviewed and dispositioned.
+
+---
+
+## 7. MongoDB Security-Test Environment
 
 The development machine contains the following MongoDB system binary:
 
@@ -277,7 +374,7 @@ Status:
 
 ---
 
-## 7. Existing Security Integration Suite
+## 8. Existing Security Integration Suite
 
 Test executed:
 
@@ -365,7 +462,7 @@ Status: **PASS**
 
 ---
 
-# 8. OWASP Top 10 Assessment
+# 9. OWASP Top 10 Assessment
 
 ## A01 – Broken Access Control
 
@@ -422,7 +519,7 @@ Run the complete authorization/security regression set after all required backen
 ### Pending
 
 - final password-reset security regression execution
-- final deployed HTTPS verification
+- final staging HTTPS/TLS verification
 - final runtime secret configuration verification
 
 ### Status
@@ -479,6 +576,8 @@ Existing automated coverage was identified for critical business boundaries incl
 
 Final integrated regression execution is pending.
 
+The final A04 assessment must also confirm that the implemented security design is consistent with the final SDS security section and any applicable ADRs or documented threat-model decisions.
+
 ---
 
 ## A05 – Security Misconfiguration
@@ -494,19 +593,21 @@ Final integrated regression execution is pending.
 
 ### Pending Deployment Verification
 
-Because the project now uses a production-only final deployment approach, old staging-specific wording in DDP-085 is no longer treated as the current deployment plan.
+The SENG 34213 guideline requires the integrated `develop` branch to be deployed to a staging environment before release.
+
+Final deployed security verification for DDP-085 must therefore be performed against the approved staging deployment before the release is promoted to `main`.
 
 Final safe deployed verification must include:
 
-- HTTPS
-- production CORS
-- production security headers
+- HTTPS/TLS
+- staging CORS configuration
+- staging security headers
 - environment configuration
 - error exposure
 - secret handling
 - externally visible API configuration
 
-No destructive security testing will be performed against production.
+No destructive or aggressive security testing will be performed against staging or production. Adversarial or potentially disruptive testing remains restricted to controlled local/test environments.
 
 ### Status
 
@@ -529,7 +630,7 @@ After safe remediation:
 - 0 High
 - 2 Moderate
 
-`SEC-001` remediated the High findings.
+`SEC-001` remediated the identified High findings.
 
 `SEC-002` records the remaining transitive Moderate `uuid` risk.
 
@@ -589,9 +690,11 @@ The complete authentication and password-reset regression set must be rerun afte
 
 PR #107 is security-relevant because it includes authentication rate-limiter changes.
 
+Account-level lockout is currently not implemented and is tracked as `SEC-003`. Existing IP-based authentication rate limiting is a compensating control but does not satisfy the guideline's explicit account-lockout requirement.
+
 ### Status
 
-**PARTIAL**
+**FAIL / BLOCKED BY SEC-003**
 
 ---
 
@@ -650,7 +753,7 @@ Prescription security tests also verify that clinical remarks and eye measuremen
 
 ### Pending
 
-Final consolidated logging/audit regression execution.
+Final consolidated logging/audit regression execution and confirmation that required authentication, error, and sensitive data-access events are logged without exposing PII or secrets.
 
 ### Status
 
@@ -664,21 +767,25 @@ Final consolidated logging/audit regression execution.
 
 A review of backend external-integration boundaries did not identify generic application functionality that accepts an arbitrary user-provided URL and performs an unrestricted server-side HTTP request to that destination.
 
-No general-purpose URL fetch endpoint was identified.
+No general-purpose user-controlled URL-fetch endpoint was identified.
 
-External integrations use application-controlled configuration/provider boundaries rather than exposing an arbitrary server-side destination supplied directly by normal application users.
+External integrations use application-controlled configuration or provider boundaries rather than exposing an arbitrary server-side destination supplied directly by normal application users.
 
 ### Decision
 
 Generic SSRF destination allow-listing is not being added because there is currently no identified arbitrary user-controlled server-side URL-fetch feature that requires such a control.
 
+The final external-integration review must reconfirm that Cloudinary, PayHere, chatbot/provider integrations, and related configuration do not introduce a user-controlled server-side destination.
+
+If a user-controlled external URL input is introduced later, explicit validation and a permitted-domain allow-list will be required.
+
 ### Status
 
-**NOT APPLICABLE to generic arbitrary URL fetching, subject to final external-integration review.**
+**NOT APPLICABLE to currently identified generic arbitrary URL fetching, subject to final external-integration review.**
 
 ---
 
-# 9. Secure Image Upload Assessment
+# 10. Secure Image Upload Assessment
 
 Existing automated coverage includes:
 
@@ -704,7 +811,7 @@ Relevant tests:
 
 ---
 
-# 10. Payment Security Assessment
+# 11. Payment Security Assessment
 
 Existing payment tests cover:
 
@@ -730,7 +837,7 @@ DDP-101 additionally introduced an immutable order-address snapshot used by paym
 
 ---
 
-# 11. Clinical Data Protection Assessment
+# 12. Clinical Data Protection Assessment
 
 Existing prescription integration tests cover:
 
@@ -749,7 +856,7 @@ Existing prescription integration tests cover:
 
 ---
 
-# 12. Frontend Security Assessment
+# 13. Frontend Security Assessment
 
 Frontend security remediation is tracked separately through frontend Draft PR #68.
 
@@ -771,6 +878,8 @@ Frontend final verification must include:
 - safe rendering of untrusted content
 - appropriate client-side persistence
 - safe error presentation
+- final dependency audit against the integrated frontend baseline
+- staging integration verification before final release
 
 Backend authorization remains authoritative.
 
@@ -780,11 +889,13 @@ Backend authorization remains authoritative.
 
 ---
 
-# 13. Final Verification Still Required
+# 14. Final Verification Still Required
 
 The following checks are deliberately not being claimed as final yet:
 
-- sync DDP-085 branch after all required backend PRs merge
+- resolve or formally disposition `SEC-003` account-lockout gap
+- synchronize the DDP-085 branch after all required backend PRs merge
+- review security implications of final rate-limiter and reverse-proxy configuration
 - rerun backend dependency audit
 - rerun A01 authorization test batch
 - rerun authentication/password-reset tests
@@ -793,57 +904,72 @@ The following checks are deliberately not being claimed as final yet:
 - rerun clinical-data tests
 - rerun image-upload tests
 - rerun audit/logging tests
+- complete final SSRF/external-integration review
 - run full backend regression suite
 - run ESLint
 - run Prettier
 - verify Git diff/whitespace
 - verify final CI result
-- perform safe production HTTPS/CORS/security-header/configuration checks
+- perform safe staging HTTPS/CORS/security-header/configuration checks
 - rerun final frontend dependency/security checks
-- update frontend Draft PR #68 to reflect the production-only deployment strategy
+- update frontend Draft PR #68 to reflect guideline-required staging verification before final release
+- verify final frontend/backend integration on staging
 - prepare final OWASP compliance checklist in the `documents` repository
 
 ---
 
-# 14. Security Release Gate
+# 15. Security Release Gate
 
 DDP-085 must not be marked complete until:
 
+- `SEC-003` is resolved or formally reviewed and dispositioned
 - no unresolved Critical security vulnerability exists
 - no unresolved High security vulnerability exists without formal authorized disposition
 - final security-critical regression tests pass
 - authorization controls are verified against the final integrated backend
-- dependency scans are repeated against the final lockfiles
-- production configuration is safely verified
+- dependency scans are repeated against the final backend and frontend lockfiles
+- staging HTTPS/TLS and security configuration are safely verified
 - residual Moderate risks are documented
 - frontend security verification is complete
+- required OWASP A01–A10 evidence is complete
 - OWASP evidence is prepared for the final project documentation
 - security-related PRs receive peer review
+- all relevant CI security gates pass
 
 ---
 
-# 15. Current Overall Status
+# 16. Current Overall Status
 
 **DDP-085: IN PROGRESS**
 
 Completed so far:
 
 - backend dependency security scan
+- identification of 2 High and 5 Moderate dependency vulnerabilities at initial baseline
 - remediation of identified High dependency vulnerabilities
-- dependency-fix commit
+- backend dependency-fix commit `f7f56eb`
+- backend dependency retest showing 0 Critical and 0 High at tested baseline
+- documentation of residual Moderate dependency risk `SEC-002`
 - lint verification
 - format verification
 - database security foundation test
 - 21-test backend security integration suite
 - review of existing authorization, authentication, clinical, payment, upload, logging, sanitizer, and integrity coverage
 - initial SSRF applicability assessment
+- identification of missing account-lockout control as `SEC-003`
+- A07 marked blocked pending resolution of `SEC-003`
 - synchronization with merged DDP-101 backend changes
+- initial OWASP working assessment committed as `804b183`
 
 Still pending:
 
+- resolution or formal disposition of `SEC-003`
 - final backend baseline after remaining relevant PR merges
+- final synchronization with `develop`
 - full targeted OWASP regression execution
 - full backend regression
 - final frontend verification
-- safe production security verification
-- final OWASP evidence and release sign-off
+- safe staging security verification
+- final CI evidence
+- final OWASP compliance evidence in the `documents` repository
+- final DDP-085 release sign-off
