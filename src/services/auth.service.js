@@ -9,6 +9,15 @@ const { ACCOUNT_LOCKOUT } = require('../config/security');
 
 const BCRYPT_SALT_ROUNDS = 12;
 const DUMMY_PASSWORD_HASH = '$2b$12$yQa0uZLdNMNWbfUR4Cq40ObkJsDegwPc51KLL2pYzbZRPFfJZMaKe';
+const AUTH_LOG_PREFIX = '[SecurityAuth]';
+
+const logAuthenticationFailure = (event = 'LOGIN_FAILED') => {
+  console.warn(`${AUTH_LOG_PREFIX} ${event}`);
+};
+
+const logAuthenticationSuccess = (role) => {
+  console.info(`${AUTH_LOG_PREFIX} LOGIN_SUCCEEDED role=${role}`);
+};
 
 const checkExistingIdentity = async (email) => {
   const [customer, staff, admin] = await Promise.all([
@@ -111,21 +120,25 @@ const login = async ({ email, password }) => {
   const passwordMatches = await bcrypt.compare(password, passwordHash);
 
   if (!identity) {
+    logAuthenticationFailure();
     throw new UnauthorizedError('Invalid email or password.');
   }
 
   const now = new Date();
 
   if (isAccountLocked(identity, now)) {
+    logAuthenticationFailure('LOGIN_BLOCKED_LOCKED');
     throw new UnauthorizedError('Invalid email or password.');
   }
 
   if (!passwordMatches) {
     await recordFailedLogin(identity, now);
+    logAuthenticationFailure();
     throw new UnauthorizedError('Invalid email or password.');
   }
 
   if (identity.isActive === false) {
+    logAuthenticationFailure();
     throw new UnauthorizedError('Account is inactive.');
   }
 
@@ -137,6 +150,8 @@ const login = async ({ email, password }) => {
     role: user.role,
     branchId: user.branchId || null,
   });
+
+  logAuthenticationSuccess(user.role);
 
   return { token, user };
 };
