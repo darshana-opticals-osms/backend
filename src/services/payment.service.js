@@ -60,12 +60,14 @@ function getReservationExpiry(order) {
   return new Date(new Date(originalBoundary).getTime() + RESERVATION_WINDOW_MS);
 }
 
-function resolveBilling(customer, supplied = {}) {
+function resolveBilling(customer, supplied = {}, savedAddress = '') {
   const nameParts = customer.name.trim().split(/\s+/).filter(Boolean);
   const firstName = supplied.firstName || nameParts[0];
   const lastName = supplied.lastName || nameParts.slice(1).join(' ');
-  const address = supplied.address || customer.address?.trim();
-  const city = supplied.city;
+  const address =
+    savedAddress?.trim() ||
+    (supplied.address === undefined ? customer.address?.trim() : supplied.address?.trim());
+  const city = supplied.city?.trim();
   const missing = [];
   if (!firstName) missing.push('firstName');
   if (!lastName) missing.push('lastName');
@@ -76,6 +78,13 @@ function resolveBilling(customer, supplied = {}) {
       'Required PayHere billing information is missing.',
       missing.map((field) => ({ field, message: `${field} is required for payment checkout.` })),
       'PAYMENT_BILLING_REQUIRED'
+    );
+  }
+  if (address.length > 120) {
+    throw new ValidationError(
+      'Payment address is too long.',
+      [{ field: 'address', message: 'address must be at most 120 characters.' }],
+      'PAYMENT_BILLING_INVALID'
     );
   }
   return { firstName, lastName, address, city };
@@ -237,6 +246,7 @@ async function initiatePayment({
   const session = await mongoose.startSession();
   let payment;
   let customer;
+  let billing;
   let reservationExpired = false;
 
   try {
@@ -278,10 +288,25 @@ async function initiatePayment({
         return;
       }
 
+      // Validate billing before touching attempts, and bind PayHere to the saved Order snapshot.
+      billing = resolveBilling(customerDocument, billingInput, orderDocument.orderAddress);
       payment = await findActiveAttempt(orderDocument._id, session);
       if (payment) {
         assertReusableAttempt(payment, orderDocument, expiresAt, now);
+        if (!orderDocument.orderAddress?.trim()) {
+          throw new ConflictError(
+            'Existing payment has no confirmed Order address.',
+            null,
+            'PAYMENT_ORDER_ADDRESS_UNAVAILABLE'
+          );
+        }
       } else {
+        // On the first eligible initiation, persist the same address sent to PayHere,
+        // in the same transaction as the attempt; never overwrite it on a retry.
+        if (!orderDocument.orderAddress?.trim()) {
+          orderDocument.orderAddress = billing.address;
+          await orderDocument.save({ session });
+        }
         const paymentDocument = new Payment({
           orderId: orderDocument._id,
           amount: orderDocument.orderAmount,
@@ -357,8 +382,16 @@ async function initiatePayment({
     if (completed) {
       throw new ConflictError('Order has already been paid.', null, 'ORDER_ALREADY_PAID');
     }
+    billing = resolveBilling(customerDocument, billingInput, orderDocument.orderAddress);
     payment = await findActiveAttempt(orderDocument._id);
     assertReusableAttempt(payment, orderDocument, expiresAt, now);
+    if (!orderDocument.orderAddress?.trim()) {
+      throw new ConflictError(
+        'Existing payment has no confirmed Order address.',
+        null,
+        'PAYMENT_ORDER_ADDRESS_UNAVAILABLE'
+      );
+    }
     customer = customerDocument;
   } finally {
     await session.endSession();
@@ -367,7 +400,6 @@ async function initiatePayment({
   if (reservationExpired) {
     throw new ConflictError('Order payment window has expired.', null, 'ORDER_PAYMENT_EXPIRED');
   }
-  const billing = resolveBilling(customer, billingInput);
   return {
     payment: shapePayment(payment),
     gateway: adapter.buildCheckoutPayload({ payment, customer, billing }),
