@@ -286,7 +286,7 @@ paymentNotificationRouter.post('/', receivePayHereNotification);
  * /payments/initiate:
  *   post:
  *     summary: Initiate or reuse PayHere checkout for the customer's own Order
- *     description: CUSTOMER-only. The backend derives ownership, amount, LKR currency, online_gateway method, expiry and provider attempt identity. Validated billing fields override profile defaults for this checkout request only and do not update the Customer profile. Missing gateway configuration returns 503 PAYMENT_UNAVAILABLE before persistence. Initiation builds a hosted-checkout form locally; it does not probe provider website availability or charge funds. Expired local sessions close with session_expired; this does not extend the original Order deadline or permit payment after reservation expiry.
+ *     description: CUSTOMER-only. The backend derives ownership, amount, LKR currency, online_gateway method, expiry and provider attempt identity. For the first valid attempt, the effective billing/delivery address (explicit override or registered profile address) is saved on the Order transactionally. Every subsequent attempt and reused checkout sends this saved snapshot to PayHere, even when a new address is provided. Required city and address are validated before attempt creation/reuse. Legacy active attempts lacking a confirmed address fail safely with 409 PAYMENT_ORDER_ADDRESS_UNAVAILABLE. The Customer profile is never updated. Missing gateway configuration returns 503 PAYMENT_UNAVAILABLE before persistence. An expired session never extends its original Order reservation.
  *     tags: [Payments]
  *     security:
  *       - bearerAuth: []
@@ -303,7 +303,7 @@ paymentNotificationRouter.post('/', receivePayHereNotification);
  *               city: { type: string, maxLength: 120, description: Billing city for this checkout request. }
  *               firstName: { type: string, maxLength: 120, description: Optional billing override; otherwise defaults from the Customer profile. }
  *               lastName: { type: string, maxLength: 120, description: Optional billing override; otherwise defaults from the Customer profile. }
- *               address: { type: string, maxLength: 120, description: Optional billing override; otherwise defaults from the Customer profile. }
+ *               address: { type: string, maxLength: 120, description: First-initiation billing and delivery address override; otherwise use registered address. An existing Order snapshot always wins. }
  *     responses:
  *       201: { description: Safe PayHere hosted-checkout fields and Payment status. }
  *       401: { $ref: '#/components/responses/Unauthorized' }
