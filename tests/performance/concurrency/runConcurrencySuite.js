@@ -90,10 +90,19 @@ async function executeConcurrencyAndReliabilitySuite() {
 }
 
 if (require.main === module) {
-  executeConcurrencyAndReliabilitySuite().catch((err) => {
-    console.error('❌ Concurrency suite failed:', err);
-    process.exit(1);
-  });
+  executeConcurrencyAndReliabilitySuite()
+    .then((results) => {
+      if (!results || results.overallStatus !== 'PASS') {
+        console.error(
+          '\n❌ Concurrency & Reliability verification failed: One or more scenarios did not pass.'
+        );
+        process.exit(1);
+      }
+    })
+    .catch((err) => {
+      console.error('❌ Concurrency suite execution error:', err);
+      process.exit(1);
+    });
 }
 
 module.exports = { executeConcurrencyAndReliabilitySuite };

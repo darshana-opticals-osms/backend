@@ -144,6 +144,29 @@ async function verifyPerformanceSeed() {
     console.log(
       ` - Customer Token: ${manifest.tokens.customer1Token ? 'Available (HS256)' : 'Missing'}`
     );
+
+    const hasFailures = [
+      branchCount < 3,
+      adminCount < 1,
+      staffCount < 2,
+      doctorCount < 1,
+      customerCount < 10,
+      inventoryCount < 50,
+      sessionCount < 5,
+      appointmentCount < 15,
+      rxCount < 15,
+      orderCount < 25,
+      orderItemCount < 25,
+      paymentCount < 25,
+      !manifest.tokens.adminToken,
+      !manifest.tokens.staffColomboToken,
+      !manifest.tokens.customer1Token,
+    ].some(Boolean);
+
+    if (hasFailures) {
+      throw new Error('One or more seeded representative entities failed count verification.');
+    }
+
     console.log('\n✅ All representative datasets validated successfully!');
   } finally {
     console.log('🧹 Tearing down performance test environment...');

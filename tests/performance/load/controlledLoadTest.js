@@ -216,7 +216,7 @@ async function executeControlledLoadTesting() {
       'Error Rate (%)': s.errorRatePercent,
       'Heap (MB)': s.resourceUsage.heapUsedMb,
       'RSS (MB)': s.resourceUsage.rssMb,
-      'NFR-001 (p95<=2s)': s.latency.p95Ms <= 2000 ? 'PASS' : 'WARN',
+      'NFR-001 (p95<=2s)': s.latency.p95Ms <= 2000 ? 'PASS' : 'FAIL',
     }));
 
     console.table(tableData);
@@ -243,10 +243,19 @@ async function executeControlledLoadTesting() {
 }
 
 if (require.main === module) {
-  executeControlledLoadTesting().catch((err) => {
-    console.error('❌ Controlled load test failed:', err);
-    process.exit(1);
-  });
+  executeControlledLoadTesting()
+    .then((evidence) => {
+      if (!evidence || !evidence.allStagesCompliant) {
+        console.error(
+          '\n❌ Controlled load testing failed: One or more stages violated NFR-001 (p95 <= 2000ms or errorRate > 0).'
+        );
+        process.exit(1);
+      }
+    })
+    .catch((err) => {
+      console.error('❌ Controlled load test failed:', err);
+      process.exit(1);
+    });
 }
 
 module.exports = { executeControlledLoadTesting };

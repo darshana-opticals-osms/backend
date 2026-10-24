@@ -243,7 +243,7 @@ async function executeBaselineBenchmarks() {
         'Max (ms)': r.latency.maxMs,
         'Throughput (req/s)': r.throughputReqSec,
         'Error Rate (%)': r.errorRatePercent,
-        'SRS NFR-001': srsCompliant ? 'PASS' : 'WARN',
+        'SRS NFR-001': srsCompliant ? 'PASS' : 'FAIL',
       };
     });
 
@@ -254,6 +254,9 @@ async function executeBaselineBenchmarks() {
       nodeVersion: process.version,
       platform: process.platform,
       totalBenchmarks: benchmarkReports.length,
+      allCompliant: benchmarkReports.every(
+        (r) => r.latency.p95Ms <= 2000 && r.errorRatePercent < 1.0
+      ),
       benchmarks: benchmarkReports,
     };
 
@@ -269,10 +272,19 @@ async function executeBaselineBenchmarks() {
 }
 
 if (require.main === module) {
-  executeBaselineBenchmarks().catch((err) => {
-    console.error('❌ Benchmark execution failed:', err);
-    process.exit(1);
-  });
+  executeBaselineBenchmarks()
+    .then((evidence) => {
+      if (!evidence || !evidence.allCompliant) {
+        console.error(
+          '\n❌ Baseline benchmarks failed: One or more endpoints violated NFR-001 (p95 <= 2000ms or errorRate > 0).'
+        );
+        process.exit(1);
+      }
+    })
+    .catch((err) => {
+      console.error('❌ Benchmark execution failed:', err);
+      process.exit(1);
+    });
 }
 
 module.exports = { executeBaselineBenchmarks };
