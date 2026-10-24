@@ -1,5 +1,5 @@
 {
-  "analyzedAt": "2026-10-24T04:11:04.589Z",
+  "analyzedAt": "2026-10-24T04:29:31.315Z",
   "reports": [
     {
       "query": "Product Catalog: In-Stock Filter & Sort",
@@ -9,7 +9,7 @@
       "nReturned": 17,
       "totalDocsExamined": 17,
       "totalKeysExamined": 17,
-      "executionTimeMillis": 2,
+      "executionTimeMillis": 1,
       "isIndexed": true,
       "hasInMemorySort": true,
       "primaryStage": "SORT",
@@ -23,7 +23,7 @@
       "nReturned": 3,
       "totalDocsExamined": 3,
       "totalKeysExamined": 3,
-      "executionTimeMillis": 1,
+      "executionTimeMillis": 2,
       "isIndexed": true,
       "hasInMemorySort": true,
       "primaryStage": "SORT",
@@ -51,7 +51,7 @@
       "nReturned": 2,
       "totalDocsExamined": 2,
       "totalKeysExamined": 2,
-      "executionTimeMillis": 1,
+      "executionTimeMillis": 0,
       "isIndexed": true,
       "hasInMemorySort": false,
       "primaryStage": "FETCH",

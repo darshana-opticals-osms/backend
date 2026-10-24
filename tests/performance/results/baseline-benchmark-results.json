@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-24T04:10:38.639Z",
+  "generatedAt": "2026-10-24T04:29:12.379Z",
   "nodeVersion": "v22.14.0",
   "platform": "win32",
   "totalBenchmarks": 13,
@@ -10,25 +10,25 @@
       "path": "/api/health",
       "totalRequests": 30,
       "concurrency": 5,
-      "totalDurationMs": 192.95,
-      "throughputReqSec": 155.48,
+      "totalDurationMs": 168.89,
+      "throughputReqSec": 177.63,
       "errorRatePercent": 0,
       "failureCount": 0,
       "statusCodes": {
         "200": 30
       },
       "latency": {
-        "avgMs": 30.89,
-        "minMs": 14.67,
-        "maxMs": 70.39,
-        "p50Ms": 23.57,
-        "p90Ms": 63.52,
-        "p95Ms": 67.43,
-        "p99Ms": 70.39
+        "avgMs": 27.33,
+        "minMs": 12.43,
+        "maxMs": 57.54,
+        "p50Ms": 23.04,
+        "p90Ms": 50.73,
+        "p95Ms": 55.53,
+        "p99Ms": 57.54
       },
       "memory": {
-        "heapUsedMb": 76.93,
-        "rssMb": 147.71
+        "heapUsedMb": 76.66,
+        "rssMb": 148.04
       }
     },
     {
@@ -37,25 +37,25 @@
       "path": "/api/auth/login",
       "totalRequests": 20,
       "concurrency": 5,
-      "totalDurationMs": 552.65,
-      "throughputReqSec": 36.19,
+      "totalDurationMs": 494.11,
+      "throughputReqSec": 40.48,
       "errorRatePercent": 0,
       "failureCount": 0,
       "statusCodes": {
         "200": 20
       },
       "latency": {
-        "avgMs": 127.48,
-        "minMs": 97.03,
-        "maxMs": 208.43,
-        "p50Ms": 118.66,
-        "p90Ms": 147.66,
-        "p95Ms": 151.84,
-        "p99Ms": 208.43
+        "avgMs": 114.57,
+        "minMs": 85.95,
+        "maxMs": 203.89,
+        "p50Ms": 105.65,
+        "p90Ms": 144.51,
+        "p95Ms": 145.25,
+        "p99Ms": 203.89
       },
       "memory": {
-        "heapUsedMb": 73.5,
-        "rssMb": 148.55
+        "heapUsedMb": 73.55,
+        "rssMb": 149.45
       }
     },
     {
@@ -64,25 +64,25 @@
       "path": "/api/profile/me",
       "totalRequests": 30,
       "concurrency": 5,
-      "totalDurationMs": 301.8,
-      "throughputReqSec": 99.4,
+      "totalDurationMs": 205.71,
+      "throughputReqSec": 145.84,
       "errorRatePercent": 0,
       "failureCount": 0,
       "statusCodes": {
         "200": 30
       },
       "latency": {
-        "avgMs": 49.55,
-        "minMs": 32.08,
-        "maxMs": 76.82,
-        "p50Ms": 43.74,
-        "p90Ms": 70.8,
-        "p95Ms": 75.85,
-        "p99Ms": 76.82
+        "avgMs": 33.57,
+        "minMs": 26.39,
+        "maxMs": 44.12,
+        "p50Ms": 32.58,
+        "p90Ms": 37.56,
+        "p95Ms": 41.91,
+        "p99Ms": 44.12
       },
       "memory": {
-        "heapUsedMb": 70.13,
-        "rssMb": 149.96
+        "heapUsedMb": 70.38,
+        "rssMb": 150.76
       }
     },
     {
@@ -91,25 +91,25 @@
       "path": "/api/products",
       "totalRequests": 30,
       "concurrency": 10,
-      "totalDurationMs": 279.27,
-      "throughputReqSec": 107.42,
+      "totalDurationMs": 223.07,
+      "throughputReqSec": 134.49,
       "errorRatePercent": 0,
       "failureCount": 0,
       "statusCodes": {
         "200": 30
       },
       "latency": {
-        "avgMs": 86.87,
-        "minMs": 76.57,
-        "maxMs": 102.87,
-        "p50Ms": 87.16,
-        "p90Ms": 95.19,
-        "p95Ms": 101.14,
-        "p99Ms": 102.87
+        "avgMs": 70.4,
+        "minMs": 56.71,
+        "maxMs": 80.51,
+        "p50Ms": 70.96,
+        "p90Ms": 77.77,
+        "p95Ms": 78.81,
+        "p99Ms": 80.51
       },
       "memory": {
-        "heapUsedMb": 80.5,
-        "rssMb": 151.3
+        "heapUsedMb": 71.58,
+        "rssMb": 153.64
       }
     },
     {
@@ -118,25 +118,25 @@
       "path": "/api/products?category=Frames",
       "totalRequests": 30,
       "concurrency": 10,
-      "totalDurationMs": 390.26,
-      "throughputReqSec": 76.87,
+      "totalDurationMs": 189.26,
+      "throughputReqSec": 158.51,
       "errorRatePercent": 0,
       "failureCount": 0,
       "statusCodes": {
         "200": 30
       },
       "latency": {
-        "avgMs": 115.51,
-        "minMs": 56.25,
-        "maxMs": 228.44,
-        "p50Ms": 82.2,
-        "p90Ms": 223.2,
-        "p95Ms": 228.23,
-        "p99Ms": 228.44
+        "avgMs": 60.82,
+        "minMs": 44.69,
+        "maxMs": 68.74,
+        "p50Ms": 62.09,
+        "p90Ms": 67.98,
+        "p95Ms": 68.04,
+        "p99Ms": 68.74
       },
       "memory": {
-        "heapUsedMb": 79.61,
-        "rssMb": 153.14
+        "heapUsedMb": 80.07,
+        "rssMb": 154.02
       }
     },
     {
@@ -145,79 +145,79 @@
       "path": "/api/products?search=Ray-Ban",
       "totalRequests": 30,
       "concurrency": 10,
-      "totalDurationMs": 248.41,
-      "throughputReqSec": 120.77,
+      "totalDurationMs": 182.87,
+      "throughputReqSec": 164.05,
       "errorRatePercent": 0,
       "failureCount": 0,
       "statusCodes": {
         "200": 30
       },
       "latency": {
-        "avgMs": 79.28,
-        "minMs": 62.79,
-        "maxMs": 90.39,
-        "p50Ms": 79.44,
-        "p90Ms": 89.67,
-        "p95Ms": 90.16,
-        "p99Ms": 90.39
+        "avgMs": 58.67,
+        "minMs": 46.93,
+        "maxMs": 70.83,
+        "p50Ms": 58.98,
+        "p90Ms": 64.07,
+        "p95Ms": 69.38,
+        "p99Ms": 70.83
       },
       "memory": {
-        "heapUsedMb": 78.97,
-        "rssMb": 155.99
+        "heapUsedMb": 79.35,
+        "rssMb": 156.48
       }
     },
     {
       "name": "Catalog: Single Product Detail",
       "method": "GET",
-      "path": "/api/products/6adc2fb9cb6fbb0be98f8def",
+      "path": "/api/products/6adc3414ad72e70425ac4c2d",
       "totalRequests": 30,
       "concurrency": 10,
-      "totalDurationMs": 221.95,
-      "throughputReqSec": 135.16,
+      "totalDurationMs": 179.22,
+      "throughputReqSec": 167.39,
       "errorRatePercent": 0,
       "failureCount": 0,
       "statusCodes": {
         "200": 30
       },
       "latency": {
-        "avgMs": 71.04,
-        "minMs": 56.23,
-        "maxMs": 85.6,
-        "p50Ms": 72.04,
-        "p90Ms": 79.67,
-        "p95Ms": 83.89,
-        "p99Ms": 85.6
+        "avgMs": 57.2,
+        "minMs": 44.24,
+        "maxMs": 66.64,
+        "p50Ms": 58.48,
+        "p90Ms": 61.14,
+        "p95Ms": 65.07,
+        "p99Ms": 66.64
       },
       "memory": {
-        "heapUsedMb": 77.74,
-        "rssMb": 158.75
+        "heapUsedMb": 77.93,
+        "rssMb": 158.98
       }
     },
     {
       "name": "Inventory: Branch Stock List",
       "method": "GET",
-      "path": "/api/inventory/branch/6adc2fb9cb6fbb0be98f8da2",
+      "path": "/api/inventory/branch/6adc3414ad72e70425ac4bda",
       "totalRequests": 25,
       "concurrency": 5,
-      "totalDurationMs": 318.91,
-      "throughputReqSec": 78.39,
+      "totalDurationMs": 256.73,
+      "throughputReqSec": 97.38,
       "errorRatePercent": 0,
       "failureCount": 0,
       "statusCodes": {
         "200": 25
       },
       "latency": {
-        "avgMs": 63.02,
-        "minMs": 51.98,
-        "maxMs": 76.94,
-        "p50Ms": 61.03,
-        "p90Ms": 71.23,
-        "p95Ms": 73.53,
-        "p99Ms": 76.94
+        "avgMs": 50.65,
+        "minMs": 37.77,
+        "maxMs": 65.06,
+        "p50Ms": 49.95,
+        "p90Ms": 60.14,
+        "p95Ms": 63.55,
+        "p99Ms": 65.06
       },
       "memory": {
-        "heapUsedMb": 83.89,
-        "rssMb": 161.16
+        "heapUsedMb": 84.15,
+        "rssMb": 161.32
       }
     },
     {
@@ -226,25 +226,25 @@
       "path": "/api/orders",
       "totalRequests": 25,
       "concurrency": 5,
-      "totalDurationMs": 208.22,
-      "throughputReqSec": 120.07,
+      "totalDurationMs": 160.47,
+      "throughputReqSec": 155.79,
       "errorRatePercent": 0,
       "failureCount": 0,
       "statusCodes": {
         "200": 25
       },
       "latency": {
-        "avgMs": 40.95,
-        "minMs": 30.7,
-        "maxMs": 49.17,
-        "p50Ms": 40.72,
-        "p90Ms": 46.26,
-        "p95Ms": 47.45,
-        "p99Ms": 49.17
+        "avgMs": 31.42,
+        "minMs": 23.55,
+        "maxMs": 36.73,
+        "p50Ms": 30.99,
+        "p90Ms": 34.9,
+        "p95Ms": 36.15,
+        "p99Ms": 36.73
       },
       "memory": {
-        "heapUsedMb": 80.25,
-        "rssMb": 162.39
+        "heapUsedMb": 80.45,
+        "rssMb": 163.39
       }
     },
     {
@@ -253,25 +253,25 @@
       "path": "/api/doctor-sessions/available",
       "totalRequests": 25,
       "concurrency": 5,
-      "totalDurationMs": 295.94,
-      "throughputReqSec": 84.48,
+      "totalDurationMs": 333.21,
+      "throughputReqSec": 75.03,
       "errorRatePercent": 0,
       "failureCount": 0,
       "statusCodes": {
         "200": 25
       },
       "latency": {
-        "avgMs": 58.2,
-        "minMs": 41.93,
-        "maxMs": 76.77,
-        "p50Ms": 56.76,
-        "p90Ms": 72.52,
-        "p95Ms": 75.43,
-        "p99Ms": 76.77
+        "avgMs": 65.91,
+        "minMs": 45.68,
+        "maxMs": 80.3,
+        "p50Ms": 64.66,
+        "p90Ms": 78.95,
+        "p95Ms": 79.66,
+        "p99Ms": 80.3
       },
       "memory": {
-        "heapUsedMb": 90.51,
-        "rssMb": 163.75
+        "heapUsedMb": 56.82,
+        "rssMb": 163.05
       }
     },
     {
@@ -280,52 +280,52 @@
       "path": "/api/prescriptions/me",
       "totalRequests": 25,
       "concurrency": 5,
-      "totalDurationMs": 322.72,
-      "throughputReqSec": 77.47,
+      "totalDurationMs": 222.44,
+      "throughputReqSec": 112.39,
       "errorRatePercent": 0,
       "failureCount": 0,
       "statusCodes": {
         "200": 25
       },
       "latency": {
-        "avgMs": 62.52,
-        "minMs": 48.26,
-        "maxMs": 84.01,
-        "p50Ms": 60.2,
-        "p90Ms": 80.69,
-        "p95Ms": 81.82,
-        "p99Ms": 84.01
+        "avgMs": 43.88,
+        "minMs": 32.05,
+        "maxMs": 52.45,
+        "p50Ms": 45.01,
+        "p90Ms": 49.63,
+        "p95Ms": 51.37,
+        "p99Ms": 52.45
       },
       "memory": {
-        "heapUsedMb": 61.74,
-        "rssMb": 164.11
+        "heapUsedMb": 66.44,
+        "rssMb": 165.38
       }
     },
     {
       "name": "Prescriptions: Optometrist Consultation Lookup",
       "method": "GET",
-      "path": "/api/prescriptions/customer/6adc2fb9cb6fbb0be98f8dc4",
+      "path": "/api/prescriptions/customer/6adc3414ad72e70425ac4c04",
       "totalRequests": 25,
       "concurrency": 5,
-      "totalDurationMs": 556.14,
-      "throughputReqSec": 44.95,
+      "totalDurationMs": 264.02,
+      "throughputReqSec": 94.69,
       "errorRatePercent": 0,
       "failureCount": 0,
       "statusCodes": {
         "200": 25
       },
       "latency": {
-        "avgMs": 109.12,
-        "minMs": 71.43,
-        "maxMs": 169.4,
-        "p50Ms": 109.22,
-        "p90Ms": 167.74,
-        "p95Ms": 168.77,
-        "p99Ms": 169.4
+        "avgMs": 51.95,
+        "minMs": 47.56,
+        "maxMs": 59.36,
+        "p50Ms": 50.71,
+        "p90Ms": 57.3,
+        "p95Ms": 58.2,
+        "p99Ms": 59.36
       },
       "memory": {
-        "heapUsedMb": 63.68,
-        "rssMb": 164.34
+        "heapUsedMb": 58.33,
+        "rssMb": 163.25
       }
     },
     {
@@ -334,25 +334,25 @@
       "path": "/api/reports/sales?preset=last_30_days",
       "totalRequests": 15,
       "concurrency": 5,
-      "totalDurationMs": 354.55,
-      "throughputReqSec": 42.31,
+      "totalDurationMs": 190.33,
+      "throughputReqSec": 78.81,
       "errorRatePercent": 0,
       "failureCount": 0,
       "statusCodes": {
         "200": 15
       },
       "latency": {
-        "avgMs": 116.7,
-        "minMs": 83.2,
-        "maxMs": 161.2,
-        "p50Ms": 104.96,
-        "p90Ms": 158.64,
-        "p95Ms": 161.2,
-        "p99Ms": 161.2
+        "avgMs": 61.93,
+        "minMs": 45.58,
+        "maxMs": 89.75,
+        "p50Ms": 53.53,
+        "p90Ms": 88.29,
+        "p95Ms": 89.75,
+        "p99Ms": 89.75
       },
       "memory": {
-        "heapUsedMb": 64.68,
-        "rssMb": 165.14
+        "heapUsedMb": 59.23,
+        "rssMb": 164.04
       }
     }
   ]
