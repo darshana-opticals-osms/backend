@@ -7,11 +7,20 @@
 
 const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
-const { createApp } = require('../../../src/app');
-
 let mongoServer = null;
 let testApp = null;
 let originalEnv = null;
+
+// Apply safe performance test environment variables before any module loads
+process.env.NODE_ENV = 'test';
+process.env.PORT = '5050';
+process.env.JWT_SECRET = 'osms-perf-isolated-jwt-secret-key-32chars-min!';
+process.env.JWT_EXPIRES_IN = '2h';
+process.env.PASSWORD_SALT_ROUNDS = '10';
+process.env.RATE_LIMIT_MAX = '5000';
+process.env.AUTH_RATE_LIMIT_MAX = '5000';
+process.env.RATE_LIMIT_WINDOW_MS = '60000';
+process.env.AUTH_RATE_LIMIT_WINDOW_MS = '60000';
 
 const PERF_ENV_DEFAULTS = {
   NODE_ENV: 'test',
@@ -19,6 +28,10 @@ const PERF_ENV_DEFAULTS = {
   JWT_SECRET: 'osms-perf-isolated-jwt-secret-key-32chars-min!',
   JWT_EXPIRES_IN: '2h',
   PASSWORD_SALT_ROUNDS: '10',
+  RATE_LIMIT_MAX: '5000',
+  AUTH_RATE_LIMIT_MAX: '5000',
+  RATE_LIMIT_WINDOW_MS: '60000',
+  AUTH_RATE_LIMIT_WINDOW_MS: '60000',
 };
 
 /**
@@ -36,6 +49,19 @@ async function setupPerfEnvironment() {
   originalEnv = { ...process.env };
 
   // Apply safe performance test environment variables
+  for (const [key, value] of Object.entries(PERF_ENV_DEFAULTS)) {
+    process.env[key] = value;
+  }
+
+  // Clear module cache for security/rateLimiter so new rate limits take effect
+  const securityPath = require.resolve('../../../src/config/security');
+  const rateLimiterPath = require.resolve('../../../src/middleware/rateLimiter');
+  const appPath = require.resolve('../../../src/app');
+  delete require.cache[securityPath];
+  delete require.cache[rateLimiterPath];
+  delete require.cache[appPath];
+
+  const { createApp } = require('../../../src/app');
   for (const [key, value] of Object.entries(PERF_ENV_DEFAULTS)) {
     process.env[key] = value;
   }

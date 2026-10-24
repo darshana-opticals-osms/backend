@@ -1,0 +1,359 @@
+{
+  "generatedAt": "2026-10-24T03:29:02.054Z",
+  "nodeVersion": "v22.14.0",
+  "platform": "win32",
+  "totalBenchmarks": 13,
+  "benchmarks": [
+    {
+      "name": "Health Baseline (No DB)",
+      "method": "GET",
+      "path": "/api/health",
+      "totalRequests": 30,
+      "concurrency": 5,
+      "totalDurationMs": 190.19,
+      "throughputReqSec": 157.74,
+      "errorRatePercent": 0,
+      "failureCount": 0,
+      "statusCodes": {
+        "200": 30
+      },
+      "latency": {
+        "avgMs": 30.56,
+        "minMs": 13.66,
+        "maxMs": 74.38,
+        "p50Ms": 21.65,
+        "p90Ms": 68.69,
+        "p95Ms": 71.93,
+        "p99Ms": 74.38
+      },
+      "memory": {
+        "heapUsedMb": 75.48,
+        "rssMb": 147.54
+      }
+    },
+    {
+      "name": "Auth: Customer Login",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "totalRequests": 20,
+      "concurrency": 5,
+      "totalDurationMs": 483.85,
+      "throughputReqSec": 41.34,
+      "errorRatePercent": 0,
+      "failureCount": 0,
+      "statusCodes": {
+        "200": 20
+      },
+      "latency": {
+        "avgMs": 112.44,
+        "minMs": 84.08,
+        "maxMs": 195.62,
+        "p50Ms": 105.85,
+        "p90Ms": 134.28,
+        "p95Ms": 140.24,
+        "p99Ms": 195.62
+      },
+      "memory": {
+        "heapUsedMb": 72.82,
+        "rssMb": 148.78
+      }
+    },
+    {
+      "name": "Auth: Customer Profile Overhead",
+      "method": "GET",
+      "path": "/api/profile/me",
+      "totalRequests": 30,
+      "concurrency": 5,
+      "totalDurationMs": 204.81,
+      "throughputReqSec": 146.48,
+      "errorRatePercent": 0,
+      "failureCount": 0,
+      "statusCodes": {
+        "200": 30
+      },
+      "latency": {
+        "avgMs": 33.63,
+        "minMs": 29.48,
+        "maxMs": 39.45,
+        "p50Ms": 33.04,
+        "p90Ms": 37,
+        "p95Ms": 37.58,
+        "p99Ms": 39.45
+      },
+      "memory": {
+        "heapUsedMb": 69.73,
+        "rssMb": 150.71
+      }
+    },
+    {
+      "name": "Catalog: Default Product List",
+      "method": "GET",
+      "path": "/api/products",
+      "totalRequests": 30,
+      "concurrency": 10,
+      "totalDurationMs": 218.38,
+      "throughputReqSec": 137.37,
+      "errorRatePercent": 0,
+      "failureCount": 0,
+      "statusCodes": {
+        "200": 30
+      },
+      "latency": {
+        "avgMs": 70.78,
+        "minMs": 43.61,
+        "maxMs": 92.66,
+        "p50Ms": 74.42,
+        "p90Ms": 82.27,
+        "p95Ms": 90.08,
+        "p99Ms": 92.66
+      },
+      "memory": {
+        "heapUsedMb": 80.08,
+        "rssMb": 151.29
+      }
+    },
+    {
+      "name": "Catalog: Category Filter (Frames)",
+      "method": "GET",
+      "path": "/api/products?category=Frames",
+      "totalRequests": 30,
+      "concurrency": 10,
+      "totalDurationMs": 186.97,
+      "throughputReqSec": 160.45,
+      "errorRatePercent": 0,
+      "failureCount": 0,
+      "statusCodes": {
+        "200": 30
+      },
+      "latency": {
+        "avgMs": 59.86,
+        "minMs": 42.41,
+        "maxMs": 71.25,
+        "p50Ms": 62.89,
+        "p90Ms": 66.16,
+        "p95Ms": 69.92,
+        "p99Ms": 71.25
+      },
+      "memory": {
+        "heapUsedMb": 79.59,
+        "rssMb": 153.05
+      }
+    },
+    {
+      "name": "Catalog: Text Search (Ray-Ban)",
+      "method": "GET",
+      "path": "/api/products?search=Ray-Ban",
+      "totalRequests": 30,
+      "concurrency": 10,
+      "totalDurationMs": 190.64,
+      "throughputReqSec": 157.36,
+      "errorRatePercent": 0,
+      "failureCount": 0,
+      "statusCodes": {
+        "200": 30
+      },
+      "latency": {
+        "avgMs": 61.03,
+        "minMs": 47.47,
+        "maxMs": 73.76,
+        "p50Ms": 58.89,
+        "p90Ms": 69.83,
+        "p95Ms": 71.02,
+        "p99Ms": 73.76
+      },
+      "memory": {
+        "heapUsedMb": 78.81,
+        "rssMb": 155.66
+      }
+    },
+    {
+      "name": "Catalog: Single Product Detail",
+      "method": "GET",
+      "path": "/api/products/6adc25fae8971c4d358a3474",
+      "totalRequests": 30,
+      "concurrency": 10,
+      "totalDurationMs": 182.5,
+      "throughputReqSec": 164.38,
+      "errorRatePercent": 0,
+      "failureCount": 0,
+      "statusCodes": {
+        "200": 30
+      },
+      "latency": {
+        "avgMs": 58.86,
+        "minMs": 48,
+        "maxMs": 69.39,
+        "p50Ms": 58.91,
+        "p90Ms": 64,
+        "p95Ms": 67.66,
+        "p99Ms": 69.39
+      },
+      "memory": {
+        "heapUsedMb": 77.07,
+        "rssMb": 157.94
+      }
+    },
+    {
+      "name": "Inventory: Branch Stock List",
+      "method": "GET",
+      "path": "/api/inventory/branch/6adc25f9e8971c4d358a342c",
+      "totalRequests": 25,
+      "concurrency": 5,
+      "totalDurationMs": 253.03,
+      "throughputReqSec": 98.8,
+      "errorRatePercent": 0,
+      "failureCount": 0,
+      "statusCodes": {
+        "200": 25
+      },
+      "latency": {
+        "avgMs": 49.97,
+        "minMs": 40.25,
+        "maxMs": 58.49,
+        "p50Ms": 50.33,
+        "p90Ms": 52.78,
+        "p95Ms": 55.35,
+        "p99Ms": 58.49
+      },
+      "memory": {
+        "heapUsedMb": 83.8,
+        "rssMb": 160.91
+      }
+    },
+    {
+      "name": "Orders: Customer Order History",
+      "method": "GET",
+      "path": "/api/orders",
+      "totalRequests": 25,
+      "concurrency": 5,
+      "totalDurationMs": 165.37,
+      "throughputReqSec": 151.18,
+      "errorRatePercent": 0,
+      "failureCount": 0,
+      "statusCodes": {
+        "200": 25
+      },
+      "latency": {
+        "avgMs": 32.54,
+        "minMs": 24.81,
+        "maxMs": 36.57,
+        "p50Ms": 32.46,
+        "p90Ms": 34.97,
+        "p95Ms": 35.16,
+        "p99Ms": 36.57
+      },
+      "memory": {
+        "heapUsedMb": 80.17,
+        "rssMb": 162.32
+      }
+    },
+    {
+      "name": "Appointments: Available Doctor Sessions",
+      "method": "GET",
+      "path": "/api/doctor-sessions/available",
+      "totalRequests": 25,
+      "concurrency": 5,
+      "totalDurationMs": 233.53,
+      "throughputReqSec": 107.05,
+      "errorRatePercent": 0,
+      "failureCount": 0,
+      "statusCodes": {
+        "200": 25
+      },
+      "latency": {
+        "avgMs": 46.08,
+        "minMs": 35.08,
+        "maxMs": 58.94,
+        "p50Ms": 46.31,
+        "p90Ms": 52.46,
+        "p95Ms": 57.28,
+        "p99Ms": 58.94
+      },
+      "memory": {
+        "heapUsedMb": 90.44,
+        "rssMb": 163.92
+      }
+    },
+    {
+      "name": "Prescriptions: Customer Own History",
+      "method": "GET",
+      "path": "/api/prescriptions/me",
+      "totalRequests": 25,
+      "concurrency": 5,
+      "totalDurationMs": 232.37,
+      "throughputReqSec": 107.59,
+      "errorRatePercent": 0,
+      "failureCount": 0,
+      "statusCodes": {
+        "200": 25
+      },
+      "latency": {
+        "avgMs": 45.9,
+        "minMs": 34.77,
+        "maxMs": 61.09,
+        "p50Ms": 45.77,
+        "p90Ms": 51.27,
+        "p95Ms": 53.12,
+        "p99Ms": 61.09
+      },
+      "memory": {
+        "heapUsedMb": 61.14,
+        "rssMb": 166.38
+      }
+    },
+    {
+      "name": "Prescriptions: Optometrist Consultation Lookup",
+      "method": "GET",
+      "path": "/api/prescriptions/customer/6adc25fae8971c4d358a344b",
+      "totalRequests": 25,
+      "concurrency": 5,
+      "totalDurationMs": 270.15,
+      "throughputReqSec": 92.54,
+      "errorRatePercent": 0,
+      "failureCount": 0,
+      "statusCodes": {
+        "200": 25
+      },
+      "latency": {
+        "avgMs": 53.37,
+        "minMs": 43.53,
+        "maxMs": 64.76,
+        "p50Ms": 51.39,
+        "p90Ms": 61.71,
+        "p95Ms": 63.23,
+        "p99Ms": 64.76
+      },
+      "memory": {
+        "heapUsedMb": 62.81,
+        "rssMb": 163.66
+      }
+    },
+    {
+      "name": "Reports: Sales Summary Aggregation",
+      "method": "GET",
+      "path": "/api/reports/sales?preset=last_30_days",
+      "totalRequests": 15,
+      "concurrency": 5,
+      "totalDurationMs": 201.3,
+      "throughputReqSec": 74.52,
+      "errorRatePercent": 0,
+      "failureCount": 0,
+      "statusCodes": {
+        "200": 15
+      },
+      "latency": {
+        "avgMs": 65.98,
+        "minMs": 52.26,
+        "maxMs": 89.48,
+        "p50Ms": 56.6,
+        "p90Ms": 88.87,
+        "p95Ms": 89.48,
+        "p99Ms": 89.48
+      },
+      "memory": {
+        "heapUsedMb": 63.39,
+        "rssMb": 164.46
+      }
+    }
+  ]
+}

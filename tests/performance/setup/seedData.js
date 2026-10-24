@@ -72,7 +72,11 @@ async function seedPerformanceData() {
   // 2. Branches
   const branches = await Branch.create([
     { codeName: 'COL-01', address: '100 Galle Road, Colombo 03', contactNumber: '+94112345671' },
-    { codeName: 'GAM-02', address: '45 Kandy Road, Gampaha', contactNumber: '+94332211442' },
+    {
+      codeName: 'GAMPAHA_CENTRAL',
+      address: '45 Kandy Road, Gampaha',
+      contactNumber: '+94332211442',
+    },
     { codeName: 'KAN-03', address: '88 Peradeniya Road, Kandy', contactNumber: '+94812233443' },
   ]);
 
@@ -362,6 +366,8 @@ async function seedPerformanceData() {
     customer2Token: createToken({ userId: customers[1]._id, role: ROLE_VALUES.CUSTOMER }),
   };
 
+  const fulfillmentItem = inventoryItems.find((i) => i.branchId.equals(gampahaBranch._id));
+
   return {
     branches,
     admin,
@@ -369,6 +375,7 @@ async function seedPerformanceData() {
     doctor,
     customers,
     inventoryItems,
+    fulfillmentItem,
     doctorSessions,
     appointments,
     prescriptions,
