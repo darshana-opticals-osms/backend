@@ -15,18 +15,35 @@ This document is a working security-assessment record. Final release verificatio
 
 ## 2. Current Assessment Baseline
 
-The DDP-085 branch was synchronized with backend `develop` after DDP-101 was merged.
+The DDP-085 branch has been synchronized with backend `develop` through the merged DDP-101 and DDP-086 / PR #107 baselines.
 
-Relevant branch history:
+Relevant security and CI history includes:
 
 - `f7f56eb` – `fix(security): remediate vulnerable backend dependencies`
 - `1a3f864` – merged DDP-101 order-address snapshot changes from backend `develop`
-- `06c5a38` – synchronized DDP-085 branch with the merged backend baseline at that stage
+- `06c5a38` – synchronized DDP-085 with the merged backend baseline at that stage
 - `804b183` – `docs(security): document OWASP assessment progress`
+- `9aa59c1` – `docs(security): record A07 account lockout gap`
+- `33d12b0` – `fix(ci): restore reproducible npm lockfile`
+- `88b1adc` – `fix(security): implement account login lockout`
+- `a7df245` – `fix(security): add privacy-safe authentication event logging`
+- `393da00` – `fix(security): log access control rejections`
 
-Backend PR #107 / DDP-086 Performance and Reliability Testing remains relevant to the final security baseline because it includes security-adjacent runtime changes such as authentication rate-limiter configuration and reverse-proxy handling.
+Backend PR #107 / DDP-086 Performance and Reliability Testing has now been merged into `develop` at commit `5c1e20e`.
 
-Therefore, final full regression and final security sign-off must be performed after all required backend changes are merged into `develop` and the DDP-085 branch has been synchronized again.
+Security-relevant changes from that merged baseline include:
+
+- `skipSuccessfulRequests: true` for the authentication rate limiter;
+- Express `trust proxy` configuration for reverse-proxy client-IP handling;
+- performance-related model/index updates that must remain compatible with authorization, transaction, and audit controls.
+
+After synchronizing with the merged PR #107 baseline, targeted security/authentication/password-reset regression verification passed:
+
+- **3 suites passed**
+- **52 tests passed**
+- **0 failed**
+
+The final full backend regression, final dependency scan, CI run for the local DDP-085 security commits, and staging-dependent checks are still required before release sign-off.
 
 ---
 
@@ -238,7 +255,7 @@ Final dependency scanning must confirm that no newer safe compatible remediation
 
 ---
 
-## 6. Security Finding SEC-003 – Account Lockout Not Implemented
+## 6. Security Finding SEC-003 – Account Lockout
 
 ### Finding ID
 
@@ -248,89 +265,74 @@ Final dependency scanning must confirm that no newer safe compatible remediation
 
 A07 – Identification and Authentication Failures
 
-### Compliance Impact
+### Original Gap
 
-**Release / compliance blocker until resolved or formally dispositioned.**
-
-### Affected Components
-
-- `src/services/auth.service.js`
-- Customer authentication
-- Staff authentication
-- System Administrator authentication
-- Authentication security configuration
-
-### Requirement
-
-The SENG 34213 development guideline requires account lockout after a configured number of failed authentication attempts as part of OWASP A07 protection.
-
-### Existing Behaviour
-
-The backend currently implements IP-based authentication rate limiting.
-
-However, review of the authentication implementation identified no persistent account-level mechanism for:
+The backend already implemented IP-based authentication rate limiting, but initially had no persistent account-level mechanism for:
 
 - counting consecutive failed login attempts;
-- locking an individual account after a threshold is reached;
+- locking an individual account after repeated failures;
 - storing a lock expiry;
-- preventing correct-password login while an account is locked;
-- resetting failed-attempt state after successful authentication.
+- rejecting a correct password while the account is locked;
+- resetting failure state after a successful authentication;
+- starting a fresh failure sequence after lock expiry.
 
-`Customer`, `Staff`, and `Admin` models currently contain no failed-login counter or account-lock expiry state.
+The SENG 34213 development guideline explicitly requires account lockout as part of the A07 authentication controls.
 
-Therefore, authentication rate limiting currently mitigates request-volume/brute-force traffic but does not satisfy the guideline's explicit account-lockout requirement.
+### Remediation Implemented
 
-### Reproduction / Verification
+A minimum-change account-level lockout policy was implemented without redesigning the JWT/session architecture.
 
-1. Inspect `src/services/auth.service.js`.
-2. Inspect Customer, Staff, and Admin identity schemas.
-3. Submit repeated invalid-password login attempts for an existing account.
-4. Observe that no account-specific failed-attempt state or lock status is persisted.
-5. A later valid password remains governed only by the existing authentication and IP rate-limiter behaviour.
+Policy:
 
-### Expected Behaviour
+- **5 consecutive failed login attempts**
+- **15-minute temporary account lock**
+- successful authentication resets failed-attempt state
+- an expired lock starts a fresh failure sequence
+- the policy applies consistently to Customer, Staff, and System Administrator identities
+- the existing IP-based authentication rate limiter remains active as a complementary control
+- locked, invalid-password, and unknown-account responses remain generic to avoid account-state enumeration
 
-After the approved number of consecutive failed authentication attempts, the affected account should enter a temporary locked state according to an approved security policy.
+Configuration is environment-driven through:
 
-The implementation must:
+- `ACCOUNT_LOCKOUT_MAX_ATTEMPTS`
+- `ACCOUNT_LOCKOUT_DURATION_MS`
 
-- remain independent from frontend controls;
-- avoid revealing whether an account exists;
-- avoid weakening existing IP-based rate limiting;
-- apply consistently to applicable Customer, Staff, and Administrator identities;
-- reset the failed-attempt state safely after successful authentication or lock expiry;
-- remain concurrency-safe;
-- be covered by automated tests.
+The identity models store hidden account-lockout state and do not expose it through normal API responses.
 
-### Actual Behaviour
+### Fix Reference
 
-No account-level lockout mechanism is currently implemented.
+Commit:
 
-### Existing Compensating Control
+`88b1adc – fix(security): implement account login lockout`
 
-Authentication endpoints use an IP-based rate limiter to reduce brute-force request volume.
+### Regression Evidence
 
-This is retained as a complementary control but is not treated as equivalent to account lockout.
+Focused validation after implementation passed:
 
-### Remediation Decision
+- account-lockout integration tests
+- authentication login integration tests
+- security integration tests
+- authentication service unit tests
 
-Do not invent a lockout threshold or duration without an approved project requirement or security decision.
+Result:
 
-Before implementation, confirm or formally define:
+- **4 suites passed**
+- **40 tests passed**
+- **0 failed**
 
-- failed-attempt threshold (`N`);
-- lockout duration;
-- whether successful authentication resets the failure counter;
-- behaviour after lock expiry;
-- applicable identity types.
+Additional post-hardening verification covering authentication, lockout, access-control rejection logging, RBAC, branch authorization, centralized error handling, and the security suite later passed:
 
-The resulting implementation should be the smallest targeted change necessary to satisfy A07 without redesigning the authentication architecture.
+- **8 suites passed**
+- **82 tests passed**
+- **0 failed**
 
 ### Current Status
 
-**OPEN – VERIFIED SECURITY / COMPLIANCE GAP**
+**RESOLVED LOCALLY**
 
-Final DDP-085 sign-off must not claim A07 fully compliant until this finding is resolved or formally reviewed and dispositioned.
+A07 is no longer blocked by SEC-003.
+
+Final CI verification and staging/integrated verification remain required before final release sign-off.
 
 ---
 
@@ -555,10 +557,44 @@ Execute the relevant input/sanitizer regression suites against the final backend
 
 ## A04 – Insecure Design
 
+### Security Design Baseline
+
+The approved SDS already documents substantial security-design controls, including:
+
+- JWT authentication
+- role-based authorization
+- data protection and least privilege
+- input validation and sanitization
+- TLS / encryption requirements
+
+The existing SDS v1.0 does **not** contain an explicit standalone threat-model / STRIDE section.
+
+Final implementation-aligned SDS work is already owned by:
+
+- `documents#47` – DDP-088, Final SRS/SDS Alignment
+- existing branch: `docs/47-final-srs-sds`
+
+DDP-085 therefore records the verified design risks and mitigations without creating a duplicate SDS artifact or silently changing architecture.
+
+### Design Risks and Mitigations Assessed
+
+| Design Risk                                       | Verified / Existing Mitigation                                                                   |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Duplicate or forged payment effects               | provider verification, amount/currency checks, replay/idempotency controls, reconciliation logic |
+| Inventory overselling or inconsistent restoration | transaction-backed reservation/restoration rules and concurrency tests                           |
+| Appointment overbooking                           | authoritative session-capacity and conflict controls                                             |
+| Cross-customer clinical disclosure                | backend role/ownership restrictions and safe response shaping                                    |
+| Cross-branch inventory/report access              | server-side RBAC and branch-scoping controls                                                     |
+| Unauthorized loyalty manipulation                 | backend-authoritative loyalty rules and controlled persistence                                   |
+| Audit-history tampering                           | centralized immutable audit-trail design with restricted normal mutation paths                   |
+| Authentication brute force                        | IP rate limiting plus account-level temporary lockout                                            |
+| Unrestricted external server requests             | fixed/configured provider destinations; no generic arbitrary URL-fetch feature identified        |
+| Sensitive information in operational logs         | sanitizer controls plus privacy-safe authentication and access-rejection event logging           |
+
 Existing automated coverage was identified for critical business boundaries including:
 
 - checkout authority
-- inventory reservation
+- inventory reservation and restoration
 - order lifecycle
 - payment idempotency
 - duplicate payment notification behaviour
@@ -572,11 +608,11 @@ Existing automated coverage was identified for critical business boundaries incl
 
 ### Current Status
 
-**PARTIAL / DESIGN CONTROLS IDENTIFIED**
+**PARTIAL – DESIGN RISKS/MITIGATIONS ASSESSED LOCALLY; FINAL SDS THREAT-MODEL DOCUMENTATION PENDING DDP-088**
 
-Final integrated regression execution is pending.
+No additional backend architecture change is currently required for A04.
 
-The final A04 assessment must also confirm that the implemented security design is consistent with the final SDS security section and any applicable ADRs or documented threat-model decisions.
+The final SDS owner must incorporate the verified DDP-085 security findings, including the explicit threat-model/design-risk documentation required by the development guideline.
 
 ---
 
@@ -658,43 +694,61 @@ Final dependency scans are still required before release sign-off.
 
 ## A07 – Identification and Authentication Failures
 
-### Executed Verification
+### Verified Controls
 
-The security integration suite verified:
+The security and authentication test coverage verifies:
 
-- safe failed-login response
-- account-existence information is not disclosed
-- authentication rate limiting is active
-
-The RBAC test suite contains coverage for:
-
-- missing JWT
-- malformed token
-- invalid token
-- expired JWT
-
-Password-reset integration tests contain coverage for:
-
-- generic anti-enumeration responses
-- hashed reset-token storage
+- generic invalid-login responses
+- no account-existence disclosure
+- authentication rate limiting
+- missing JWT rejection
+- malformed JWT rejection
+- invalid JWT rejection
+- expired JWT rejection
+- password-reset anti-enumeration
+- hashed password-reset-token storage
 - reset-token expiry
-- token replacement
-- single use
+- reset-token replacement
+- single-use reset-token behaviour
 - already-used-token rejection
 - invalid-token rejection
 - concurrent-reset protection
 
-### Pending
+### SEC-003 Remediation
 
-The complete authentication and password-reset regression set must be rerun after the final backend baseline is established.
+The previously identified account-lockout gap has been resolved.
 
-PR #107 is security-relevant because it includes authentication rate-limiter changes.
+Implemented policy:
 
-Account-level lockout is currently not implemented and is tracked as `SEC-003`. Existing IP-based authentication rate limiting is a compensating control but does not satisfy the guideline's explicit account-lockout requirement.
+- 5 consecutive failed attempts
+- 15-minute temporary lock
+- successful authentication clears prior failures
+- expired locks permit a fresh failure sequence
+- Customer, Staff, and System Administrator identities use the same policy
+- generic authentication responses are preserved
+- IP-based authentication rate limiting remains active
+
+Relevant commit:
+
+`88b1adc – fix(security): implement account login lockout`
+
+Focused lockout/authentication/security verification passed:
+
+- **4 suites**
+- **40 tests**
+- **0 failed**
+
+Post-hardening A09/A07/RBAC verification also passed:
+
+- **8 suites**
+- **82 tests**
+- **0 failed**
 
 ### Status
 
-**FAIL / BLOCKED BY SEC-003**
+**PASS LOCALLY**
+
+Final CI verification and deployed staging verification remain pending before final release sign-off.
 
 ---
 
@@ -730,12 +784,12 @@ Account-level lockout is currently not implemented and is tracked as `SEC-003`. 
 
 ## A09 – Security Logging and Monitoring Failures
 
-### Controls Identified
+### Existing Audit and Error-Logging Controls
 
 Existing tests verify or inspect:
 
 - sanitized production error logging
-- audit records for important business operations
+- immutable audit records for important business operations
 - payment events
 - inventory audit behaviour
 - clinical audit behaviour
@@ -751,13 +805,74 @@ Sanitizer tests cover redaction of values including:
 
 Prescription security tests also verify that clinical remarks and eye measurements are not unnecessarily written to error logs.
 
-### Pending
+### Authentication Security Event Logging
 
-Final consolidated logging/audit regression execution and confirmation that required authentication, error, and sensitive data-access events are logged without exposing PII or secrets.
+A verified A09 gap was identified because authentication outcomes were not explicitly recorded as privacy-safe security events.
+
+The following events are now logged:
+
+- `LOGIN_FAILED`
+- `LOGIN_BLOCKED_LOCKED`
+- `LOGIN_SUCCEEDED role=<canonical-role>`
+
+Successful-login logging contains the canonical role only.
+
+Authentication security logs do not include:
+
+- email addresses
+- passwords
+- JWTs
+- account IDs
+- IP addresses
+- request bodies
+- other unnecessary PII
+
+Relevant commit:
+
+`a7df245 – fix(security): add privacy-safe authentication event logging`
+
+### Authentication / Authorization Rejection Logging
+
+A second A09 review found that centrally handled HTTP 401 and 403 access-control failures were safely returned but were not recorded as security events.
+
+The centralized error handler now records:
+
+- `[SecurityAccess] AUTHENTICATION_REJECTED`
+- `[SecurityAccess] AUTHORIZATION_DENIED`
+
+The event intentionally contains no request body, identity value, token, password, URL, or other user-controlled sensitive data.
+
+Relevant commit:
+
+`393da00 – fix(security): log access control rejections`
+
+### Regression Evidence
+
+Focused post-hardening verification passed:
+
+- centralized error/validation integration tests
+- authentication logging unit tests
+- authentication service unit tests
+- account-lockout integration tests
+- login integration tests
+- security integration tests
+- canonical-role authorization unit tests
+- branch-inventory authorization unit tests
+
+Result:
+
+- **8 suites passed**
+- **82 tests passed**
+- **0 failed**
+- ESLint passed
+- Prettier passed
+- `git diff --check` passed
 
 ### Status
 
-**PARTIAL**
+**PASS LOCALLY**
+
+Final full audit/logging regression and staging/runtime verification remain required before final release sign-off.
 
 ---
 
@@ -765,23 +880,31 @@ Final consolidated logging/audit regression execution and confirmation that requ
 
 ### Assessment
 
-A review of backend external-integration boundaries did not identify generic application functionality that accepts an arbitrary user-provided URL and performs an unrestricted server-side HTTP request to that destination.
+A final code-level review of the backend external-integration boundaries did not identify generic application functionality that accepts an arbitrary normal-user URL and performs an unrestricted server-side HTTP request to that destination.
+
+Verified provider boundaries include:
+
+- **Google Gemini** – requests use the backend-controlled Google Generative Language API endpoint; the model comes from backend configuration rather than a user-supplied destination.
+- **PayHere checkout** – the checkout URL is selected from backend configuration according to the approved sandbox/live mode.
+- **PayHere retrieval** – the adapter selects only the approved PayHere sandbox or live host, encodes the provider order reference, rejects redirects, and bounds the response size.
+- **Cloudinary** – provider access is configured through the backend-controlled Cloudinary SDK configuration and deployment credentials.
+- **Notification / SMTP providers** – service destinations are deployment configuration, not arbitrary normal-user URL inputs.
 
 No general-purpose user-controlled URL-fetch endpoint was identified.
 
-External integrations use application-controlled configuration or provider boundaries rather than exposing an arbitrary server-side destination supplied directly by normal application users.
-
 ### Decision
 
-Generic SSRF destination allow-listing is not being added because there is currently no identified arbitrary user-controlled server-side URL-fetch feature that requires such a control.
+Generic SSRF allow-list middleware is **not** being added because the current system does not expose an arbitrary user-controlled server-side URL-fetch feature.
 
-The final external-integration review must reconfirm that Cloudinary, PayHere, chatbot/provider integrations, and related configuration do not introduce a user-controlled server-side destination.
+Adding such middleware without an applicable input would introduce unnecessary complexity and would not address a real current attack surface.
 
-If a user-controlled external URL input is introduced later, explicit validation and a permitted-domain allow-list will be required.
+If future functionality introduces user-controlled external URLs, it must add explicit protocol validation, destination restrictions/allow-listing, and private-network protections before release.
 
 ### Status
 
-**NOT APPLICABLE to currently identified generic arbitrary URL fetching, subject to final external-integration review.**
+**PASS / NOT APPLICABLE TO GENERIC ARBITRARY URL FETCHING**
+
+The current external-provider boundaries are restricted by backend-controlled configuration or fixed provider hosts.
 
 ---
 
@@ -893,28 +1016,27 @@ Backend authorization remains authoritative.
 
 The following checks are deliberately not being claimed as final yet:
 
-- resolve or formally disposition `SEC-003` account-lockout gap
-- synchronize the DDP-085 branch after all required backend PRs merge
-- review security implications of final rate-limiter and reverse-proxy configuration
+- reconfirm whether any newer security-relevant backend changes have merged before the final regression
 - rerun backend dependency audit
-- rerun A01 authorization test batch
-- rerun authentication/password-reset tests
+- rerun the complete A01 authorization test batch
+- rerun authentication/password-reset regression against the final integrated baseline
 - rerun injection/sanitizer tests
 - rerun payment security tests
 - rerun clinical-data tests
 - rerun image-upload tests
-- rerun audit/logging tests
-- complete final SSRF/external-integration review
-- run full backend regression suite
+- rerun full audit/logging regression
+- run the full backend regression suite
 - run ESLint
 - run Prettier
 - verify Git diff/whitespace
-- verify final CI result
+- push the accumulated DDP-085 backend commits and verify the final CI result
 - perform safe staging HTTPS/CORS/security-header/configuration checks
+- verify staging runtime error/logging behaviour
 - rerun final frontend dependency/security checks
-- update frontend Draft PR #68 to reflect guideline-required staging verification before final release
+- update frontend Draft PR #68 after staging-dependent verification
 - verify final frontend/backend integration on staging
-- prepare final OWASP compliance checklist in the `documents` repository
+- provide the verified A04 security-design/threat-model findings to DDP-088 for final SDS integration
+- prepare the final OWASP compliance checklist in the `documents` repository
 
 ---
 
@@ -922,16 +1044,18 @@ The following checks are deliberately not being claimed as final yet:
 
 DDP-085 must not be marked complete until:
 
-- `SEC-003` is resolved or formally reviewed and dispositioned
 - no unresolved Critical security vulnerability exists
 - no unresolved High security vulnerability exists without formal authorized disposition
 - final security-critical regression tests pass
 - authorization controls are verified against the final integrated backend
 - dependency scans are repeated against the final backend and frontend lockfiles
+- final CI passes for the accumulated backend DDP-085 commits
 - staging HTTPS/TLS and security configuration are safely verified
-- residual Moderate risks are documented
+- staging runtime errors/logging are verified not to expose sensitive data
+- residual Moderate dependency risks are documented
 - frontend security verification is complete
 - required OWASP A01–A10 evidence is complete
+- A04 design-risk/threat-model findings are handed off to DDP-088 for final SDS incorporation
 - OWASP evidence is prepared for the final project documentation
 - security-related PRs receive peer review
 - all relevant CI security gates pass
@@ -945,31 +1069,43 @@ DDP-085 must not be marked complete until:
 Completed so far:
 
 - backend dependency security scan
-- identification of 2 High and 5 Moderate dependency vulnerabilities at initial baseline
+- identification of 2 High and 5 Moderate dependency vulnerabilities at the initial baseline
 - remediation of identified High dependency vulnerabilities
 - backend dependency-fix commit `f7f56eb`
-- backend dependency retest showing 0 Critical and 0 High at tested baseline
+- backend dependency retest showing 0 Critical and 0 High at the tested baseline
 - documentation of residual Moderate dependency risk `SEC-002`
+- reproducible npm lockfile repair and successful branch CI at `33d12b0`
+- synchronization with the merged DDP-101 backend changes
+- synchronization with merged DDP-086 / PR #107 security-adjacent runtime changes
+- post-merge targeted security/authentication/password-reset regression: **3 suites / 52 tests passed**
+- account-lockout gap `SEC-003` remediated
+- account-lockout commit `88b1adc`
+- account-lockout/auth/security verification: **4 suites / 40 tests passed**
+- privacy-safe authentication event logging implemented in `a7df245`
+- privacy-safe 401/403 access-control rejection logging implemented in `393da00`
+- post-hardening A07/A09/RBAC/error-handler verification: **8 suites / 82 tests passed**
 - lint verification
 - format verification
 - database security foundation test
 - 21-test backend security integration suite
 - review of existing authorization, authentication, clinical, payment, upload, logging, sanitizer, and integrity coverage
-- initial SSRF applicability assessment
-- identification of missing account-lockout control as `SEC-003`
-- A07 marked blocked pending resolution of `SEC-003`
-- synchronization with merged DDP-101 backend changes
-- initial OWASP working assessment committed as `804b183`
+- A04 design-risk and mitigation assessment completed locally
+- final A04 SDS integration correctly assigned to existing DDP-088 / `documents#47` rather than duplicated
+- A10 external-request/SSRF boundary review completed
+- A07 marked locally passing after SEC-003 remediation
+- A09 marked locally passing after privacy-safe authentication and access-rejection logging
 
 Still pending:
 
-- resolution or formal disposition of `SEC-003`
-- final backend baseline after remaining relevant PR merges
-- final synchronization with `develop`
-- full targeted OWASP regression execution
+- reconfirm final backend baseline immediately before final regression
+- final backend dependency scan
+- final full targeted OWASP regression
 - full backend regression
+- push accumulated backend security commits
+- final backend CI verification
 - final frontend verification
 - safe staging security verification
-- final CI evidence
+- final staging frontend/backend security smoke
+- DDP-088 final SDS incorporation of verified A04 security-design/threat-model findings
 - final OWASP compliance evidence in the `documents` repository
-- final DDP-085 release sign-off
+- peer review and final DDP-085 release sign-off
