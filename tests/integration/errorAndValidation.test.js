@@ -96,6 +96,60 @@ describe('Centralized Request Validation and Error Handling Integration Tests (#
     });
   });
 
+  it('should log privacy-safe security events for authentication and authorization rejections', async () => {
+    const savedEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const sensitivePayload = {
+        email: 'sensitive@example.com',
+        password: 'NeverLogMe123!',
+        token: 'secret-token-value',
+      };
+
+      const testCases = [
+        {
+          err: new UnauthorizedError('Authentication required.'),
+          expectedStatus: 401,
+          expectedEvent: '[SecurityAccess] AUTHENTICATION_REJECTED',
+        },
+        {
+          err: new ForbiddenError('Access forbidden'),
+          expectedStatus: 403,
+          expectedEvent: '[SecurityAccess] AUTHORIZATION_DENIED',
+        },
+      ];
+
+      for (const { err, expectedStatus } of testCases) {
+        const testApp = express();
+        testApp.use(express.json());
+        testApp.post('/test-security-rejection', (_req, _res, next) => next(err));
+        testApp.use(errorHandler);
+
+        const res = await request(testApp).post('/test-security-rejection').send(sensitivePayload);
+
+        expect(res.status).toBe(expectedStatus);
+      }
+
+      const loggedOutput = consoleSpy.mock.calls
+        .flat()
+        .map((arg) => String(arg))
+        .join(' ');
+
+      for (const { expectedEvent } of testCases) {
+        expect(loggedOutput).toContain(expectedEvent);
+      }
+
+      expect(loggedOutput).not.toContain(sensitivePayload.email);
+      expect(loggedOutput).not.toContain(sensitivePayload.password);
+      expect(loggedOutput).not.toContain(sensitivePayload.token);
+    } finally {
+      consoleSpy.mockRestore();
+      process.env.NODE_ENV = savedEnv;
+    }
+  });
+
   describe('AC4, AC5, AC11: Request Validation Middleware', () => {
     it('should accept request and invoke handler given valid request payload', async () => {
       // Arrange

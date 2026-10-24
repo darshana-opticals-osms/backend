@@ -70,6 +70,14 @@ const errorHandler = (err, req, res, next) => {
   const isDevelopment = process.env.NODE_ENV === 'development';
   const isOperational = error.isOperational || false;
 
+  if (process.env.NODE_ENV !== 'test') {
+    if (statusCode === 401) {
+      console.warn('[SecurityAccess] AUTHENTICATION_REJECTED');
+    } else if (statusCode === 403) {
+      console.warn('[SecurityAccess] AUTHORIZATION_DENIED');
+    }
+  }
+
   // Formulate consistent response
   const response = {
     success: false,
