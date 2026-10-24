@@ -1,0 +1,103 @@
+{
+  "executedAt": "2026-10-24T03:36:56.448Z",
+  "nodeVersion": "v22.14.0",
+  "platform": "win32",
+  "suites": [
+    {
+      "testName": "AC9: Checkout Race Condition & Stock Integrity",
+      "scenarios": [
+        {
+          "scenario": "Single item contention (Stock = 1, Concurrency = 5)",
+          "durationMs": 259.85,
+          "expectedSuccess": 1,
+          "actualSuccess": 1,
+          "expectedRejections": 4,
+          "actualRejections": 4,
+          "finalStock": 0,
+          "ordersCreated": 1,
+          "orderItemsPersisted": 1,
+          "passed": true
+        },
+        {
+          "scenario": "Two items contention (Stock = 2, Concurrency = 4)",
+          "durationMs": 202.54,
+          "expectedSuccess": 2,
+          "actualSuccess": 2,
+          "expectedRejections": 2,
+          "actualRejections": 2,
+          "finalStock": 0,
+          "ordersCreated": 2,
+          "passed": true
+        }
+      ],
+      "allPassed": true
+    },
+    {
+      "testName": "AC10: Appointment Slot Contention & Capacity Integrity",
+      "scenarios": [
+        {
+          "scenario": "Single slot contention (Capacity = 1, Concurrency = 5)",
+          "durationMs": 122.59,
+          "expectedSuccess": 1,
+          "actualSuccess": 1,
+          "expectedRejections": 4,
+          "actualRejections": 4,
+          "finalConfirmedCount": 1,
+          "appointmentsPersisted": 1,
+          "passed": true
+        },
+        {
+          "scenario": "Two slots contention (Capacity = 2, Concurrency = 4)",
+          "durationMs": 106.82,
+          "expectedSuccess": 2,
+          "actualSuccess": 2,
+          "expectedRejections": 2,
+          "actualRejections": 2,
+          "finalConfirmedCount": 2,
+          "appointmentsPersisted": 2,
+          "assignedPositions": [1, 2],
+          "passed": true
+        }
+      ],
+      "allPassed": true
+    },
+    {
+      "testName": "AC12: Failure & Recovery Behavior Verification",
+      "scenarios": [
+        {
+          "case": "NoSQL injection attack prevention",
+          "statusReturned": 422,
+          "safeResponse": true,
+          "noStackLeak": true,
+          "passed": true
+        },
+        {
+          "case": "Expired JWT token safe rejection",
+          "statusReturned": 401,
+          "safeResponse": true,
+          "noSecretLeak": true,
+          "passed": true
+        },
+        {
+          "case": "Tampered JWT signature rejection",
+          "statusReturned": 401,
+          "passed": true
+        },
+        {
+          "case": "Oversized payload body limit enforcement",
+          "statusReturned": 413,
+          "passed": true
+        },
+        {
+          "case": "Client-safe error contract & zero internal information leakage",
+          "statusReturned": 404,
+          "envelopeValid": true,
+          "zeroLeaks": true,
+          "passed": true
+        }
+      ],
+      "allPassed": true
+    }
+  ],
+  "overallStatus": "PASS"
+}
