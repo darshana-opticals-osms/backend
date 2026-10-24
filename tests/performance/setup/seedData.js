@@ -12,6 +12,7 @@
 
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const Branch = require('../../../src/models/branch.model');
 const Admin = require('../../../src/models/admin.model');
 const Staff = require('../../../src/models/staff.model');
@@ -47,10 +48,49 @@ function createToken({ userId, role = ROLE_VALUES.CUSTOMER, branchId = null }) {
 }
 
 /**
+ * Verifies that the connected database is strictly an isolated test database
+ * before executing destructive delete operations.
+ */
+function assertDestructiveSeedingAllowed() {
+  const currentEnv = (process.env.NODE_ENV || '').trim().toLowerCase();
+  if (currentEnv === 'production' || currentEnv === 'staging') {
+    throw new Error(
+      `CRITICAL SAFETY VIOLATION: Destructive seeding aborted! NODE_ENV is set to "${process.env.NODE_ENV}".`
+    );
+  }
+
+  const conn = mongoose.connection;
+  if (!conn || conn.readyState !== 1) {
+    throw new Error('CRITICAL SAFETY VIOLATION: Database connection is not ready for seeding.');
+  }
+
+  const host = (conn.host || '').toLowerCase();
+  const dbName = (conn.name || '').toLowerCase();
+
+  const isLoopback = host.includes('127.0.0.1') || host.includes('localhost') || host === '::1';
+  if (!isLoopback) {
+    throw new Error(
+      `CRITICAL SAFETY VIOLATION: Destructive seeding is strictly forbidden on non-local database host "${conn.host}".`
+    );
+  }
+
+  if (
+    dbName.includes('production') ||
+    dbName.includes('staging') ||
+    dbName === 'darshana-opticals-db'
+  ) {
+    throw new Error(
+      `CRITICAL SAFETY VIOLATION: Destructive seeding rejected on database "${conn.name}".`
+    );
+  }
+}
+
+/**
  * Seeds representative test records for performance benchmarking.
  * @returns {Promise<Object>} Seeded entity manifest with tokens and test IDs
  */
 async function seedPerformanceData() {
+  assertDestructiveSeedingAllowed();
   const passwordHash = await bcrypt.hash(PERF_PASSWORD, 10);
 
   // 1. Clear existing collections to guarantee deterministic baseline

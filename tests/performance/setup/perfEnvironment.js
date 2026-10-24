@@ -7,20 +7,40 @@
 
 const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
+
+// -----------------------------------------------------------------------------
+// PRE-FLIGHT CRITICAL ENVIRONMENT SAFETY VALIDATION
+// Must run BEFORE any process.env mutations to guarantee existing environment
+// variables (NODE_ENV, MONGODB_URI) are not masked.
+// -----------------------------------------------------------------------------
+function assertSafeInitialEnvironment() {
+  const currentEnv = (process.env.NODE_ENV || '').trim().toLowerCase();
+  if (currentEnv === 'production' || currentEnv === 'staging') {
+    throw new Error(
+      `CRITICAL SAFETY VIOLATION: Performance testing suite must never execute in ${currentEnv} environment (NODE_ENV="${process.env.NODE_ENV}"). Aborting immediately to prevent data loss or service disruption.`
+    );
+  }
+
+  const inheritedUri = (process.env.MONGODB_URI || '').trim().toLowerCase();
+  if (
+    inheritedUri.includes('mongodb+srv') ||
+    inheritedUri.includes('cluster0') ||
+    inheritedUri.includes('production') ||
+    inheritedUri.includes('staging') ||
+    inheritedUri.includes('darshana-opticals-db')
+  ) {
+    throw new Error(
+      'CRITICAL SAFETY VIOLATION: Detected production or staging database URI in MONGODB_URI environment variable. Performance suite refuses to execute against shared or live databases.'
+    );
+  }
+}
+
+// Execute initial environment check immediately upon module load
+assertSafeInitialEnvironment();
+
 let mongoServer = null;
 let testApp = null;
 let originalEnv = null;
-
-// Apply safe performance test environment variables before any module loads
-process.env.NODE_ENV = 'test';
-process.env.PORT = '5050';
-process.env.JWT_SECRET = 'osms-perf-isolated-jwt-secret-key-32chars-min!';
-process.env.JWT_EXPIRES_IN = '2h';
-process.env.PASSWORD_SALT_ROUNDS = '10';
-process.env.RATE_LIMIT_MAX = '5000';
-process.env.AUTH_RATE_LIMIT_MAX = '5000';
-process.env.RATE_LIMIT_WINDOW_MS = '60000';
-process.env.AUTH_RATE_LIMIT_WINDOW_MS = '60000';
 
 const PERF_ENV_DEFAULTS = {
   NODE_ENV: 'test',
@@ -35,16 +55,62 @@ const PERF_ENV_DEFAULTS = {
 };
 
 /**
+ * Validates externally supplied performance database URIs.
+ * Guarantees that only strictly isolated, local test databases are permitted.
+ * @param {string} uriString
+ */
+function validateExternalPerfUri(uriString) {
+  if (!uriString) return;
+
+  if (process.env.ALLOW_EXTERNAL_PERF_DB !== 'true') {
+    throw new Error(
+      `CRITICAL SAFETY VIOLATION: External PERF_MONGODB_URI was provided ("${uriString}"), but ALLOW_EXTERNAL_PERF_DB is not set to 'true'. External databases are rejected by default to prevent accidental data destruction. Use ephemeral MongoMemoryServer or set ALLOW_EXTERNAL_PERF_DB=true with a dedicated isolated test DB.`
+    );
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(uriString);
+  } catch {
+    throw new Error(`CRITICAL SAFETY VIOLATION: Invalid PERF_MONGODB_URI format: ${uriString}`);
+  }
+
+  const isLoopback =
+    parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1';
+  if (!isLoopback) {
+    throw new Error(
+      `CRITICAL SAFETY VIOLATION: External performance database must strictly point to a local loopback interface (localhost / 127.0.0.1). Remote host "${parsed.hostname}" is forbidden.`
+    );
+  }
+
+  const dbPath = (parsed.pathname || '').replace(/^\//, '').toLowerCase();
+  const hasSafeDbName = dbPath.includes('test') || dbPath.includes('perf');
+  if (!hasSafeDbName) {
+    throw new Error(
+      `CRITICAL SAFETY VIOLATION: External performance database name ("${dbPath}") must explicitly contain "test" or "perf" to guarantee isolation.`
+    );
+  }
+
+  const lowerUri = uriString.toLowerCase();
+  if (
+    lowerUri.includes('mongodb+srv') ||
+    lowerUri.includes('cluster0') ||
+    lowerUri.includes('production') ||
+    lowerUri.includes('staging') ||
+    lowerUri.includes('darshana-opticals-db')
+  ) {
+    throw new Error(
+      'CRITICAL SAFETY VIOLATION: External performance database URI matches forbidden production/staging keywords.'
+    );
+  }
+}
+
+/**
  * Initializes an isolated performance test environment.
  * @returns {Promise<{ app: Express.Application, connection: mongoose.Connection, uri: string }>}
  */
 async function setupPerfEnvironment() {
-  // AC3 Safety Safeguard
-  if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging') {
-    throw new Error(
-      `CRITICAL SAFETY VIOLATION: Performance suite must never run against ${process.env.NODE_ENV} environment.`
-    );
-  }
+  assertSafeInitialEnvironment();
 
   originalEnv = { ...process.env };
 
@@ -53,7 +119,7 @@ async function setupPerfEnvironment() {
     process.env[key] = value;
   }
 
-  // Clear module cache for security/rateLimiter so new rate limits take effect
+  // Clear module cache for security/rateLimiter so performance rate limits take effect
   const securityPath = require.resolve('../../../src/config/security');
   const rateLimiterPath = require.resolve('../../../src/middleware/rateLimiter');
   const appPath = require.resolve('../../../src/app');
@@ -74,7 +140,10 @@ async function setupPerfEnvironment() {
   }
 
   if (process.env.PERF_MONGODB_URI) {
-    console.log(`[PerfEnv] Connecting to provided test database: ${process.env.PERF_MONGODB_URI}`);
+    validateExternalPerfUri(process.env.PERF_MONGODB_URI);
+    console.log(
+      `[PerfEnv] Connecting to verified external test database: ${process.env.PERF_MONGODB_URI}`
+    );
     await mongoose.connect(process.env.PERF_MONGODB_URI);
     testApp = createApp();
     return {
@@ -133,4 +202,6 @@ module.exports = {
   setupPerfEnvironment,
   teardownPerfEnvironment,
   PERF_ENV_DEFAULTS,
+  assertSafeInitialEnvironment,
+  validateExternalPerfUri,
 };
