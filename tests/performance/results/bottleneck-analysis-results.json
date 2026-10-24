@@ -1,0 +1,75 @@
+{
+  "analyzedAt": "2026-10-24T06:17:21.793Z",
+  "reports": [
+    {
+      "query": "Product Catalog: In-Stock Filter & Sort",
+      "collection": "inventories",
+      "filter": "{ branchId, quantity: { $gt: 0 } }",
+      "sort": "{ itemName: 1, _id: 1 }",
+      "nReturned": 17,
+      "totalDocsExamined": 17,
+      "totalKeysExamined": 17,
+      "executionTimeMillis": 1,
+      "isIndexed": true,
+      "hasInMemorySort": true,
+      "primaryStage": "SORT",
+      "allStages": ["SORT", "FETCH", "IXSCAN"]
+    },
+    {
+      "query": "Product Catalog: Category Filter & Sort",
+      "collection": "inventories",
+      "filter": "{ branchId, category: 'Frames', quantity: { $gt: 0 } }",
+      "sort": "{ itemName: 1, _id: 1 }",
+      "nReturned": 3,
+      "totalDocsExamined": 3,
+      "totalKeysExamined": 3,
+      "executionTimeMillis": 0,
+      "isIndexed": true,
+      "hasInMemorySort": true,
+      "primaryStage": "SORT",
+      "allStages": ["SORT", "FETCH", "IXSCAN"]
+    },
+    {
+      "query": "Customer Order History",
+      "collection": "orders",
+      "filter": "{ customerId }",
+      "sort": "{ createdAt: -1 }",
+      "nReturned": 2,
+      "totalDocsExamined": 2,
+      "totalKeysExamined": 2,
+      "executionTimeMillis": 0,
+      "isIndexed": true,
+      "hasInMemorySort": false,
+      "primaryStage": "FETCH",
+      "allStages": ["FETCH", "IXSCAN"]
+    },
+    {
+      "query": "Clinical Prescription History",
+      "collection": "prescriptions",
+      "filter": "{ customerId, isArchived: false }",
+      "sort": "{ recordedAt: -1 }",
+      "nReturned": 2,
+      "totalDocsExamined": 2,
+      "totalKeysExamined": 2,
+      "executionTimeMillis": 1,
+      "isIndexed": true,
+      "hasInMemorySort": false,
+      "primaryStage": "FETCH",
+      "allStages": ["FETCH", "IXSCAN"]
+    },
+    {
+      "query": "Customer Appointment Schedule",
+      "collection": "appointments",
+      "filter": "{ customerId }",
+      "sort": "{ dateTime: -1 }",
+      "nReturned": 2,
+      "totalDocsExamined": 2,
+      "totalKeysExamined": 2,
+      "executionTimeMillis": 2,
+      "isIndexed": true,
+      "hasInMemorySort": false,
+      "primaryStage": "FETCH",
+      "allStages": ["FETCH", "IXSCAN"]
+    }
+  ]
+}

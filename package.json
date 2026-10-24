@@ -9,6 +9,11 @@
     "seed": "node src/seed/index.js",
     "seed:reset": "node src/seed/index.js --reset",
     "test": "jest --runInBand",
+    "test:perf": "node tests/performance/runPerformanceSuite.js",
+    "test:perf:baseline": "node tests/performance/benchmarks/baselineBenchmarks.js",
+    "test:perf:concurrency": "node tests/performance/concurrency/runConcurrencySuite.js",
+    "test:perf:load": "node tests/performance/load/controlledLoadTest.js",
+    "test:perf:profile": "node tests/performance/load/bottleneckAnalyzer.js",
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{js,json,md}\"",
     "format:check": "prettier --check \"**/*.{js,json,md}\""

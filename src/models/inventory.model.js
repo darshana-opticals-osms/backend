@@ -53,4 +53,7 @@ const inventorySchema = new mongoose.Schema(
   }
 );
 
+inventorySchema.index({ branchId: 1, quantity: 1, itemName: 1, _id: 1 });
+inventorySchema.index({ branchId: 1, category: 1, quantity: 1, itemName: 1 });
+
 module.exports = mongoose.model('Inventory', inventorySchema);

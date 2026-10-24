@@ -75,5 +75,6 @@ appointmentSchema.index(
     name: 'appointment_session_position_unique',
   }
 );
+appointmentSchema.index({ customerId: 1, dateTime: -1 });
 
 module.exports = mongoose.model('Appointment', appointmentSchema);
