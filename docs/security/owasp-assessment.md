@@ -43,7 +43,7 @@ After synchronizing with the merged PR #107 baseline, targeted security/authenti
 - **52 tests passed**
 - **0 failed**
 
-The final full backend regression, final dependency scan, CI run for the local DDP-085 security commits, and staging-dependent checks are still required before release sign-off.
+The final local backend regression and dependency audit are complete. CI verification for the accumulated DDP-085 security commits and staging-dependent checks remain required before release sign-off.
 
 ---
 
@@ -1014,21 +1014,8 @@ Backend authorization remains authoritative.
 
 # 14. Final Verification Still Required
 
-The following checks are deliberately not being claimed as final yet:
+Local backend verification is complete. Remaining work is deployment and release evidence:
 
-- reconfirm whether any newer security-relevant backend changes have merged before the final regression
-- rerun backend dependency audit
-- rerun the complete A01 authorization test batch
-- rerun authentication/password-reset regression against the final integrated baseline
-- rerun injection/sanitizer tests
-- rerun payment security tests
-- rerun clinical-data tests
-- rerun image-upload tests
-- rerun full audit/logging regression
-- run the full backend regression suite
-- run ESLint
-- run Prettier
-- verify Git diff/whitespace
 - push the accumulated DDP-085 backend commits and verify the final CI result
 - perform safe staging HTTPS/CORS/security-header/configuration checks
 - verify staging runtime error/logging behaviour
@@ -1084,6 +1071,9 @@ Completed so far:
 - privacy-safe authentication event logging implemented in `a7df245`
 - privacy-safe 401/403 access-control rejection logging implemented in `393da00`
 - post-hardening A07/A09/RBAC/error-handler verification: **8 suites / 82 tests passed**
+- final backend regression with coverage: **118 suites / 2072 tests passed**
+- final coverage: **92.33% statements / 81.68% branches / 93% lines**
+- final dependency audit: **0 Critical / 0 High / 2 Moderate** residual vulnerabilities through exceljs -> uuid
 - lint verification
 - format verification
 - database security foundation test
@@ -1097,10 +1087,6 @@ Completed so far:
 
 Still pending:
 
-- reconfirm final backend baseline immediately before final regression
-- final backend dependency scan
-- final full targeted OWASP regression
-- full backend regression
 - push accumulated backend security commits
 - final backend CI verification
 - final frontend verification
