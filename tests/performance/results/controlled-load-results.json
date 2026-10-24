@@ -1,5 +1,5 @@
 {
-  "executedAt": "2026-10-24T03:55:57.496Z",
+  "executedAt": "2026-10-24T04:10:56.736Z",
   "nodeVersion": "v22.14.0",
   "platform": "win32",
   "stages": [
@@ -7,78 +7,78 @@
       "stage": "Stage 1: Warmup & Light Load",
       "concurrency": 5,
       "totalRequests": 25,
-      "totalDurationMs": 299.42,
-      "throughputReqSec": 83.5,
+      "totalDurationMs": 461.8,
+      "throughputReqSec": 54.14,
       "errorRatePercent": 0,
       "statusCodes": {
         "200": 25
       },
       "latency": {
-        "avgMs": 57.95,
-        "minMs": 27.08,
-        "maxMs": 102.71,
-        "p50Ms": 49.51,
-        "p90Ms": 92.23,
-        "p95Ms": 94.94,
-        "p99Ms": 102.71
+        "avgMs": 89.08,
+        "minMs": 42.36,
+        "maxMs": 131.14,
+        "p50Ms": 83.34,
+        "p90Ms": 120.18,
+        "p95Ms": 129.18,
+        "p99Ms": 131.14
       },
       "resourceUsage": {
-        "heapUsedMb": 61.15,
-        "rssMb": 140.43,
-        "cpuUserMs": 281,
-        "cpuSystemMs": 78
+        "heapUsedMb": 67.67,
+        "rssMb": 149.52,
+        "cpuUserMs": 484,
+        "cpuSystemMs": 110
       }
     },
     {
       "stage": "Stage 2: Target Peak Concurrency",
       "concurrency": 15,
       "totalRequests": 60,
-      "totalDurationMs": 463.25,
-      "throughputReqSec": 129.52,
+      "totalDurationMs": 756.02,
+      "throughputReqSec": 79.36,
       "errorRatePercent": 0,
       "statusCodes": {
         "200": 60
       },
       "latency": {
-        "avgMs": 108.95,
-        "minMs": 67.8,
-        "maxMs": 156.31,
-        "p50Ms": 102.71,
-        "p90Ms": 147.85,
-        "p95Ms": 152.55,
-        "p99Ms": 156.31
+        "avgMs": 176.99,
+        "minMs": 92.68,
+        "maxMs": 238.39,
+        "p50Ms": 171.07,
+        "p90Ms": 232.79,
+        "p95Ms": 234.6,
+        "p99Ms": 238.39
       },
       "resourceUsage": {
-        "heapUsedMb": 65.71,
-        "rssMb": 142.12,
-        "cpuUserMs": 532,
-        "cpuSystemMs": 94
+        "heapUsedMb": 74.14,
+        "rssMb": 155.14,
+        "cpuUserMs": 703,
+        "cpuSystemMs": 156
       }
     },
     {
       "stage": "Stage 3: High Stress Concurrency",
       "concurrency": 30,
       "totalRequests": 120,
-      "totalDurationMs": 805.16,
-      "throughputReqSec": 149.04,
+      "totalDurationMs": 1273.69,
+      "throughputReqSec": 94.21,
       "errorRatePercent": 0,
       "statusCodes": {
         "200": 120
       },
       "latency": {
-        "avgMs": 190.81,
-        "minMs": 116.98,
-        "maxMs": 263.61,
-        "p50Ms": 192.56,
-        "p90Ms": 247.12,
-        "p95Ms": 252.25,
-        "p99Ms": 257.34
+        "avgMs": 303.25,
+        "minMs": 165.26,
+        "maxMs": 422.82,
+        "p50Ms": 312.81,
+        "p90Ms": 374.87,
+        "p95Ms": 401.53,
+        "p99Ms": 421.26
       },
       "resourceUsage": {
-        "heapUsedMb": 68.48,
-        "rssMb": 152.95,
-        "cpuUserMs": 765,
-        "cpuSystemMs": 234
+        "heapUsedMb": 80.55,
+        "rssMb": 165.62,
+        "cpuUserMs": 1047,
+        "cpuSystemMs": 375
       }
     }
   ],

@@ -1,5 +1,5 @@
 {
-  "executedAt": "2026-10-24T03:55:47.669Z",
+  "executedAt": "2026-10-24T04:10:45.682Z",
   "nodeVersion": "v22.14.0",
   "platform": "win32",
   "suites": [
@@ -8,7 +8,7 @@
       "scenarios": [
         {
           "scenario": "Single item contention (Stock = 1, Concurrency = 5)",
-          "durationMs": 228.34,
+          "durationMs": 238.86,
           "expectedSuccess": 1,
           "actualSuccess": 1,
           "expectedRejections": 4,
@@ -20,7 +20,7 @@
         },
         {
           "scenario": "Two items contention (Stock = 2, Concurrency = 4)",
-          "durationMs": 180.12,
+          "durationMs": 172.13,
           "expectedSuccess": 2,
           "actualSuccess": 2,
           "expectedRejections": 2,
@@ -37,7 +37,7 @@
       "scenarios": [
         {
           "scenario": "Single slot contention (Capacity = 1, Concurrency = 5)",
-          "durationMs": 133.34,
+          "durationMs": 133.99,
           "expectedSuccess": 1,
           "actualSuccess": 1,
           "expectedRejections": 4,
@@ -48,7 +48,7 @@
         },
         {
           "scenario": "Two slots contention (Capacity = 2, Concurrency = 4)",
-          "durationMs": 89.23,
+          "durationMs": 129.6,
           "expectedSuccess": 2,
           "actualSuccess": 2,
           "expectedRejections": 2,
