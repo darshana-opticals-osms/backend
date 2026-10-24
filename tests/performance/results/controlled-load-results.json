@@ -1,0 +1,86 @@
+{
+  "executedAt": "2026-10-24T03:41:31.654Z",
+  "nodeVersion": "v22.14.0",
+  "platform": "win32",
+  "stages": [
+    {
+      "stage": "Stage 1: Warmup & Light Load",
+      "concurrency": 5,
+      "totalRequests": 25,
+      "totalDurationMs": 310.68,
+      "throughputReqSec": 80.47,
+      "errorRatePercent": 0,
+      "statusCodes": {
+        "200": 25
+      },
+      "latency": {
+        "avgMs": 58.92,
+        "minMs": 28.33,
+        "maxMs": 104.31,
+        "p50Ms": 50.11,
+        "p90Ms": 95.47,
+        "p95Ms": 101.26,
+        "p99Ms": 104.31
+      },
+      "resourceUsage": {
+        "heapUsedMb": 61.76,
+        "rssMb": 146.44,
+        "cpuUserMs": 344,
+        "cpuSystemMs": 31
+      }
+    },
+    {
+      "stage": "Stage 2: Target Peak Concurrency",
+      "concurrency": 15,
+      "totalRequests": 60,
+      "totalDurationMs": 523.25,
+      "throughputReqSec": 114.67,
+      "errorRatePercent": 0,
+      "statusCodes": {
+        "200": 60
+      },
+      "latency": {
+        "avgMs": 125.09,
+        "minMs": 86.25,
+        "maxMs": 167.49,
+        "p50Ms": 121.48,
+        "p90Ms": 159.59,
+        "p95Ms": 163.07,
+        "p99Ms": 167.49
+      },
+      "resourceUsage": {
+        "heapUsedMb": 68.04,
+        "rssMb": 147.8,
+        "cpuUserMs": 625,
+        "cpuSystemMs": 110
+      }
+    },
+    {
+      "stage": "Stage 3: High Stress Concurrency",
+      "concurrency": 30,
+      "totalRequests": 120,
+      "totalDurationMs": 1020.61,
+      "throughputReqSec": 117.58,
+      "errorRatePercent": 0,
+      "statusCodes": {
+        "200": 120
+      },
+      "latency": {
+        "avgMs": 244.9,
+        "minMs": 131.21,
+        "maxMs": 370.24,
+        "p50Ms": 231.23,
+        "p90Ms": 284.02,
+        "p95Ms": 295.21,
+        "p99Ms": 358.42
+      },
+      "resourceUsage": {
+        "heapUsedMb": 76.48,
+        "rssMb": 150.16,
+        "cpuUserMs": 766,
+        "cpuSystemMs": 312
+      }
+    }
+  ],
+  "allStagesCompliant": true
+}

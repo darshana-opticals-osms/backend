@@ -100,5 +100,6 @@ const orderSchema = new mongoose.Schema(
 );
 
 orderSchema.index({ status: 1, reservationExpiresAt: 1, _id: 1 });
+orderSchema.index({ customerId: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Order', orderSchema);

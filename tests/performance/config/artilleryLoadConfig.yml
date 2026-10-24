@@ -1,0 +1,37 @@
+config:
+  target: 'http://localhost:5050'
+  phases:
+    - duration: 20
+      arrivalRate: 5
+      name: 'Warmup & Light Load'
+    - duration: 30
+      arrivalRate: 15
+      rampTo: 30
+      name: 'Ramping to Peak Concurrency'
+    - duration: 20
+      arrivalRate: 30
+      name: 'Sustained Peak Load'
+  defaults:
+    headers:
+      Content-Type: 'application/json'
+
+scenarios:
+  - name: 'Customer Catalog & Discovery Flow'
+    weight: 60
+    flow:
+      - get:
+          url: '/api/health'
+      - get:
+          url: '/api/products'
+      - get:
+          url: '/api/products?category=Frames'
+      - get:
+          url: '/api/products?search=Ray-Ban'
+
+  - name: 'Customer Health & Availability Flow'
+    weight: 40
+    flow:
+      - get:
+          url: '/api/health'
+      - get:
+          url: '/api/doctor-sessions/available'
