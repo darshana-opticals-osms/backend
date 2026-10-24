@@ -39,6 +39,9 @@ const { sanitizeInput } = require('./utils/sanitizer');
 function createApp() {
   const app = express();
 
+  // Enable reverse proxy trust (1 hop) to reliably resolve real client IP addresses
+  app.set('trust proxy', 1);
+
   // --- Security Middleware ---
 
   // AC1: Security HTTP headers (Content-Security-Policy, X-Frame-Options, etc.)

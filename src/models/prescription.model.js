@@ -73,4 +73,6 @@ const prescriptionSchema = new mongoose.Schema(
   }
 );
 
+prescriptionSchema.index({ customerId: 1, isArchived: 1, recordedAt: -1 });
+
 module.exports = mongoose.model('Prescription', prescriptionSchema);
