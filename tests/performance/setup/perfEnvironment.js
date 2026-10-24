@@ -207,7 +207,8 @@ async function setupPerfEnvironment() {
     const sanitizedExternal = getSanitizedDbIdentifier(process.env.PERF_MONGODB_URI);
     console.log(`[PerfEnv] Connecting to verified external test database: ${sanitizedExternal}`);
     await mongoose.connect(process.env.PERF_MONGODB_URI);
-    process.env.__PERF_ISOLATED_DB_OWNED = 'true';
+    // Note: Do not mark external database connections as harness-owned (__PERF_ISOLATED_DB_OWNED).
+    // Destructive seeding is strictly restricted to harness-created ephemeral instances.
     testApp = createApp();
     return {
       app: testApp,

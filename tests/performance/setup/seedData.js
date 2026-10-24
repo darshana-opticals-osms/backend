@@ -59,7 +59,14 @@ function assertDestructiveSeedingAllowed() {
     );
   }
 
-  // 1. Must be explicitly created and owned by the isolated performance harness
+  // 1. Destructive seeding is strictly forbidden against externally supplied databases
+  if (process.env.PERF_MONGODB_URI) {
+    throw new Error(
+      'CRITICAL SAFETY VIOLATION: Destructive performance seeding is strictly forbidden against external databases (PERF_MONGODB_URI), even when hosted locally. Only harness-created ephemeral instances may be seeded.'
+    );
+  }
+
+  // 2. Must be explicitly created and owned by the isolated performance test harness
   if (process.env.__PERF_ISOLATED_DB_OWNED !== 'true') {
     throw new Error(
       'CRITICAL SAFETY VIOLATION: Destructive seeding rejected! Database was not created or owned by the isolated performance test harness.'
@@ -81,7 +88,7 @@ function assertDestructiveSeedingAllowed() {
     );
   }
 
-  // 2. Strict rejection of development (e.g. osms-dev) and shared databases
+  // 3. Strict rejection of development (e.g. osms-dev) and shared databases
   const FORBIDDEN_DEV_OR_SHARED_NAMES = [
     'osms-dev',
     'dev',
@@ -110,7 +117,7 @@ function assertDestructiveSeedingAllowed() {
     );
   }
 
-  // 3. Must match performance/isolated naming pattern
+  // 4. Must match performance/isolated naming pattern
   const isIsolatedPerfDb =
     dbName.includes('perf') || dbName.includes('isolated') || dbName.includes('test');
   if (!isIsolatedPerfDb) {
@@ -468,6 +475,7 @@ async function seedPerformanceData() {
 module.exports = {
   seedPerformanceData,
   createToken,
+  assertDestructiveSeedingAllowed,
   PERF_PASSWORD,
   JWT_SECRET,
 };
