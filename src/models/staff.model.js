@@ -59,6 +59,17 @@ const staffSchema = new mongoose.Schema(
         message: 'Password hash must be a bcrypt-style hash.',
       },
     },
+    failedLoginAttempts: {
+      type: Number,
+      default: 0,
+      min: 0,
+      select: false,
+    },
+    lockUntil: {
+      type: Date,
+      default: null,
+      select: false,
+    },
     passwordResetTokenHash: {
       type: String,
       default: null,
@@ -75,6 +86,8 @@ const staffSchema = new mongoose.Schema(
     toJSON: {
       transform(_doc, ret) {
         delete ret.passwordHash;
+        delete ret.failedLoginAttempts;
+        delete ret.lockUntil;
         delete ret.passwordResetTokenHash;
         delete ret.passwordResetExpiresAt;
       },
@@ -82,6 +95,8 @@ const staffSchema = new mongoose.Schema(
     toObject: {
       transform(_doc, ret) {
         delete ret.passwordHash;
+        delete ret.failedLoginAttempts;
+        delete ret.lockUntil;
         delete ret.passwordResetTokenHash;
         delete ret.passwordResetExpiresAt;
       },
