@@ -25,7 +25,7 @@ const RESULTS_FILE = path.join(RESULTS_DIR, 'controlled-load-results.json');
  * Dispatches a mixed-traffic request representing realistic customer/staff activity.
  */
 async function dispatchMixedTraffic(app, context) {
-  const { tokens, testBranchId, testCustomerId } = context;
+  const { tokens, testBranchId } = context;
   const rand = Math.random();
 
   if (rand < 0.35) {

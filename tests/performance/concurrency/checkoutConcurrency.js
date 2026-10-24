@@ -16,7 +16,6 @@ const Branch = require('../../../src/models/branch.model');
 const Customer = require('../../../src/models/customer.model');
 const { createToken, PERF_PASSWORD } = require('../setup/seedData');
 const { ROLE_VALUES } = require('../../../src/constants/roles');
-const { ITEM_CLASSIFICATIONS } = require('../../../src/constants/itemClassification');
 const bcrypt = require('bcrypt');
 
 /**

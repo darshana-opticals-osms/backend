@@ -22,7 +22,7 @@ const Payment = require('../../../src/models/payment.model');
 
 async function verifyPerformanceSeed() {
   console.log('🚀 Initializing isolated safe performance environment...');
-  const { connection, uri } = await setupPerfEnvironment();
+  const { uri } = await setupPerfEnvironment();
   console.log(`✅ In-memory database connected: ${uri}`);
 
   try {
