@@ -5,7 +5,11 @@
  * verifies record counts and relationships, and reports clean status.
  */
 
-const { setupPerfEnvironment, teardownPerfEnvironment } = require('./perfEnvironment');
+const {
+  setupPerfEnvironment,
+  teardownPerfEnvironment,
+  getSanitizedDbIdentifier,
+} = require('./perfEnvironment');
 const { seedPerformanceData } = require('./seedData');
 const Branch = require('../../../src/models/branch.model');
 const Customer = require('../../../src/models/customer.model');
@@ -23,7 +27,7 @@ const Payment = require('../../../src/models/payment.model');
 async function verifyPerformanceSeed() {
   console.log('🚀 Initializing isolated safe performance environment...');
   const { uri } = await setupPerfEnvironment();
-  console.log(`✅ In-memory database connected: ${uri}`);
+  console.log(`✅ In-memory database connected: ${getSanitizedDbIdentifier(uri)}`);
 
   try {
     console.log('🌱 Seeding representative performance dataset (AC4)...');

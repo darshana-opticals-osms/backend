@@ -11,7 +11,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { setupPerfEnvironment, teardownPerfEnvironment } = require('../setup/perfEnvironment');
+const {
+  setupPerfEnvironment,
+  teardownPerfEnvironment,
+  getSanitizedDbIdentifier,
+} = require('../setup/perfEnvironment');
 const { seedPerformanceData } = require('../setup/seedData');
 const { runCheckoutConcurrencyTests } = require('./checkoutConcurrency');
 const { runAppointmentConcurrencyTests } = require('./appointmentConcurrency');
@@ -23,7 +27,7 @@ const RESULTS_FILE = path.join(RESULTS_DIR, 'concurrency-reliability-results.jso
 async function executeConcurrencyAndReliabilitySuite() {
   console.log('🚀 Starting Concurrency, Transactional Integrity & Fault Recovery Suite...\n');
   const { app, uri } = await setupPerfEnvironment();
-  console.log(`[PerfSuite] Isolated Environment Active: ${uri}`);
+  console.log(`[PerfSuite] Isolated Environment Active: ${getSanitizedDbIdentifier(uri)}`);
 
   const suiteResults = {
     executedAt: new Date().toISOString(),

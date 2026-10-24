@@ -14,7 +14,11 @@
 const fs = require('fs');
 const path = require('path');
 const request = require('supertest');
-const { setupPerfEnvironment, teardownPerfEnvironment } = require('../setup/perfEnvironment');
+const {
+  setupPerfEnvironment,
+  teardownPerfEnvironment,
+  getSanitizedDbIdentifier,
+} = require('../setup/perfEnvironment');
 const { seedPerformanceData } = require('../setup/seedData');
 const { calculatePercentile } = require('../benchmarks/benchmarkEngine');
 
@@ -165,7 +169,7 @@ async function runLoadStage(app, stageName, concurrency, totalRequests, context)
 async function executeControlledLoadTesting() {
   console.log('🚀 Starting Controlled Step-Up Load Testing Suite (AC11, AC13)...\n');
   const { app, uri } = await setupPerfEnvironment();
-  console.log(`[PerfSuite] Isolated Environment Active at: ${uri}`);
+  console.log(`[PerfSuite] Isolated Environment Active at: ${getSanitizedDbIdentifier(uri)}`);
 
   const stagesReport = [];
 

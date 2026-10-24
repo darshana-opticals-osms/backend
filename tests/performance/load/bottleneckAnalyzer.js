@@ -8,7 +8,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { setupPerfEnvironment, teardownPerfEnvironment } = require('../setup/perfEnvironment');
+const {
+  setupPerfEnvironment,
+  teardownPerfEnvironment,
+  getSanitizedDbIdentifier,
+} = require('../setup/perfEnvironment');
 const { seedPerformanceData } = require('../setup/seedData');
 const Inventory = require('../../../src/models/inventory.model');
 const Order = require('../../../src/models/order.model');
@@ -59,7 +63,7 @@ function extractPlanMetrics(explainResult) {
 async function analyzeQueryBottlenecks() {
   console.log('🚀 Starting Database Query & Index Bottleneck Analysis (AC14, AC15)...\n');
   const { uri } = await setupPerfEnvironment();
-  console.log(`[PerfSuite] Connected to: ${uri}`);
+  console.log(`[PerfSuite] Connected to: ${getSanitizedDbIdentifier(uri)}`);
 
   const analysisReports = [];
 

@@ -8,7 +8,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { setupPerfEnvironment, teardownPerfEnvironment } = require('../setup/perfEnvironment');
+const {
+  setupPerfEnvironment,
+  teardownPerfEnvironment,
+  getSanitizedDbIdentifier,
+} = require('../setup/perfEnvironment');
 const { seedPerformanceData } = require('../setup/seedData');
 const { runBenchmark } = require('./benchmarkEngine');
 
@@ -23,7 +27,7 @@ if (!fs.existsSync(RESULTS_DIR)) {
 async function executeBaselineBenchmarks() {
   console.log('🚀 Starting OSMS Baseline Performance Benchmark Suite...\n');
   const { app, uri } = await setupPerfEnvironment();
-  console.log(`[PerfSuite] Isolated Environment Active at: ${uri}`);
+  console.log(`[PerfSuite] Isolated Environment Active at: ${getSanitizedDbIdentifier(uri)}`);
 
   const benchmarkReports = [];
 

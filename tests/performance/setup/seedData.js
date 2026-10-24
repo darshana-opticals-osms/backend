@@ -59,6 +59,13 @@ function assertDestructiveSeedingAllowed() {
     );
   }
 
+  // 1. Must be explicitly created and owned by the isolated performance harness
+  if (process.env.__PERF_ISOLATED_DB_OWNED !== 'true') {
+    throw new Error(
+      'CRITICAL SAFETY VIOLATION: Destructive seeding rejected! Database was not created or owned by the isolated performance test harness.'
+    );
+  }
+
   const conn = mongoose.connection;
   if (!conn || conn.readyState !== 1) {
     throw new Error('CRITICAL SAFETY VIOLATION: Database connection is not ready for seeding.');
@@ -74,13 +81,41 @@ function assertDestructiveSeedingAllowed() {
     );
   }
 
-  if (
-    dbName.includes('production') ||
+  // 2. Strict rejection of development (e.g. osms-dev) and shared databases
+  const FORBIDDEN_DEV_OR_SHARED_NAMES = [
+    'osms-dev',
+    'dev',
+    'development',
+    'darshana-opticals-db',
+    'darshana_opticals_db',
+    'staging',
+    'stage',
+    'production',
+    'prod',
+    'admin',
+    'local',
+    'config',
+  ];
+
+  const isDevOrShared =
+    FORBIDDEN_DEV_OR_SHARED_NAMES.includes(dbName) ||
+    dbName.startsWith('osms-dev') ||
+    dbName.includes('development') ||
     dbName.includes('staging') ||
-    dbName === 'darshana-opticals-db'
-  ) {
+    dbName.includes('production');
+
+  if (isDevOrShared) {
     throw new Error(
-      `CRITICAL SAFETY VIOLATION: Destructive seeding rejected on database "${conn.name}".`
+      `CRITICAL SAFETY VIOLATION: Destructive seeding is strictly forbidden against development or shared database "${conn.name}". Performance seeding is restricted to an isolated database created and owned by the performance harness.`
+    );
+  }
+
+  // 3. Must match performance/isolated naming pattern
+  const isIsolatedPerfDb =
+    dbName.includes('perf') || dbName.includes('isolated') || dbName.includes('test');
+  if (!isIsolatedPerfDb) {
+    throw new Error(
+      `CRITICAL SAFETY VIOLATION: Database "${conn.name}" does not match required isolated performance naming pattern.`
     );
   }
 }
