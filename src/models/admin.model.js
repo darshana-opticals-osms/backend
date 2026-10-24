@@ -39,17 +39,32 @@ const adminSchema = new mongoose.Schema(
         message: 'Password hash must be a bcrypt-style hash.',
       },
     },
+    failedLoginAttempts: {
+      type: Number,
+      default: 0,
+      min: 0,
+      select: false,
+    },
+    lockUntil: {
+      type: Date,
+      default: null,
+      select: false,
+    },
   },
   {
     timestamps: true,
     toJSON: {
       transform(_doc, ret) {
         delete ret.passwordHash;
+        delete ret.failedLoginAttempts;
+        delete ret.lockUntil;
       },
     },
     toObject: {
       transform(_doc, ret) {
         delete ret.passwordHash;
+        delete ret.failedLoginAttempts;
+        delete ret.lockUntil;
       },
     },
   }
