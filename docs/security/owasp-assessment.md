@@ -1,64 +1,64 @@
-**# DDP-085 – Backend OWASP Top 10 Security Assessment**
+# DDP-085 – Backend OWASP Top 10 Security Assessment
 
-**## 1. Assessment Information**
+## 1. Assessment Information
 
-\- **\*\*Issue:\*\*** DDP-085 – OWASP Top 10 Compliance Verification and Security Hardening
+- **Issue:** DDP-085 – OWASP Top 10 Compliance Verification and Security Hardening
 
-\- **\*\*Repository:\*\*** \`darshana-opticals-osms/backend\`
+- **Repository:** `darshana-opticals-osms/backend`
 
-\- **\*\*Security branch:\*\*** \`test/91-owasp-security-verification\`
+- **Security branch:** `test/91-owasp-security-verification`
 
-\- **\*\*Target branch:\*\*** \`develop\`
+- **Target branch:** `develop`
 
-\- **\*\*Assessment type:\*\*** Backend security verification and targeted hardening
+- **Assessment type:** Backend security verification and targeted hardening
 
-\- **\*\*Approach:\*\*** Verify existing controls first, identify real security gaps, apply minimum targeted fixes, run regression tests, and document reproducible evidence.
+- **Approach:** Verify existing controls first, identify real security gaps, apply minimum targeted fixes, run regression tests, and document reproducible evidence.
 
-This document is a working security-assessment record. Final release verification must be repeated after all relevant backend changes are merged into \`develop\`.
+This document is a working security-assessment record. Final release verification must be repeated after all relevant backend changes are merged into `develop`.
 
-**---**
+---
 
-**## 2. Current Assessment Baseline**
+## 2. Current Assessment Baseline
 
-The DDP-085 branch has been synchronized with backend \`develop\` through the merged DDP-101 and DDP-086 / PR #107 baselines.
+The DDP-085 branch has been synchronized with backend `develop` through the merged DDP-101 and DDP-086 / PR #107 baselines.
 
 Relevant security and CI history includes:
 
-\- \`f7f56eb\` – \`fix(security): remediate vulnerable backend dependencies\`
+- `f7f56eb` – `fix(security): remediate vulnerable backend dependencies`
 
-\- \`1a3f864\` – merged DDP-101 order-address snapshot changes from backend \`develop\`
+- `1a3f864` – merged DDP-101 order-address snapshot changes from backend `develop`
 
-\- \`06c5a38\` – synchronized DDP-085 with the merged backend baseline at that stage
+- `06c5a38` – synchronized DDP-085 with the merged backend baseline at that stage
 
-\- \`804b183\` – \`docs(security): document OWASP assessment progress\`
+- `804b183` – `docs(security): document OWASP assessment progress`
 
-\- \`9aa59c1\` – \`docs(security): record A07 account lockout gap\`
+- `9aa59c1` – `docs(security): record A07 account lockout gap`
 
-\- \`33d12b0\` – \`fix(ci): restore reproducible npm lockfile\`
+- `33d12b0` – `fix(ci): restore reproducible npm lockfile`
 
-\- \`88b1adc\` – \`fix(security): implement account login lockout\`
+- `88b1adc` – `fix(security): implement account login lockout`
 
-\- \`a7df245\` – \`fix(security): add privacy-safe authentication event logging\`
+- `a7df245` – `fix(security): add privacy-safe authentication event logging`
 
-\- \`393da00\` – \`fix(security): log access control rejections\`
+- `393da00` – `fix(security): log access control rejections`
 
-Backend PR #107 / DDP-086 Performance and Reliability Testing has now been merged into \`develop\` at commit \`5c1e20e\`.
+Backend PR #107 / DDP-086 Performance and Reliability Testing has now been merged into `develop` at commit `5c1e20e`.
 
 Security-relevant changes from that merged baseline include:
 
-\- \`skipSuccessfulRequests: true\` for the authentication rate limiter;
+- `skipSuccessfulRequests: true` for the authentication rate limiter;
 
-\- Express \`trust proxy\` configuration for reverse-proxy client-IP handling;
+- Express `trust proxy` configuration for reverse-proxy client-IP handling;
 
-\- performance-related model/index updates that must remain compatible with authorization, transaction, and audit controls.
+- performance-related model/index updates that must remain compatible with authorization, transaction, and audit controls.
 
 After synchronizing with the merged PR #107 baseline, targeted security/authentication/password-reset regression verification passed:
 
-\- **\*\*3 suites passed\*\***
+- **3 suites passed**
 
-\- **\*\*52 tests passed\*\***
+- **52 tests passed**
 
-\- **\*\*0 failed\*\***
+- **0 failed**
 
 The final local backend regression and dependency audit are complete.
 
@@ -70,529 +70,529 @@ The PR-triggered dependency scan passed the DDP-085 High/Critical release gate w
 
 Safe deployed-backend security smoke verification has also been performed against the currently deployed Render backend. Final runtime verification of the DDP-085 branch-specific account-lockout and security-logging changes remains pending until PR #108 is merged and that revision is deployed.
 
-**---**
+---
 
-**## 3. Verification Already Executed**
+## 3. Verification Already Executed
 
-**### 3.1 Dependency Installation**
+### 3.1 Dependency Installation
 
 Dependencies were installed successfully using the committed lockfile.
 
-\`mongodb-memory-server\` post-install binary downloading was disabled during installation because the development machine already contains MongoDB.
+`mongodb-memory-server` post-install binary downloading was disabled during installation because the development machine already contains MongoDB.
 
 Result:
 
-\- Dependency installation completed successfully.
+- Dependency installation completed successfully.
 
-\- Working tree remained clean after installation.
+- Working tree remained clean after installation.
 
-**---**
+---
 
-**### 3.2 ESLint Verification**
+### 3.2 ESLint Verification
 
 Command executed:
 
-\`npm run lint\`
+`npm run lint`
 
 Result:
 
-**\*\*PASS\*\***
+**PASS**
 
 No ESLint errors were reported.
 
-**---**
+---
 
-**### 3.3 Prettier Verification**
+### 3.3 Prettier Verification
 
 Command executed:
 
-\`npm run format:check\`
+`npm run format:check`
 
 Result:
 
-**\*\*PASS\*\***
+**PASS**
 
 All checked files matched the configured Prettier formatting rules.
 
-**---**
+---
 
-**### 3.4 Initial Backend Dependency Security Scan**
+### 3.4 Initial Backend Dependency Security Scan
 
 Command executed:
 
-\`npm audit --audit-level=high\`
+`npm audit --audit-level=high`
 
 Initial result:
 
-\- **\*\*2 High\*\***
+- **2 High**
 
-\- **\*\*5 Moderate\*\***
+- **5 Moderate**
 
-\- **\*\*7 vulnerabilities total\*\***
+- **7 vulnerabilities total**
 
 High-severity findings:
 
-1\. \`body-parser <1.20.9\`
+1. `body-parser <1.20.9`
 
    - Denial-of-Service vulnerability involving trailing bytes after compressed request bodies.
 
-2\. \`multer 2.0.0 – 2.4.0\`
+2. `multer 2.0.0 – 2.4.0`
 
-   - Denial-of-Service vulnerability involving an asynchronous \`fileFilter\` remaining pending after request teardown.
+   - Denial-of-Service vulnerability involving an asynchronous `fileFilter` remaining pending after request teardown.
 
 Additional Moderate findings affected:
 
-\- \`fast-uri\`
+- `fast-uri`
 
-\- \`ip-address\`
+- `ip-address`
 
-\- \`nodemailer\`
+- `nodemailer`
 
-\- \`uuid\` through \`exceljs\`
+- `uuid` through `exceljs`
 
-**---**
+---
 
-**## 4. Security Finding SEC-001**
+## 4. Security Finding SEC-001
 
-**### Finding ID**
+### Finding ID
 
-\`SEC-001\`
+`SEC-001`
 
-**### OWASP Category**
+### OWASP Category
 
 A06 – Vulnerable and Outdated Components
 
-**### Severity**
+### Severity
 
 High
 
-**### Affected Components**
+### Affected Components
 
 Backend dependency tree.
 
 Primary High-severity affected packages:
 
-\- \`body-parser\`
+- `body-parser`
 
-\- \`multer\`
+- `multer`
 
 Additional compatible vulnerable dependencies:
 
-\- \`nodemailer\`
+- `nodemailer`
 
-\- \`fast-uri\`
+- `fast-uri`
 
-\- \`ip-address\`
+- `ip-address`
 
-**### Preconditions**
+### Preconditions
 
-Install dependencies from the existing backend lockfile and execute \`npm audit\`.
+Install dependencies from the existing backend lockfile and execute `npm audit`.
 
-**### Reproduction**
+### Reproduction
 
 Run:
 
-\`npm audit --audit-level=high\`
+`npm audit --audit-level=high`
 
-**### Expected Behaviour**
+### Expected Behaviour
 
 The release candidate must not contain unresolved Critical or High dependency vulnerabilities.
 
-**### Actual Behaviour**
+### Actual Behaviour
 
 The initial scan reported:
 
-\- 2 High vulnerabilities
+- 2 High vulnerabilities
 
-\- 5 Moderate vulnerabilities
+- 5 Moderate vulnerabilities
 
-**### Remediation**
+### Remediation
 
 A dry run was performed before making changes.
 
 Safe compatible updates identified:
 
-\- \`body-parser 1.20.8 → 1.20.9\`
+- `body-parser 1.20.8 → 1.20.9`
 
-\- \`multer 2.4.0 → 2.5.0\`
+- `multer 2.4.0 → 2.5.0`
 
-\- \`nodemailer 10.1.0 → 10.2.1\`
+- `nodemailer 10.1.0 → 10.2.1`
 
-\- \`ip-address 10.7.2 → 10.7.4\`
+- `ip-address 10.7.2 → 10.7.4`
 
-\- \`fast-uri 3.1.8 → 3.1.9\`
+- `fast-uri 3.1.8 → 3.1.9`
 
 The updates were applied using:
 
-\`npm audit fix\`
+`npm audit fix`
 
-No \`npm audit fix --force\` command was used.
+No `npm audit fix --force` command was used.
 
-**### Fix Reference**
+### Fix Reference
 
 Commit:
 
-\`f7f56eb – fix(security): remediate vulnerable backend dependencies\`
+`f7f56eb – fix(security): remediate vulnerable backend dependencies`
 
-**### Retest Result**
+### Retest Result
 
 After remediation:
 
-\- **\*\*0 Critical\*\***
+- **0 Critical**
 
-\- **\*\*0 High\*\***
+- **0 High**
 
-\- **\*\*2 Moderate\*\***
+- **2 Moderate**
 
 Result:
 
-**\*\*PASS for DDP-085 High/Critical dependency release gate at the tested baseline.\*\***
+**PASS for DDP-085 High/Critical dependency release gate at the tested baseline.**
 
 The dependency scan must be repeated during final verification after all relevant backend changes are merged.
 
-**---**
+---
 
-**## 5. Residual Dependency Risk – SEC-002**
+## 5. Residual Dependency Risk – SEC-002
 
-**### Finding ID**
+### Finding ID
 
-\`SEC-002\`
+`SEC-002`
 
-**### OWASP Category**
+### OWASP Category
 
 A06 – Vulnerable and Outdated Components
 
-**### Severity**
+### Severity
 
 Moderate
 
-**### Dependency Chain**
+### Dependency Chain
 
-\`exceljs\@4.4.0\`
+`exceljs@4.4.0`
 
-→ \`uuid\@8.3.2\`
+→ `uuid@8.3.2`
 
-**### Advisory**
+### Advisory
 
-The installed \`uuid\` version is affected by a Moderate advisory involving missing buffer bounds checking for specific UUID operations when a buffer is supplied.
+The installed `uuid` version is affected by a Moderate advisory involving missing buffer bounds checking for specific UUID operations when a buffer is supplied.
 
-**### Automatic Remediation Assessment**
+### Automatic Remediation Assessment
 
 The available npm automatic remediation requires:
 
-\`npm audit fix --force\`
+`npm audit fix --force`
 
-npm reports that this would introduce a potentially breaking \`exceljs\` dependency change.
+npm reports that this would introduce a potentially breaking `exceljs` dependency change.
 
-**### Decision**
+### Decision
 
-The force fix was intentionally **\*\*not applied\*\*** because DDP-085 requires minimal targeted remediation and avoidance of unnecessary breaking dependency changes.
+The force fix was intentionally **not applied** because DDP-085 requires minimal targeted remediation and avoidance of unnecessary breaking dependency changes.
 
-**### Current Disposition**
+### Current Disposition
 
-**\*\*Residual Moderate risk – documented pending final review.\*\***
+**Residual Moderate risk – documented pending final review.**
 
 This finding is not being treated as silently resolved.
 
 Final dependency scanning must confirm that no newer safe compatible remediation becomes available before release.
 
-**---**
+---
 
-**## 6. Security Finding SEC-003 – Account Lockout**
+## 6. Security Finding SEC-003 – Account Lockout
 
-**### Finding ID**
+### Finding ID
 
-\`SEC-003\`
+`SEC-003`
 
-**### OWASP Category**
+### OWASP Category
 
 A07 – Identification and Authentication Failures
 
-**### Original Gap**
+### Original Gap
 
 The backend already implemented IP-based authentication rate limiting, but initially had no persistent account-level mechanism for:
 
-\- counting consecutive failed login attempts;
+- counting consecutive failed login attempts;
 
-\- locking an individual account after repeated failures;
+- locking an individual account after repeated failures;
 
-\- storing a lock expiry;
+- storing a lock expiry;
 
-\- rejecting a correct password while the account is locked;
+- rejecting a correct password while the account is locked;
 
-\- resetting failure state after a successful authentication;
+- resetting failure state after a successful authentication;
 
-\- starting a fresh failure sequence after lock expiry.
+- starting a fresh failure sequence after lock expiry.
 
 The SENG 34213 development guideline explicitly requires account lockout as part of the A07 authentication controls.
 
-**### Remediation Implemented**
+### Remediation Implemented
 
 A minimum-change account-level lockout policy was implemented without redesigning the JWT/session architecture.
 
 Policy:
 
-\- **\*\*5 consecutive failed login attempts\*\***
+- **5 consecutive failed login attempts**
 
-\- **\*\*15-minute temporary account lock\*\***
+- **15-minute temporary account lock**
 
-\- successful authentication resets failed-attempt state
+- successful authentication resets failed-attempt state
 
-\- an expired lock starts a fresh failure sequence
+- an expired lock starts a fresh failure sequence
 
-\- the policy applies consistently to Customer, Staff, and System Administrator identities
+- the policy applies consistently to Customer, Staff, and System Administrator identities
 
-\- the existing IP-based authentication rate limiter remains active as a complementary control
+- the existing IP-based authentication rate limiter remains active as a complementary control
 
-\- locked, invalid-password, and unknown-account responses remain generic to avoid account-state enumeration
+- locked, invalid-password, and unknown-account responses remain generic to avoid account-state enumeration
 
 Configuration is environment-driven through:
 
-\- \`ACCOUNT_LOCKOUT_MAX_ATTEMPTS\`
+- `ACCOUNT_LOCKOUT_MAX_ATTEMPTS`
 
-\- \`ACCOUNT_LOCKOUT_DURATION_MS\`
+- `ACCOUNT_LOCKOUT_DURATION_MS`
 
 The identity models store hidden account-lockout state and do not expose it through normal API responses.
 
-**### Fix Reference**
+### Fix Reference
 
 Commit:
 
-\`88b1adc – fix(security): implement account login lockout\`
+`88b1adc – fix(security): implement account login lockout`
 
-**### Regression Evidence**
+### Regression Evidence
 
 Focused validation after implementation passed:
 
-\- account-lockout integration tests
+- account-lockout integration tests
 
-\- authentication login integration tests
+- authentication login integration tests
 
-\- security integration tests
+- security integration tests
 
-\- authentication service unit tests
+- authentication service unit tests
 
 Result:
 
-\- **\*\*4 suites passed\*\***
+- **4 suites passed**
 
-\- **\*\*40 tests passed\*\***
+- **40 tests passed**
 
-\- **\*\*0 failed\*\***
+- **0 failed**
 
 Additional post-hardening verification covering authentication, lockout, access-control rejection logging, RBAC, branch authorization, centralized error handling, and the security suite later passed:
 
-\- **\*\*8 suites passed\*\***
+- **8 suites passed**
 
-\- **\*\*82 tests passed\*\***
+- **82 tests passed**
 
-\- **\*\*0 failed\*\***
+- **0 failed**
 
-**### Current Status**
+### Current Status
 
-**\*\*RESOLVED LOCALLY\*\***
+**RESOLVED LOCALLY**
 
 A07 is no longer blocked by SEC-003.
 
 PR-triggered Backend CI #495 has passed. Runtime verification of the new account-level lockout behavior remains pending until PR #108 is merged and the DDP-085 revision is deployed to Render.
 
-**---**
+---
 
-**## 7. MongoDB Security-Test Environment**
+## 7. MongoDB Security-Test Environment
 
 The development machine contains the following MongoDB system binary:
 
-\`C:\Program Files\MongoDB\Server\8.3\bin\mongod.exe\`
+`C:\Program Files\MongoDB\Server\8.3\bin\mongod.exe`
 
-\`mongodb-memory-server\` was configured to reuse this binary using:
+`mongodb-memory-server` was configured to reuse this binary using:
 
-\`MONGOMS_SYSTEM_BINARY\`
+`MONGOMS_SYSTEM_BINARY`
 
 The library requested MongoDB 8.2.6 but detected system MongoDB 8.3.11 and explicitly reported:
 
-\`Using SystemBinary!\`
+`Using SystemBinary!`
 
 The version difference produced a warning only and did not prevent test execution.
 
-**### Database Integration Verification**
+### Database Integration Verification
 
 Test:
 
-\`tests/integration/database.test.js\`
+`tests/integration/database.test.js`
 
 Result:
 
-\- **\*\*1 test suite passed\*\***
+- **1 test suite passed**
 
-\- **\*\*3 tests passed\*\***
+- **3 tests passed**
 
-\- **\*\*0 failed\*\***
+- **0 failed**
 
 Verified behaviours included:
 
-\- MONGODB_URI is required outside test environments.
+- MONGODB_URI is required outside test environments.
 
-\- A temporary MongoDB instance can be used successfully during tests.
+- A temporary MongoDB instance can be used successfully during tests.
 
-\- MongoDB connection failures do not expose database URI credentials.
+- MongoDB connection failures do not expose database URI credentials.
 
 Status:
 
-**\*\*PASS\*\***
+**PASS**
 
-**---**
+---
 
-**## 8. Existing Security Integration Suite**
+## 8. Existing Security Integration Suite
 
 Test executed:
 
-\`tests/integration/security.test.js\`
+`tests/integration/security.test.js`
 
 Result:
 
-\- **\*\*1 test suite passed\*\***
+- **1 test suite passed**
 
-\- **\*\*21 tests passed\*\***
+- **21 tests passed**
 
-\- **\*\*0 failed\*\***
+- **0 failed**
 
 Verified controls included:
 
-**### Security Headers**
+### Security Headers
 
-\- \`X-Content-Type-Options\`
+- `X-Content-Type-Options`
 
-\- \`X-Frame-Options\`
+- `X-Frame-Options`
 
-\- suppression of \`X-Powered-By\`
+- suppression of `X-Powered-By`
 
-Status: **\*\*PASS\*\***
+Status: **PASS**
 
-**### CORS**
+### CORS
 
-\- configured origin permitted
+- configured origin permitted
 
-\- OPTIONS preflight handled
+- OPTIONS preflight handled
 
-\- unapproved production origin does not receive an allow-origin header
+- unapproved production origin does not receive an allow-origin header
 
-Status: **\*\*PASS\*\***
+Status: **PASS**
 
-**### Rate Limiting**
+### Rate Limiting
 
-\- general API limiter active
+- general API limiter active
 
-\- excessive requests return HTTP 429
+- excessive requests return HTTP 429
 
-\- authentication routes use stricter limiting
+- authentication routes use stricter limiting
 
-Status: **\*\*PASS\*\***
+Status: **PASS**
 
-**### Password Security**
+### Password Security
 
-\- bcrypt cost factor is at least 12
+- bcrypt cost factor is at least 12
 
-\- password hashes are not plain text
+- password hashes are not plain text
 
-\- bcrypt verification behaves correctly
+- bcrypt verification behaves correctly
 
-Status: **\*\*PASS\*\***
+Status: **PASS**
 
-**### Request-Body Size**
+### Request-Body Size
 
-\- oversized request rejected with HTTP 413
+- oversized request rejected with HTTP 413
 
-\- normal requests continue successfully
+- normal requests continue successfully
 
-Status: **\*\*PASS\*\***
+Status: **PASS**
 
-**### NoSQL Injection**
+### NoSQL Injection
 
 A representative MongoDB operator injection payload against authentication was rejected and did not bypass authentication.
 
-Status: **\*\*PASS\*\***
+Status: **PASS**
 
-**### Authentication Failure Safety**
+### Authentication Failure Safety
 
-\- login failure does not disclose whether an account exists
+- login failure does not disclose whether an account exists
 
-\- password hashes are not exposed
+- password hashes are not exposed
 
-Status: **\*\*PASS\*\***
+Status: **PASS**
 
-**### Production Error Safety**
+### Production Error Safety
 
-\- stack traces and internal paths are not returned
+- stack traces and internal paths are not returned
 
-\- sensitive values are sanitized from server error logs
+- sensitive values are sanitized from server error logs
 
-Status: **\*\*PASS\*\***
+Status: **PASS**
 
-**### Environment Secret Protection**
+### Environment Secret Protection
 
-\- \`.env.example\` uses placeholder values
+- `.env.example` uses placeholder values
 
-\- \`.gitignore\` excludes environment files
+- `.gitignore` excludes environment files
 
-Status: **\*\*PASS\*\***
+Status: **PASS**
 
-**### Configurable Security Controls**
+### Configurable Security Controls
 
 CORS and rate-limit configuration are environment-controlled.
 
-Status: **\*\*PASS\*\***
+Status: **PASS**
 
-**---**
+---
 
-**# 9. OWASP Top 10 Assessment**
+# 9. OWASP Top 10 Assessment
 
-**## A01 – Broken Access Control**
+## A01 – Broken Access Control
 
-**### Existing Controls Identified**
+### Existing Controls Identified
 
 Existing automated tests cover:
 
-\- missing authentication
+- missing authentication
 
-\- malformed JWT
+- malformed JWT
 
-\- invalid JWT claims/signatures
+- invalid JWT claims/signatures
 
-\- expired JWT
+- expired JWT
 
-\- unauthorized roles
+- unauthorized roles
 
-\- administrative role restrictions
+- administrative role restrictions
 
-\- clinical role restrictions
+- clinical role restrictions
 
-\- customer prescription ownership
+- customer prescription ownership
 
-\- cross-customer access rejection
+- cross-customer access rejection
 
-\- branch-scoped orders
+- branch-scoped orders
 
-\- branch-scoped reports
+- branch-scoped reports
 
-\- unauthorized payment access
+- unauthorized payment access
 
-\- administrative endpoint protection
+- administrative endpoint protection
 
 Examples of relevant test suites include:
 
-\- \`tests/integration/rbac.test.js\`
+- `tests/integration/rbac.test.js`
 
-\- \`tests/integration/prescriptionApi.test.js\`
+- `tests/integration/prescriptionApi.test.js`
 
-\- \`tests/integration/orderStatusApi.test.js\`
+- `tests/integration/orderStatusApi.test.js`
 
-\- \`tests/integration/reportApi.test.js\`
+- `tests/integration/reportApi.test.js`
 
-\- \`tests/integration/paymentApi.test.js\`
+- `tests/integration/paymentApi.test.js`
 
-\- administrative API integration tests
+- administrative API integration tests
 
-**### Current Status**
+### Current Status
 
 **PASS LOCALLY / DEPLOYED SMOKE PASS**
 
@@ -605,65 +605,65 @@ Deployed-backend smoke verification also confirmed:
 - unexpected privileged `role` fields are rejected by login validation;
 - public registration rejects attempts to inject `SYSTEM_ADMIN` or other privileged account fields.
 
-**### Remaining Work**
+### Remaining Work
 
 After PR #108 is merged and deployed, perform only the targeted delta runtime verification required for the new DDP-085 branch-specific controls. The completed full local regression does not need to be repeated.
 
-**---**
+---
 
-**## A02 – Cryptographic Failures**
+## A02 – Cryptographic Failures
 
-**### Verified**
+### Verified
 
-\- bcrypt password hashing is used.
+- bcrypt password hashing is used.
 
-\- bcrypt configured cost requirement was verified by automated test.
+- bcrypt configured cost requirement was verified by automated test.
 
-\- authentication error responses do not expose password hashes.
+- authentication error responses do not expose password hashes.
 
-\- configuration loads JWT secrets from environment configuration.
+- configuration loads JWT secrets from environment configuration.
 
-\- password-reset implementation has existing tests for hashed reset-token storage and expiry.
+- password-reset implementation has existing tests for hashed reset-token storage and expiry.
 
-\- database connection failures do not expose credentials.
+- database connection failures do not expose credentials.
 
-**### Verified in Final Local / Deployed Checks**
+### Verified in Final Local / Deployed Checks
 
 - final backend regression includes the existing password-reset security coverage;
 - the deployed Render API is reachable over HTTPS;
 - HSTS is enabled with `max-age=31536000; includeSubDomains`;
 - authentication failures do not expose passwords, password hashes, JWT secrets, database credentials, or stack traces.
 
-**### Pending**
+### Pending
 
 - final runtime deployment/configuration sign-off after PR #108 is merged and deployed;
 - final integrated frontend/backend verification using the approved Vercel production origin.
 
-**### Status**
+### Status
 
 **PASS LOCALLY / DEPLOYED HTTPS AND ERROR-SAFETY CHECKS PASS; FINAL RELEASE SIGN-OFF PENDING**
 
-**---**
+---
 
-**## A03 – Injection**
+## A03 – Injection
 
-**### Verified**
+### Verified
 
 The executed security suite confirmed rejection of a representative MongoDB operator injection payload.
 
 Existing sanitizer tests also cover:
 
-\- removal of MongoDB operator keys
+- removal of MongoDB operator keys
 
-\- dot-notation operator keys
+- dot-notation operator keys
 
-\- recursive sanitization
+- recursive sanitization
 
-\- script-tag stripping
+- script-tag stripping
 
 Input-validation tests exist across authentication, prescriptions, payments, reports, inventory, appointments, administration, and chatbot functionality.
 
-**### Final Verification Evidence**
+### Final Verification Evidence
 
 The final backend regression completed successfully with **118 suites / 2072 tests passed**.
 
@@ -673,117 +673,117 @@ Deployed input-validation smoke checks also confirmed:
 - unexpected privileged `role` input on login is rejected with HTTP 422;
 - privileged `role` injection during public registration is rejected with HTTP 422.
 
-**### Status**
+### Status
 
 **PASS LOCALLY / DEPLOYED INPUT-VALIDATION SMOKE PASS**
 
-**---**
+---
 
-**## A04 – Insecure Design**
+## A04 – Insecure Design
 
-**### Security Design Baseline**
+### Security Design Baseline
 
 The approved SDS already documents substantial security-design controls, including:
 
-\- JWT authentication
+- JWT authentication
 
-\- role-based authorization
+- role-based authorization
 
-\- data protection and least privilege
+- data protection and least privilege
 
-\- input validation and sanitization
+- input validation and sanitization
 
-\- TLS / encryption requirements
+- TLS / encryption requirements
 
-The existing SDS v1.0 does **\*\*not\*\*** contain an explicit standalone threat-model / STRIDE section.
+The existing SDS v1.0 does **not** contain an explicit standalone threat-model / STRIDE section.
 
 Final implementation-aligned SDS work is already owned by:
 
-\- \`documents#47\` – DDP-088, Final SRS/SDS Alignment
+- `documents#47` – DDP-088, Final SRS/SDS Alignment
 
-\- existing branch: \`docs/47-final-srs-sds\`
+- existing branch: `docs/47-final-srs-sds`
 
 DDP-085 therefore records the verified design risks and mitigations without creating a duplicate SDS artifact or silently changing architecture.
 
-**### Design Risks and Mitigations Assessed**
+### Design Risks and Mitigations Assessed
 
-\| Design Risk                                       | Verified / Existing Mitigation                                                                   |
+| Design Risk                                       | Verified / Existing Mitigation                                                                   |
 
-\| ------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 
-\| Duplicate or forged payment effects               | provider verification, amount/currency checks, replay/idempotency controls, reconciliation logic |
+| Duplicate or forged payment effects               | provider verification, amount/currency checks, replay/idempotency controls, reconciliation logic |
 
-\| Inventory overselling or inconsistent restoration | transaction-backed reservation/restoration rules and concurrency tests                           |
+| Inventory overselling or inconsistent restoration | transaction-backed reservation/restoration rules and concurrency tests                           |
 
-\| Appointment overbooking                           | authoritative session-capacity and conflict controls                                             |
+| Appointment overbooking                           | authoritative session-capacity and conflict controls                                             |
 
-\| Cross-customer clinical disclosure                | backend role/ownership restrictions and safe response shaping                                    |
+| Cross-customer clinical disclosure                | backend role/ownership restrictions and safe response shaping                                    |
 
-\| Cross-branch inventory/report access              | server-side RBAC and branch-scoping controls                                                     |
+| Cross-branch inventory/report access              | server-side RBAC and branch-scoping controls                                                     |
 
-\| Unauthorized loyalty manipulation                 | backend-authoritative loyalty rules and controlled persistence                                   |
+| Unauthorized loyalty manipulation                 | backend-authoritative loyalty rules and controlled persistence                                   |
 
-\| Audit-history tampering                           | centralized immutable audit-trail design with restricted normal mutation paths                   |
+| Audit-history tampering                           | centralized immutable audit-trail design with restricted normal mutation paths                   |
 
-\| Authentication brute force                        | IP rate limiting plus account-level temporary lockout                                            |
+| Authentication brute force                        | IP rate limiting plus account-level temporary lockout                                            |
 
-\| Unrestricted external server requests             | fixed/configured provider destinations; no generic arbitrary URL-fetch feature identified        |
+| Unrestricted external server requests             | fixed/configured provider destinations; no generic arbitrary URL-fetch feature identified        |
 
-\| Sensitive information in operational logs         | sanitizer controls plus privacy-safe authentication and access-rejection event logging           |
+| Sensitive information in operational logs         | sanitizer controls plus privacy-safe authentication and access-rejection event logging           |
 
 Existing automated coverage was identified for critical business boundaries including:
 
-\- checkout authority
+- checkout authority
 
-\- inventory reservation and restoration
+- inventory reservation and restoration
 
-\- order lifecycle
+- order lifecycle
 
-\- payment idempotency
+- payment idempotency
 
-\- duplicate payment notification behaviour
+- duplicate payment notification behaviour
 
-\- payment reconciliation
+- payment reconciliation
 
-\- appointment concurrency
+- appointment concurrency
 
-\- prescription ownership
+- prescription ownership
 
-\- loyalty authority
+- loyalty authority
 
-\- audit-trail operations
+- audit-trail operations
 
-\- branch isolation
+- branch isolation
 
-\- immutable order-address snapshot behaviour
+- immutable order-address snapshot behaviour
 
-**### Current Status**
+### Current Status
 
-**\*\*PARTIAL – DESIGN RISKS/MITIGATIONS ASSESSED LOCALLY; FINAL SDS THREAT-MODEL DOCUMENTATION PENDING DDP-088\*\***
+**PARTIAL – DESIGN RISKS/MITIGATIONS ASSESSED LOCALLY; FINAL SDS THREAT-MODEL DOCUMENTATION PENDING DDP-088**
 
 No additional backend architecture change is currently required for A04.
 
 The final SDS owner must incorporate the verified DDP-085 security findings, including the explicit threat-model/design-risk documentation required by the development guideline.
 
-**---**
+---
 
-**## A05 – Security Misconfiguration**
+## A05 – Security Misconfiguration
 
-**### Verified Locally**
+### Verified Locally
 
-\- Helmet security headers
+- Helmet security headers
 
-\- CORS restrictions
+- CORS restrictions
 
-\- production-safe error responses
+- production-safe error responses
 
-\- request-body limits
+- request-body limits
 
-\- environment-secret exclusion
+- environment-secret exclusion
 
-\- environment-driven security values
+- environment-driven security values
 
-**### Deployed Render Verification**
+### Deployed Render Verification
 
 Safe deployed-backend smoke verification was performed against:
 
@@ -810,137 +810,137 @@ The deployed Render revision has not yet been proven to be the unmerged DDP-085 
 
 No destructive or aggressive security testing was performed against the deployed environment.
 
-**### Status**
+### Status
 
 **DEPLOYED BACKEND SECURITY SMOKE PASS; FINAL DDP-085 REVISION / APPROVED-ORIGIN VERIFICATION PENDING**
 
-**---**
+---
 
-**## A06 – Vulnerable and Outdated Components**
+## A06 – Vulnerable and Outdated Components
 
-**### Backend**
+### Backend
 
 Initial:
 
-\- 2 High
+- 2 High
 
-\- 5 Moderate
+- 5 Moderate
 
 After safe remediation:
 
-\- 0 Critical
+- 0 Critical
 
-\- 0 High
+- 0 High
 
-\- 2 Moderate
+- 2 Moderate
 
-\`SEC-001\` remediated the identified High findings.
+`SEC-001` remediated the identified High findings.
 
-\`SEC-002\` records the remaining transitive Moderate \`uuid\` risk.
+`SEC-002` records the remaining transitive Moderate `uuid` risk.
 
-**### Frontend**
+### Frontend
 
 The separate frontend DDP-085 branch has Draft PR #68:
 
-\`[DDP-085] fix(security): remediate frontend dependency vulnerabilities\`
+`[DDP-085] fix(security): remediate frontend dependency vulnerabilities`
 
 Previously recorded frontend validation reported:
 
-\- 0 Critical
+- 0 Critical
 
-\- 0 High
+- 0 High
 
-\- 2 Moderate React Router advisories
+- 2 Moderate React Router advisories
 
 The available automatic remediation requires a breaking React Router major upgrade and was intentionally not force-applied.
 
-**### Current Status**
+### Current Status
 
-**\*\*PASS for known High/Critical dependency gate at the verified baseline, with documented Moderate residual risks.\*\***
+**PASS for known High/Critical dependency gate at the verified baseline, with documented Moderate residual risks.**
 
 The backend dependency scan was repeated in PR-triggered Backend CI #495 and passed the High/Critical release gate. The documented residual state remains **0 Critical / 0 High / 2 Moderate**.
 
 Frontend final dependency/security verification remains pending before overall DDP-085 release sign-off.
 
-**---**
+---
 
-**## A07 – Identification and Authentication Failures**
+## A07 – Identification and Authentication Failures
 
-**### Verified Controls**
+### Verified Controls
 
 The security and authentication test coverage verifies:
 
-\- generic invalid-login responses
+- generic invalid-login responses
 
-\- no account-existence disclosure
+- no account-existence disclosure
 
-\- authentication rate limiting
+- authentication rate limiting
 
-\- missing JWT rejection
+- missing JWT rejection
 
-\- malformed JWT rejection
+- malformed JWT rejection
 
-\- invalid JWT rejection
+- invalid JWT rejection
 
-\- expired JWT rejection
+- expired JWT rejection
 
-\- password-reset anti-enumeration
+- password-reset anti-enumeration
 
-\- hashed password-reset-token storage
+- hashed password-reset-token storage
 
-\- reset-token expiry
+- reset-token expiry
 
-\- reset-token replacement
+- reset-token replacement
 
-\- single-use reset-token behaviour
+- single-use reset-token behaviour
 
-\- already-used-token rejection
+- already-used-token rejection
 
-\- invalid-token rejection
+- invalid-token rejection
 
-\- concurrent-reset protection
+- concurrent-reset protection
 
-**### SEC-003 Remediation**
+### SEC-003 Remediation
 
 The previously identified account-lockout gap has been resolved.
 
 Implemented policy:
 
-\- 5 consecutive failed attempts
+- 5 consecutive failed attempts
 
-\- 15-minute temporary lock
+- 15-minute temporary lock
 
-\- successful authentication clears prior failures
+- successful authentication clears prior failures
 
-\- expired locks permit a fresh failure sequence
+- expired locks permit a fresh failure sequence
 
-\- Customer, Staff, and System Administrator identities use the same policy
+- Customer, Staff, and System Administrator identities use the same policy
 
-\- generic authentication responses are preserved
+- generic authentication responses are preserved
 
-\- IP-based authentication rate limiting remains active
+- IP-based authentication rate limiting remains active
 
 Relevant commit:
 
-\`88b1adc – fix(security): implement account login lockout\`
+`88b1adc – fix(security): implement account login lockout`
 
 Focused lockout/authentication/security verification passed:
 
-\- **\*\*4 suites\*\***
+- **4 suites**
 
-\- **\*\*40 tests\*\***
+- **40 tests**
 
-\- **\*\*0 failed\*\***
+- **0 failed**
 
 Post-hardening A09/A07/RBAC verification also passed:
 
-\- **\*\*8 suites\*\***
+- **8 suites**
 
-\- **\*\*82 tests\*\***
+- **82 tests**
 
-\- **\*\*0 failed\*\***
+- **0 failed**
 
-**### Status**
+### Status
 
 **PASS LOCALLY / FINAL PR CI PASS**
 
@@ -948,168 +948,168 @@ PR-triggered Backend CI #495 passed, including the full test-with-coverage job a
 
 Runtime verification of the new account-level lockout behavior remains pending until PR #108 is merged and the DDP-085 revision is deployed to Render.
 
-**---**
+---
 
-**## A08 – Software and Data Integrity Failures**
+## A08 – Software and Data Integrity Failures
 
-**### Controls Identified**
+### Controls Identified
 
-\- committed npm lockfile
+- committed npm lockfile
 
-\- reproducible dependency installation
+- reproducible dependency installation
 
-\- GitHub pull-request workflow
+- GitHub pull-request workflow
 
-\- PayHere provider verification
+- PayHere provider verification
 
-\- payment replay/idempotency controls
+- payment replay/idempotency controls
 
-\- transaction-backed business operations
+- transaction-backed business operations
 
-\- immutable audit-trail architecture
+- immutable audit-trail architecture
 
-\- security remediation associated with a specific commit
+- security remediation associated with a specific commit
 
-**### Relevant Security Commit**
+### Relevant Security Commit
 
-\`f7f56eb\`
+`f7f56eb`
 
-**### Verified**
+### Verified
 
 - PR-triggered Backend CI #495 passed;
 - committed npm lockfile remains reproducible;
 - final backend regression completed successfully with **118 suites / 2072 tests passed**;
 - dependency security scan passed the High/Critical release gate.
 
-**### Pending**
+### Pending
 
 - peer review / branch-protection evidence for PR #108;
 - merge and deployment traceability for the accepted DDP-085 revision;
 - final release-level integration evidence.
 
-**### Status**
+### Status
 
 **CI / INTEGRITY REGRESSION PASS; REVIEW AND RELEASE TRACEABILITY PENDING**
 
-**---**
+---
 
-**## A09 – Security Logging and Monitoring Failures**
+## A09 – Security Logging and Monitoring Failures
 
-**### Existing Audit and Error-Logging Controls**
+### Existing Audit and Error-Logging Controls
 
 Existing tests verify or inspect:
 
-\- sanitized production error logging
+- sanitized production error logging
 
-\- immutable audit records for important business operations
+- immutable audit records for important business operations
 
-\- payment events
+- payment events
 
-\- inventory audit behaviour
+- inventory audit behaviour
 
-\- clinical audit behaviour
+- clinical audit behaviour
 
-\- administrative audit behaviour
+- administrative audit behaviour
 
 Sanitizer tests cover redaction of values including:
 
-\- credentials
+- credentials
 
-\- API secrets
+- API secrets
 
-\- bearer tokens
+- bearer tokens
 
-\- MongoDB URIs
+- MongoDB URIs
 
-\- system paths
+- system paths
 
 Prescription security tests also verify that clinical remarks and eye measurements are not unnecessarily written to error logs.
 
-**### Authentication Security Event Logging**
+### Authentication Security Event Logging
 
 A verified A09 gap was identified because authentication outcomes were not explicitly recorded as privacy-safe security events.
 
 The following events are now logged:
 
-\- \`LOGIN_FAILED\`
+- `LOGIN_FAILED`
 
-\- \`LOGIN_BLOCKED_LOCKED\`
+- `LOGIN_BLOCKED_LOCKED`
 
-\- \`LOGIN_SUCCEEDED role=\<canonical-role>\`
+- `LOGIN_SUCCEEDED role=<canonical-role>`
 
 Successful-login logging contains the canonical role only.
 
 Authentication security logs do not include:
 
-\- email addresses
+- email addresses
 
-\- passwords
+- passwords
 
-\- JWTs
+- JWTs
 
-\- account IDs
+- account IDs
 
-\- IP addresses
+- IP addresses
 
-\- request bodies
+- request bodies
 
-\- other unnecessary PII
+- other unnecessary PII
 
 Relevant commit:
 
-\`a7df245 – fix(security): add privacy-safe authentication event logging\`
+`a7df245 – fix(security): add privacy-safe authentication event logging`
 
-**### Authentication / Authorization Rejection Logging**
+### Authentication / Authorization Rejection Logging
 
 A second A09 review found that centrally handled HTTP 401 and 403 access-control failures were safely returned but were not recorded as security events.
 
 The centralized error handler now records:
 
-\- \`[SecurityAccess] AUTHENTICATION_REJECTED\`
+- `[SecurityAccess] AUTHENTICATION_REJECTED`
 
-\- \`[SecurityAccess] AUTHORIZATION_DENIED\`
+- `[SecurityAccess] AUTHORIZATION_DENIED`
 
 The event intentionally contains no request body, identity value, token, password, URL, or other user-controlled sensitive data.
 
 Relevant commit:
 
-\`393da00 – fix(security): log access control rejections\`
+`393da00 – fix(security): log access control rejections`
 
-**### Regression Evidence**
+### Regression Evidence
 
 Focused post-hardening verification passed:
 
-\- centralized error/validation integration tests
+- centralized error/validation integration tests
 
-\- authentication logging unit tests
+- authentication logging unit tests
 
-\- authentication service unit tests
+- authentication service unit tests
 
-\- account-lockout integration tests
+- account-lockout integration tests
 
-\- login integration tests
+- login integration tests
 
-\- security integration tests
+- security integration tests
 
-\- canonical-role authorization unit tests
+- canonical-role authorization unit tests
 
-\- branch-inventory authorization unit tests
+- branch-inventory authorization unit tests
 
 Result:
 
-\- **\*\*8 suites passed\*\***
+- **8 suites passed**
 
-\- **\*\*82 tests passed\*\***
+- **82 tests passed**
 
-\- **\*\*0 failed\*\***
+- **0 failed**
 
-\- ESLint passed
+- ESLint passed
 
-\- Prettier passed
+- Prettier passed
 
-\- \`git diff --check\` passed
+- `git diff --check` passed
 
-**### Status**
+### Status
 
 **PASS LOCALLY / FINAL PR CI PASS**
 
@@ -1117,191 +1117,191 @@ The final backend regression and PR-triggered CI completed successfully.
 
 Runtime verification of the new privacy-safe authentication and access-rejection log events remains pending until PR #108 is merged and the DDP-085 revision is deployed. No sensitive log payloads will be intentionally generated against production.
 
-**---**
+---
 
-**## A10 – Server-Side Request Forgery**
+## A10 – Server-Side Request Forgery
 
-**### Assessment**
+### Assessment
 
 A final code-level review of the backend external-integration boundaries did not identify generic application functionality that accepts an arbitrary normal-user URL and performs an unrestricted server-side HTTP request to that destination.
 
 Verified provider boundaries include:
 
-\- **\*\*Google Gemini\*\*** – requests use the backend-controlled Google Generative Language API endpoint; the model comes from backend configuration rather than a user-supplied destination.
+- **Google Gemini** – requests use the backend-controlled Google Generative Language API endpoint; the model comes from backend configuration rather than a user-supplied destination.
 
-\- **\*\*PayHere checkout\*\*** – the checkout URL is selected from backend configuration according to the approved sandbox/live mode.
+- **PayHere checkout** – the checkout URL is selected from backend configuration according to the approved sandbox/live mode.
 
-\- **\*\*PayHere retrieval\*\*** – the adapter selects only the approved PayHere sandbox or live host, encodes the provider order reference, rejects redirects, and bounds the response size.
+- **PayHere retrieval** – the adapter selects only the approved PayHere sandbox or live host, encodes the provider order reference, rejects redirects, and bounds the response size.
 
-\- **\*\*Cloudinary\*\*** – provider access is configured through the backend-controlled Cloudinary SDK configuration and deployment credentials.
+- **Cloudinary** – provider access is configured through the backend-controlled Cloudinary SDK configuration and deployment credentials.
 
-\- **\*\*Notification / SMTP providers\*\*** – service destinations are deployment configuration, not arbitrary normal-user URL inputs.
+- **Notification / SMTP providers** – service destinations are deployment configuration, not arbitrary normal-user URL inputs.
 
 No general-purpose user-controlled URL-fetch endpoint was identified.
 
-**### Decision**
+### Decision
 
-Generic SSRF allow-list middleware is **\*\*not\*\*** being added because the current system does not expose an arbitrary user-controlled server-side URL-fetch feature.
+Generic SSRF allow-list middleware is **not** being added because the current system does not expose an arbitrary user-controlled server-side URL-fetch feature.
 
 Adding such middleware without an applicable input would introduce unnecessary complexity and would not address a real current attack surface.
 
 If future functionality introduces user-controlled external URLs, it must add explicit protocol validation, destination restrictions/allow-listing, and private-network protections before release.
 
-**### Status**
+### Status
 
-**\*\*PASS / NOT APPLICABLE TO GENERIC ARBITRARY URL FETCHING\*\***
+**PASS / NOT APPLICABLE TO GENERIC ARBITRARY URL FETCHING**
 
 The current external-provider boundaries are restricted by backend-controlled configuration or fixed provider hosts.
 
-**---**
+---
 
-**# 10. Secure Image Upload Assessment**
+# 10. Secure Image Upload Assessment
 
 Existing automated coverage includes:
 
-\- authentication requirement
+- authentication requirement
 
-\- Branch Manager authorization
+- Branch Manager authorization
 
-\- rejection of unauthorized roles
+- rejection of unauthorized roles
 
-\- required image file
+- required image file
 
-\- MIME/type restrictions
+- MIME/type restrictions
 
-\- image magic-byte validation
+- image magic-byte validation
 
-\- spoofed-content rejection
+- spoofed-content rejection
 
-\- maximum file-size enforcement
+- maximum file-size enforcement
 
-\- Cloudinary failure handling
+- Cloudinary failure handling
 
-\- provider-secret-safe error handling
+- provider-secret-safe error handling
 
 Relevant tests:
 
-\- \`tests/integration/inventory.imageUpload.test.js\`
+- `tests/integration/inventory.imageUpload.test.js`
 
-\- \`tests/unit/uploadImage.middleware.test.js\`
+- `tests/unit/uploadImage.middleware.test.js`
 
-**### Status**
+### Status
 
 **PASS IN FINAL BACKEND REGRESSION**
 
-**---**
+---
 
-**# 11. Payment Security Assessment**
+# 11. Payment Security Assessment
 
 Existing payment tests cover:
 
-\- authenticated initiation
+- authenticated initiation
 
-\- customer ownership
+- customer ownership
 
-\- rejection of client-controlled financial fields
+- rejection of client-controlled financial fields
 
-\- PayHere notification verification
+- PayHere notification verification
 
-\- forged/mismatched notification rejection
+- forged/mismatched notification rejection
 
-\- duplicate notification handling
+- duplicate notification handling
 
-\- exact replay idempotency
+- exact replay idempotency
 
-\- amount/currency integrity
+- amount/currency integrity
 
-\- concurrent success handling
+- concurrent success handling
 
-\- reconciliation-required states
+- reconciliation-required states
 
-\- late success handling
+- late success handling
 
-\- reservation-expiry behaviour
+- reservation-expiry behaviour
 
-\- protection against unauthorized state transitions
+- protection against unauthorized state transitions
 
 DDP-101 additionally introduced an immutable order-address snapshot used by payment initiation.
 
-**### Status**
+### Status
 
 **PASS IN FINAL BACKEND REGRESSION**
 
-**---**
+---
 
-**# 12. Clinical Data Protection Assessment**
+# 12. Clinical Data Protection Assessment
 
 Existing prescription integration tests cover:
 
-\- authenticated Optometrist creation
+- authenticated Optometrist creation
 
-\- customer ownership
+- customer ownership
 
-\- cross-customer access rejection
+- cross-customer access rejection
 
-\- rejection of unauthorized roles
+- rejection of unauthorized roles
 
-\- immutable correction history
+- immutable correction history
 
-\- absence of internal password/staff fields
+- absence of internal password/staff fields
 
-\- safe clinical validation errors
+- safe clinical validation errors
 
-\- prevention of clinical-data leakage through logs
+- prevention of clinical-data leakage through logs
 
-**### Status**
+### Status
 
 **PASS IN FINAL BACKEND REGRESSION**
 
-**---**
+---
 
-**# 13. Frontend Security Assessment**
+# 13. Frontend Security Assessment
 
 Frontend security remediation is tracked separately through frontend Draft PR #68.
 
 Previously verified frontend results:
 
-\- frontend tests passed
+- frontend tests passed
 
-\- ESLint passed
+- ESLint passed
 
-\- Prettier passed
+- Prettier passed
 
-\- production build passed
+- production build passed
 
-\- 0 High dependency vulnerabilities
+- 0 High dependency vulnerabilities
 
-\- 0 Critical dependency vulnerabilities
+- 0 Critical dependency vulnerabilities
 
-\- 2 Moderate React Router advisories remain
+- 2 Moderate React Router advisories remain
 
 Frontend final verification must include:
 
-\- public Vite environment variables
+- public Vite environment variables
 
-\- absence of private keys/secrets in browser bundles
+- absence of private keys/secrets in browser bundles
 
-\- protected navigation
+- protected navigation
 
-\- safe rendering of untrusted content
+- safe rendering of untrusted content
 
-\- appropriate client-side persistence
+- appropriate client-side persistence
 
-\- safe error presentation
+- safe error presentation
 
-\- final dependency audit against the integrated frontend baseline
+- final dependency audit against the integrated frontend baseline
 
-\- staging integration verification before final release
+- staging integration verification before final release
 
 Backend authorization remains authoritative.
 
-**### Status**
+### Status
 
-**\*\*PARTIAL – DRAFT PR #68 REMAINS OPEN\*\***
+**PARTIAL – DRAFT PR #68 REMAINS OPEN**
 
-**---**
+---
 
-**# 14. Final Verification Still Required**
+# 14. Final Verification Still Required
 
 Local backend verification, final backend PR CI, and the currently deployed Render backend security smoke checks are complete.
 
@@ -1317,150 +1317,150 @@ Remaining work is:
 - prepare the final OWASP compliance checklist in the `documents` repository;
 - obtain required peer review/sign-off and close DDP-085 only after the remaining release evidence is complete.
 
-**---**
+---
 
-**# 15. Security Release Gate**
+# 15. Security Release Gate
 
 DDP-085 must not be marked complete until:
 
-\- no unresolved Critical security vulnerability exists
+- no unresolved Critical security vulnerability exists
 
-\- no unresolved High security vulnerability exists without formal authorized disposition
+- no unresolved High security vulnerability exists without formal authorized disposition
 
-\- final security-critical regression tests pass
+- final security-critical regression tests pass
 
-\- authorization controls are verified against the final integrated backend
+- authorization controls are verified against the final integrated backend
 
-\- dependency scans are repeated against the final backend and frontend lockfiles
+- dependency scans are repeated against the final backend and frontend lockfiles
 
-\- final CI passes for the accumulated backend DDP-085 commits
+- final CI passes for the accumulated backend DDP-085 commits
 
-\- staging HTTPS/TLS and security configuration are safely verified
+- staging HTTPS/TLS and security configuration are safely verified
 
-\- staging runtime errors/logging are verified not to expose sensitive data
+- staging runtime errors/logging are verified not to expose sensitive data
 
-\- residual Moderate dependency risks are documented
+- residual Moderate dependency risks are documented
 
-\- frontend security verification is complete
+- frontend security verification is complete
 
-\- required OWASP A01–A10 evidence is complete
+- required OWASP A01–A10 evidence is complete
 
-\- A04 design-risk/threat-model findings are handed off to DDP-088 for final SDS incorporation
+- A04 design-risk/threat-model findings are handed off to DDP-088 for final SDS incorporation
 
-\- OWASP evidence is prepared for the final project documentation
+- OWASP evidence is prepared for the final project documentation
 
-\- security-related PRs receive peer review
+- security-related PRs receive peer review
 
-\- all relevant CI security gates pass
+- all relevant CI security gates pass
 
 Current evidence already satisfies the backend local regression and PR CI portions of this gate, including **118 suites / 2072 tests passed**, PR-triggered Backend CI #495 success, and **0 Critical / 0 High / 2 Moderate** dependency findings.
 
 Remaining gate items are primarily post-merge deployment delta verification, approved Vercel-origin/integration verification, frontend completion, documentation handoff, and peer review/sign-off.
 
-**---**
+---
 
-**# 16. Current Overall Status**
+# 16. Current Overall Status
 
-**\*\*DDP-085: IN PROGRESS\*\***
+**DDP-085: IN PROGRESS**
 
 Completed so far:
 
-\- backend dependency security scan
+- backend dependency security scan
 
-\- identification of 2 High and 5 Moderate dependency vulnerabilities at the initial baseline
+- identification of 2 High and 5 Moderate dependency vulnerabilities at the initial baseline
 
-\- remediation of identified High dependency vulnerabilities
+- remediation of identified High dependency vulnerabilities
 
-\- backend dependency-fix commit `f7f56eb`
+- backend dependency-fix commit `f7f56eb`
 
-\- backend dependency retest showing 0 Critical and 0 High at the tested baseline
+- backend dependency retest showing 0 Critical and 0 High at the tested baseline
 
-\- documentation of residual Moderate dependency risk `SEC-002`
+- documentation of residual Moderate dependency risk `SEC-002`
 
-\- reproducible npm lockfile repair and successful branch CI at `33d12b0`
+- reproducible npm lockfile repair and successful branch CI at `33d12b0`
 
-\- synchronization with the merged DDP-101 backend changes
+- synchronization with the merged DDP-101 backend changes
 
-\- synchronization with merged DDP-086 / PR #107 security-adjacent runtime changes
+- synchronization with merged DDP-086 / PR #107 security-adjacent runtime changes
 
-\- post-merge targeted security/authentication/password-reset regression: **3 suites / 52 tests passed**
+- post-merge targeted security/authentication/password-reset regression: **3 suites / 52 tests passed**
 
-\- account-lockout gap `SEC-003` remediated
+- account-lockout gap `SEC-003` remediated
 
-\- account-lockout commit `88b1adc`
+- account-lockout commit `88b1adc`
 
-\- account-lockout/auth/security verification: **4 suites / 40 tests passed**
+- account-lockout/auth/security verification: **4 suites / 40 tests passed**
 
-\- privacy-safe authentication event logging implemented in `a7df245`
+- privacy-safe authentication event logging implemented in `a7df245`
 
-\- privacy-safe 401/403 access-control rejection logging implemented in `393da00`
+- privacy-safe 401/403 access-control rejection logging implemented in `393da00`
 
-\- post-hardening A07/A09/RBAC/error-handler verification: **8 suites / 82 tests passed**
+- post-hardening A07/A09/RBAC/error-handler verification: **8 suites / 82 tests passed**
 
-\- final backend regression with coverage: **118 suites / 2072 tests passed**
+- final backend regression with coverage: **118 suites / 2072 tests passed**
 
-\- final coverage: **92.33% statements / 81.68% branches / 97.86% functions / 93% lines**
+- final coverage: **92.33% statements / 81.68% branches / 97.86% functions / 93% lines**
 
-\- final dependency audit: **0 Critical / 0 High / 2 Moderate** residual vulnerabilities through `exceljs -> uuid`
+- final dependency audit: **0 Critical / 0 High / 2 Moderate** residual vulnerabilities through `exceljs -> uuid`
 
-\- lint verification
+- lint verification
 
-\- format verification
+- format verification
 
-\- database security foundation test
+- database security foundation test
 
-\- 21-test backend security integration suite
+- 21-test backend security integration suite
 
-\- review of existing authorization, authentication, clinical, payment, upload, logging, sanitizer, and integrity coverage
+- review of existing authorization, authentication, clinical, payment, upload, logging, sanitizer, and integrity coverage
 
-\- A04 design-risk and mitigation assessment completed locally
+- A04 design-risk and mitigation assessment completed locally
 
-\- final A04 SDS integration correctly assigned to existing DDP-088 / `documents#47` rather than duplicated
+- final A04 SDS integration correctly assigned to existing DDP-088 / `documents#47` rather than duplicated
 
-\- A10 external-request/SSRF boundary review completed
+- A10 external-request/SSRF boundary review completed
 
-\- A07 marked locally passing after SEC-003 remediation
+- A07 marked locally passing after SEC-003 remediation
 
-\- A09 marked locally passing after privacy-safe authentication and access-rejection logging
+- A09 marked locally passing after privacy-safe authentication and access-rejection logging
 
-\- backend Draft PR #108 opened against `develop`
+- backend Draft PR #108 opened against `develop`
 
-\- PR-triggered Backend CI #495 completed successfully
+- PR-triggered Backend CI #495 completed successfully
 
-\- PR CI dependency security scan completed successfully
+- PR CI dependency security scan completed successfully
 
-\- deployed Render `/api/health` HTTPS check passed
+- deployed Render `/api/health` HTTPS check passed
 
-\- deployed HSTS and security-header verification passed
+- deployed HSTS and security-header verification passed
 
-\- deployed unapproved-origin CORS rejection check passed
+- deployed unapproved-origin CORS rejection check passed
 
-\- deployed missing-authentication and invalid-JWT rejection checks passed
+- deployed missing-authentication and invalid-JWT rejection checks passed
 
-\- deployed safe 404 and malformed-JSON error checks passed
+- deployed safe 404 and malformed-JSON error checks passed
 
-\- deployed privileged-field validation checks passed for login and public registration
+- deployed privileged-field validation checks passed for login and public registration
 
-\- deployed authentication limiter observed as 10 requests per 180 seconds
+- deployed authentication limiter observed as 10 requests per 180 seconds
 
 Still pending:
 
-\- peer review and merge of backend PR #108
+- peer review and merge of backend PR #108
 
-\- deployment of the accepted DDP-085 revision to Render
+- deployment of the accepted DDP-085 revision to Render
 
-\- targeted post-deployment account-lockout runtime verification
+- targeted post-deployment account-lockout runtime verification
 
-\- targeted post-deployment A09 security-logging runtime verification
+- targeted post-deployment A09 security-logging runtime verification
 
-\- positive CORS verification using the exact approved Vercel production origin
+- positive CORS verification using the exact approved Vercel production origin
 
-\- final frontend verification for Draft PR #68
+- final frontend verification for Draft PR #68
 
-\- final deployed frontend/backend security smoke
+- final deployed frontend/backend security smoke
 
-\- DDP-088 final SDS incorporation of verified A04 security-design/threat-model findings
+- DDP-088 final SDS incorporation of verified A04 security-design/threat-model findings
 
-\- final OWASP compliance evidence in the `documents` repository
+- final OWASP compliance evidence in the `documents` repository
 
-\- peer review and final DDP-085 release sign-off
+- peer review and final DDP-085 release sign-off
