@@ -63,6 +63,16 @@ const positiveInteger = (value, fallback) => {
   const number = Number(value);
   return Number.isSafeInteger(number) && number > 0 ? number : fallback;
 };
+
+/**
+ * Account-level authentication lockout.
+ * Default: 5 consecutive failed logins => 15-minute temporary lock.
+ */
+const ACCOUNT_LOCKOUT = {
+  maxAttempts: positiveInteger(process.env.ACCOUNT_LOCKOUT_MAX_ATTEMPTS, 5),
+  lockMs: positiveInteger(process.env.ACCOUNT_LOCKOUT_DURATION_MS, 15 * 60 * 1000),
+};
+
 const PAYHERE_NOTIFICATION_RATE_LIMIT = {
   windowMs: positiveInteger(process.env.PAYHERE_NOTIFY_RATE_LIMIT_WINDOW_MS, 60 * 1000),
   max: positiveInteger(process.env.PAYHERE_NOTIFY_RATE_LIMIT_MAX, 600),
@@ -79,6 +89,7 @@ module.exports = {
   CORS_CONFIG,
   GENERAL_RATE_LIMIT,
   AUTH_RATE_LIMIT,
+  ACCOUNT_LOCKOUT,
   CHATBOT_RATE_LIMIT,
   PAYHERE_NOTIFICATION_RATE_LIMIT,
   REQUEST_BODY_LIMIT,
