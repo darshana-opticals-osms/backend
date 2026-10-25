@@ -1,4 +1,4 @@
-# DDP-085 – Backend OWASP Top 10 Security Assessment
+﻿# DDP-085 – Backend OWASP Top 10 Security Assessment
 
 ## 1. Assessment Information
 
@@ -1209,25 +1209,23 @@ The latest full backend regression also passed **118 / 118 suites and 2075 / 207
 
 ### Deployed Runtime Evidence
 
-The deployed authentication behavior itself has been verified, including failed-login responses, account lockout, post-lock recovery, and frontend/backend authentication integration.
+The deployed Render authentication-security logs were inspected during controlled authentication and account-lockout verification.
 
-Direct inspection of the Render runtime log stream is still pending because the current tester does not have Render dashboard access.
+The runtime logs confirmed:
 
-A teammate with Render access must confirm that:
+- `[SecurityAuth] LOGIN_FAILED` was emitted for failed authentication attempts;
+- `[SecurityAuth] LOGIN_BLOCKED_LOCKED` was emitted when authentication was attempted against the locked account;
+- `[SecurityAccess] AUTHENTICATION_REJECTED` was emitted for rejected authentication requests;
+- passwords were not present in the verified security log entries;
+- JWT/access-token values were not present;
+- sensitive credentials were not exposed;
+- unnecessary Customer data was not exposed.
 
-- `[SecurityAuth] LOGIN_FAILED` appears for failed authentication;
-
-- `[SecurityAuth] LOGIN_BLOCKED_LOCKED` appears for locked-account authentication attempts;
-
-- passwords are not logged;
-
-- JWT/access-token values are not logged;
-
-- credentials and unnecessary Customer data are not exposed.
+This confirms that the deployed authentication security events are emitted without exposing sensitive authentication data.
 
 ### Status
 
-**PASS IN CODE / AUTOMATED REGRESSION / CI; DEPLOYED RUNTIME LOG INSPECTION PENDING TEAMMATE CONFIRMATION**
+**PASS – CODE, AUTOMATED REGRESSION, CI, AND DEPLOYED RUNTIME SECURITY LOGGING VERIFIED**
 
 ## A10 – Server-Side Request Forgery
 
@@ -1507,33 +1505,29 @@ Verified after deployment:
 
 Frontend DDP-085 PR #68 has also been merged and its final local and deployed integration evidence is recorded in Section 13.
 
-### Remaining Post-Deployment Evidence
+### Post-Deployment Security Verification Completion
 
-Only one deployed-runtime check remains directly outstanding:
+The final Render runtime authentication-security log verification has now been completed.
 
-- Render authentication-security log inspection by a team member with dashboard access.
+The deployed logs confirmed:
 
-The teammate verification must confirm that:
+- `[SecurityAuth] LOGIN_FAILED`;
+- `[SecurityAuth] LOGIN_BLOCKED_LOCKED`;
+- `[SecurityAccess] AUTHENTICATION_REJECTED`;
+- no passwords in the verified authentication-security entries;
+- no JWT/access-token values;
+- no sensitive credentials;
+- no unnecessary Customer data.
 
-- `[SecurityAuth] LOGIN_FAILED` is emitted for failed authentication;
-
-- `[SecurityAuth] LOGIN_BLOCKED_LOCKED` is emitted for a locked account;
-
-- passwords are not exposed;
-
-- JWT/access-token values are not exposed;
-
-- credentials and unnecessary Customer data are not exposed.
+The planned frontend and backend post-deployment DDP-085 security verification is therefore complete.
 
 No additional manual repetition of the completed backend or frontend automated suites is required.
 
-Other release-documentation work that remains outside this direct runtime check:
+Remaining release-documentation work:
 
 - DDP-088 final SDS incorporation of the verified A04 security-design/threat-model findings;
-
 - final OWASP compliance evidence in the `documents` repository;
-
-- final DDP-085 release sign-off after the remaining evidence is complete.
+- final DDP-085 release sign-off.
 
 # 15. Security Release Gate
 
@@ -1593,9 +1587,9 @@ Current evidence satisfies the following gate items:
 
 - final deployed frontend/backend login, authenticated refresh, and logout integration verification: **passed**.
 
-Remaining release-gate evidence:
+- deployed Render authentication-security logging verification: **passed**, including `LOGIN_FAILED`, `LOGIN_BLOCKED_LOCKED`, and privacy-safe authentication rejection logging;
 
-- Render runtime authentication-security log inspection by a team member with dashboard access;
+Remaining release-gate evidence:
 
 - DDP-088 final SDS incorporation of the verified A04 design-risk/threat-model findings;
 
@@ -1711,9 +1705,9 @@ Completed so far:
 
 - deployed frontend/backend login, authenticated refresh, and logout integration verification passed
 
-Still pending:
+- deployed Render authentication-security log verification passed, including `LOGIN_FAILED`, `LOGIN_BLOCKED_LOCKED`, and `AUTHENTICATION_REJECTED`, with no passwords, JWT/access-token values, sensitive credentials, or unnecessary Customer data exposed in the verified entries
 
-- Render runtime authentication-security log inspection by a team member with dashboard access
+Still pending:
 
 - DDP-088 final SDS incorporation of verified A04 security-design/threat-model findings
 
