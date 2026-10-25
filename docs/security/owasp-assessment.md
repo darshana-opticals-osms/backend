@@ -84,11 +84,15 @@ The final DDP-085 backend regression completed successfully after the final conc
 
 Backend CI run #501 for final commit `7afbeb0` completed successfully.
 
+CI run #501 with **118 / 118 test suites and 2075 / 2075 tests passed** is retained as the historical final DDP-085 security-implementation baseline for commit `7afbeb0`.
+
+The latest verification for this documentation PR completed successfully in Backend CI run #517, with **118 / 118 test suites and 2076 / 2076 tests passed**. ESLint and Prettier also passed, and the dependency security gate remained at **0 Critical / 0 High** vulnerabilities. This later CI result verifies the current integrated backend state and does not replace the historical DDP-085 implementation baseline.
+
 The final dependency audit satisfied the DDP-085 High/Critical release gate with **0 Critical / 0 High / 2 Moderate** findings. The remaining Moderate findings are documented as residual dependency risk and were not force-remediated because the available automatic fix would introduce a breaking dependency change.
 
 PR #108 received final approval after the account-lockout concurrency edge cases were resolved and was merged into `develop` as commit `0881662`.
 
-The accepted DDP-085 backend revision was then deployed successfully to Render. Targeted post-deployment verification confirmed HTTPS/security headers, generic authentication failures, account-lockout behavior and recovery, approved-origin CORS behavior, and final frontend/backend authentication integration. Runtime inspection of the deployed authentication security log entries remains pending because the current tester does not have Render dashboard access.
+The accepted DDP-085 backend revision was then deployed successfully to Render. Targeted post-deployment verification confirmed HTTPS/security headers, generic authentication failures, account-lockout behavior and recovery, approved-origin CORS behavior, final frontend/backend authentication integration, and deployed runtime authentication-security logging. The planned post-deployment security verification is complete.
 
 ## 3. Verification Already Executed
 
@@ -690,7 +694,7 @@ No additional A01-specific manual repetition is required for DDP-085. Final rele
 
 **PASS – LOCAL REGRESSION AND DEPLOYED HTTPS / AUTHENTICATION INTEGRATION VERIFIED**
 
-The remaining Render log inspection is tracked under A09 rather than A02.
+The deployed Render authentication-security log inspection was completed under A09 and confirmed privacy-safe authentication event logging.
 
 ## A03 – Injection
 
@@ -797,11 +801,11 @@ Existing automated coverage was identified for critical business boundaries incl
 
 ### Current Status
 
-**PARTIAL – DESIGN RISKS/MITIGATIONS ASSESSED LOCALLY; FINAL SDS THREAT-MODEL DOCUMENTATION PENDING DDP-088**
+**PASS – DESIGN-RISK ASSESSMENT COMPLETE; FINAL SDS INCORPORATION TRACKED UNDER DDP-088**
 
-No additional backend architecture change is currently required for A04.
+No additional backend architecture change is required for A04.
 
-The final SDS owner must incorporate the verified DDP-085 security findings, including the explicit threat-model/design-risk documentation required by the development guideline.
+The verified A04 security-design and threat-risk findings are tracked under DDP-088 / `documents#47` for incorporation into the final implementation-aligned SDS. This is a documentation handoff and does not make the DDP-085 security assessment incomplete.
 
 ---
 
@@ -1209,9 +1213,9 @@ The latest full backend regression also passed **118 / 118 suites and 2075 / 207
 
 ### Deployed Runtime Evidence
 
-The deployed Render authentication-security logs were inspected during controlled authentication and account-lockout verification.
+On 25 October 2026, the deployed Render authentication-security logs were inspected during controlled authentication and account-lockout verification. The deployed security baseline included backend PR #108, merged into `develop` as commit `0881662`.
 
-The runtime logs confirmed:
+The sanitized runtime evidence confirmed:
 
 - `[SecurityAuth] LOGIN_FAILED` was emitted for failed authentication attempts;
 - `[SecurityAuth] LOGIN_BLOCKED_LOCKED` was emitted when authentication was attempted against the locked account;
@@ -1523,11 +1527,15 @@ The planned frontend and backend post-deployment DDP-085 security verification i
 
 No additional manual repetition of the completed backend or frontend automated suites is required.
 
-Remaining release-documentation work:
+### Final Documentation Status
 
-- DDP-088 final SDS incorporation of the verified A04 security-design/threat-model findings;
-- final OWASP compliance evidence in the `documents` repository;
-- final DDP-085 release sign-off.
+The final OWASP compliance checklist has been prepared for contribution to the `documents` repository at:
+
+`security/owasp-checklist.pdf`
+
+The verified A04 security-design and threat-risk findings are tracked under DDP-088 for incorporation into the final SDS.
+
+The remaining workflow activity is limited to peer-review completion, publication of the prepared OWASP evidence through the `documents` repository, and final DDP-085 release sign-off.
 
 # 15. Security Release Gate
 
@@ -1565,9 +1573,15 @@ DDP-085 must not be marked complete until:
 
 Current evidence satisfies the following gate items:
 
-- backend final regression: **118 / 118 suites and 2075 / 2075 tests passed**;
+- historical DDP-085 implementation baseline: **118 / 118 suites and 2075 / 2075 tests passed**;
 
 - Backend CI run #501: **success**;
+
+- latest documentation-PR verification: **118 / 118 suites and 2076 / 2076 tests passed**;
+
+- Backend CI run #517: **success**;
+
+- latest CI dependency gate: **0 Critical / 0 High**;
 
 - backend dependency result: **0 Critical / 0 High / 2 Moderate**;
 
@@ -1589,17 +1603,21 @@ Current evidence satisfies the following gate items:
 
 - deployed Render authentication-security logging verification: **passed**, including `LOGIN_FAILED`, `LOGIN_BLOCKED_LOCKED`, and privacy-safe authentication rejection logging;
 
-Remaining release-gate evidence:
+Remaining release workflow:
 
-- DDP-088 final SDS incorporation of the verified A04 design-risk/threat-model findings;
+- final peer approval of this documentation PR;
 
-- final OWASP compliance evidence in the `documents` repository;
+- contribution and review of the prepared OWASP compliance checklist in the `documents` repository;
 
 - final DDP-085 release sign-off.
 
+Related documentation follow-up:
+
+- DDP-088 incorporates the verified A04 design-risk and threat-model findings into the final SDS.
+
 # 16. Current Overall Status
 
-**DDP-085: IN PROGRESS – FINAL EVIDENCE / SIGN-OFF STAGE**
+**DDP-085: SECURITY VERIFICATION COMPLETE – FINAL REVIEW / DOCUMENTATION PUBLICATION IN PROGRESS**
 
 Completed so far:
 
@@ -1667,6 +1685,10 @@ Completed so far:
 
 - Backend CI run #501 completed successfully
 
+- latest documentation PR verification: **118 / 118 suites and 2076 / 2076 tests passed**
+
+- Backend CI run #517 completed successfully
+
 - backend PR #108 merged into `develop` at merge commit `0881662`
 
 - accepted DDP-085 backend revision deployed successfully to Render
@@ -1707,10 +1729,16 @@ Completed so far:
 
 - deployed Render authentication-security log verification passed, including `LOGIN_FAILED`, `LOGIN_BLOCKED_LOCKED`, and `AUTHENTICATION_REJECTED`, with no passwords, JWT/access-token values, sensitive credentials, or unnecessary Customer data exposed in the verified entries
 
-Still pending:
+- final OWASP compliance checklist prepared for contribution to the `documents` repository
 
-- DDP-088 final SDS incorporation of verified A04 security-design/threat-model findings
+Final workflow actions:
 
-- final OWASP compliance evidence in the `documents` repository
+- resolve the remaining PR #110 review comments and obtain final peer approval;
 
-- final DDP-085 release sign-off
+- contribute the prepared OWASP compliance checklist to the `documents` repository;
+
+- complete final DDP-085 release sign-off.
+
+Related documentation follow-up:
+
+- DDP-088 will incorporate the verified A04 security-design and threat-risk findings into the final SDS.
