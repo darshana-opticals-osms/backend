@@ -315,4 +315,44 @@ describe('DDP-085 account lockout', () => {
       gate.restore();
     }
   });
+
+  it('rejects a stale successful login when concurrent failures lock an initially clean account', async () => {
+    const customer = await createCustomer('concurrent.clean.customer@example.com');
+
+    const initialState = await getSecurityState(Customer, customer.email);
+
+    expect(initialState.failedLoginAttempts).toBe(0);
+    expect(initialState.lockUntil).toBeNull();
+
+    const gate = holdSuccessfulLoginReset(Customer);
+
+    try {
+      const successfulLogin = login({
+        email: customer.email,
+        password: PASSWORD,
+      });
+
+      await gate.resetAttempted;
+
+      await failLoginUntilLocked(customer.email);
+
+      const lockedState = await getSecurityState(Customer, customer.email);
+
+      expect(lockedState.failedLoginAttempts).toBe(ACCOUNT_LOCKOUT.maxAttempts);
+      expect(lockedState.lockUntil).toBeInstanceOf(Date);
+      expect(lockedState.lockUntil.getTime()).toBeGreaterThan(Date.now());
+
+      gate.releaseReset();
+
+      await expectGenericAuthenticationFailure(successfulLogin);
+
+      const finalState = await getSecurityState(Customer, customer.email);
+
+      expect(finalState.failedLoginAttempts).toBe(ACCOUNT_LOCKOUT.maxAttempts);
+      expect(finalState.lockUntil).toEqual(lockedState.lockUntil);
+    } finally {
+      gate.releaseReset();
+      gate.restore();
+    }
+  });
 });

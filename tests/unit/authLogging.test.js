@@ -15,6 +15,7 @@ jest.mock('../../src/models/customer.model', () => ({
   findOne: jest.fn(),
   exists: jest.fn(),
   create: jest.fn(),
+  updateOne: jest.fn(),
 }));
 
 jest.mock('../../src/models/staff.model', () => ({
@@ -84,10 +85,12 @@ describe('Authentication security logging', () => {
       passwordHash: '$2b$12$storedHash',
       failedLoginAttempts: 0,
       lockUntil: null,
+      constructor: Customer,
     };
 
     setIdentityMatches({ customer: identity });
     bcrypt.compare.mockResolvedValue(true);
+    Customer.updateOne.mockResolvedValue({ matchedCount: 1 });
     createAccessToken.mockReturnValue('sensitive-jwt-token');
 
     const result = await login({

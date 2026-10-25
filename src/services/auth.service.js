@@ -108,8 +108,6 @@ const clearLoginFailures = async (identity) => {
   const failedLoginAttempts = Number(identity.failedLoginAttempts) || 0;
   const lockUntil = identity.lockUntil ?? null;
 
-  if (failedLoginAttempts === 0 && !lockUntil) return true;
-
   const result = await identity.constructor.updateOne(
     {
       _id: identity._id,
