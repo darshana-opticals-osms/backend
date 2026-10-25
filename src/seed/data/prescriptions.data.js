@@ -5,12 +5,10 @@
  * are completely fictional non-production data following ADR-001 clinical specifications.
  */
 
-const { createSeedEmail } = require('./users.data');
-
 const SEED_PRESCRIPTIONS = [
   {
-    customerEmail: createSeedEmail('kamal.customer'),
-    staffEmail: createSeedEmail('optometrist.kandy'),
+    customerEmail: 'kamal.customer@example.com',
+    staffEmail: 'optometrist.kandy@darshanaopticals.local',
     recordedAt: new Date('2026-03-15T10:30:00Z'),
     rightEye: {
       distance: { sph: -1.25, cyl: -0.5, axis: 90, va: '6/6' },
@@ -25,8 +23,8 @@ const SEED_PRESCRIPTIONS = [
     isArchived: false,
   },
   {
-    customerEmail: createSeedEmail('kamal.customer'),
-    staffEmail: createSeedEmail('optometrist.kandy'),
+    customerEmail: 'kamal.customer@example.com',
+    staffEmail: 'optometrist.kandy@darshanaopticals.local',
     recordedAt: new Date('2025-02-10T09:15:00Z'),
     rightEye: {
       distance: { sph: -1.0, cyl: -0.25, axis: 90, va: '6/6' },
@@ -40,8 +38,8 @@ const SEED_PRESCRIPTIONS = [
     isArchived: false,
   },
   {
-    customerEmail: createSeedEmail('alice.customer'),
-    staffEmail: createSeedEmail('optometrist.kandy'),
+    customerEmail: 'alice.customer@example.com',
+    staffEmail: 'optometrist.kandy@darshanaopticals.local',
     recordedAt: new Date('2026-05-20T14:00:00Z'),
     rightEye: {
       distance: { sph: 0.75, cyl: -0.25, axis: 180, va: '6/6' },
