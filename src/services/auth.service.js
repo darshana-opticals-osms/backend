@@ -106,12 +106,25 @@ const recordFailedLogin = async (identity, now = new Date()) => {
 
 const clearLoginFailures = async (identity) => {
   const failedLoginAttempts = Number(identity.failedLoginAttempts) || 0;
-  if (failedLoginAttempts === 0 && !identity.lockUntil) return;
+  const lockUntil = identity.lockUntil ?? null;
 
-  await identity.constructor.updateOne(
-    { _id: identity._id },
-    { $set: { failedLoginAttempts: 0, lockUntil: null } }
+  if (failedLoginAttempts === 0 && !lockUntil) return true;
+
+  const result = await identity.constructor.updateOne(
+    {
+      _id: identity._id,
+      failedLoginAttempts,
+      lockUntil,
+    },
+    {
+      $set: {
+        failedLoginAttempts: 0,
+        lockUntil: null,
+      },
+    }
   );
+
+  return result.matchedCount === 1;
 };
 
 const login = async ({ email, password }) => {
@@ -142,8 +155,12 @@ const login = async ({ email, password }) => {
     throw new UnauthorizedError('Account is inactive.');
   }
 
-  await clearLoginFailures(identity);
+  const loginStateCleared = await clearLoginFailures(identity);
 
+  if (!loginStateCleared) {
+    logAuthenticationFailure();
+    throw new UnauthorizedError('Invalid email or password.');
+  }
   const user = buildSafeIdentityResponse(identity);
   const token = createAccessToken({
     userId: user.id,

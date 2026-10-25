@@ -96,6 +96,42 @@ describe('DDP-085 account lockout', () => {
     }
   };
 
+  const holdSuccessfulLoginReset = (Model) => {
+    const originalUpdateOne = Model.updateOne.bind(Model);
+
+    let signalResetAttempted;
+    let releaseReset;
+
+    const resetAttempted = new Promise((resolve) => {
+      signalResetAttempted = resolve;
+    });
+
+    const resetReleased = new Promise((resolve) => {
+      releaseReset = resolve;
+    });
+
+    const updateSpy = jest
+      .spyOn(Model, 'updateOne')
+      .mockImplementation((filter, update, options) => {
+        const isSuccessfulLoginReset =
+          update?.$set?.failedLoginAttempts === 0 && update?.$set?.lockUntil === null;
+
+        if (!isSuccessfulLoginReset) {
+          return originalUpdateOne(filter, update, options);
+        }
+
+        signalResetAttempted();
+
+        return resetReleased.then(() => originalUpdateOne(filter, update, options));
+      });
+
+    return {
+      resetAttempted,
+      releaseReset,
+      restore: () => updateSpy.mockRestore(),
+    };
+  };
+
   it('locks a customer after the configured consecutive failed-login threshold', async () => {
     const customer = await createCustomer();
 
@@ -184,5 +220,99 @@ describe('DDP-085 account lockout', () => {
     expect(state.failedLoginAttempts).toBe(ACCOUNT_LOCKOUT.maxAttempts);
     expect(state.lockUntil).toBeInstanceOf(Date);
     expect(state.lockUntil.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('does not erase a newer failed attempt when a successful login finishes with stale state', async () => {
+    const customer = await createCustomer('concurrent.customer@example.com');
+
+    await Customer.updateOne(
+      { _id: customer._id },
+      {
+        $set: {
+          failedLoginAttempts: 2,
+          lockUntil: null,
+        },
+      }
+    );
+
+    const gate = holdSuccessfulLoginReset(Customer);
+
+    try {
+      const successfulLogin = login({
+        email: customer.email,
+        password: PASSWORD,
+      });
+
+      await gate.resetAttempted;
+
+      await expectGenericAuthenticationFailure(
+        login({
+          email: customer.email,
+          password: WRONG_PASSWORD,
+        })
+      );
+
+      gate.releaseReset();
+
+      await expectGenericAuthenticationFailure(successfulLogin);
+
+      const state = await getSecurityState(Customer, customer.email);
+
+      expect(state.failedLoginAttempts).toBe(3);
+      expect(state.lockUntil).toBeNull();
+    } finally {
+      gate.releaseReset();
+      gate.restore();
+    }
+  });
+
+  it('does not clear a lock created by a concurrent fifth failed login', async () => {
+    const customer = await createCustomer('concurrent.lock.customer@example.com');
+
+    await Customer.updateOne(
+      { _id: customer._id },
+      {
+        $set: {
+          failedLoginAttempts: ACCOUNT_LOCKOUT.maxAttempts - 1,
+          lockUntil: null,
+        },
+      }
+    );
+
+    const gate = holdSuccessfulLoginReset(Customer);
+
+    try {
+      const successfulLogin = login({
+        email: customer.email,
+        password: PASSWORD,
+      });
+
+      await gate.resetAttempted;
+
+      await expectGenericAuthenticationFailure(
+        login({
+          email: customer.email,
+          password: WRONG_PASSWORD,
+        })
+      );
+
+      const lockedState = await getSecurityState(Customer, customer.email);
+
+      expect(lockedState.failedLoginAttempts).toBe(ACCOUNT_LOCKOUT.maxAttempts);
+      expect(lockedState.lockUntil).toBeInstanceOf(Date);
+      expect(lockedState.lockUntil.getTime()).toBeGreaterThan(Date.now());
+
+      gate.releaseReset();
+
+      await expectGenericAuthenticationFailure(successfulLogin);
+
+      const finalState = await getSecurityState(Customer, customer.email);
+
+      expect(finalState.failedLoginAttempts).toBe(ACCOUNT_LOCKOUT.maxAttempts);
+      expect(finalState.lockUntil).toEqual(lockedState.lockUntil);
+    } finally {
+      gate.releaseReset();
+      gate.restore();
+    }
   });
 });
