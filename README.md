@@ -81,7 +81,7 @@ The backend includes a controlled seed-data mechanism for local development and 
 
 All seeded development accounts use the default password: **`DevPassword123!`**
 
-- **System Admin:** `admin.dev@darshanaopticals.local` (Role: `SYSTEM_ADMIN`)
+- **System Admin:** `admin.dev@gmail.com` (Role: `SYSTEM_ADMIN`, configurable via `DEV_ADMIN_EMAIL` in `.env`)
 - **Branch Manager:** `manager.colombo@darshanaopticals.local` (Role: `BRANCH_MANAGER`, Branch: Colombo)
 - **Optometrist:** `optometrist.kandy@darshanaopticals.local` (Role: `OPTOMETRIST`, Branch: Kandy)
 - **Gampaha Optometrist:** `optometrist.gampaha@darshanaopticals.local` (Role: `OPTOMETRIST`, Branch: Gampaha)
@@ -98,6 +98,10 @@ The seed script creates fictional branches (`COLOMBO_MAIN`, `KANDY_CITY`, `GAMPA
 #### Sample Clinical Prescriptions (ADR-001)
 
 The seed script populates 3 fictional clinical prescription records adhering to ADR-001 specifications (Distance/Reading parameters for Right & Left eye, VA, Add Power, Near VA, clinical remarks, and soft-archival status). Multiple prescriptions are attached to `kamal.customer@example.com` to support testing prescription history viewing (FR-002) and optometrist traceability (FR-013).
+
+#### Existing Database Compatibility & Migration
+
+When executing `npm run seed` against an existing development database, the seeder automatically detects previously seeded accounts under legacy domains and addresses (including `@darshanaopticals.local`, early test addresses, and previously modified emails) and safely synchronizes their email addresses in place without creating duplicate Admin, Staff, or Customer records. All foreign-key relationships, appointments, and clinical prescriptions remain fully linked and intact.
 
 #### Production Safety
 
