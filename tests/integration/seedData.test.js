@@ -16,7 +16,7 @@ const ReorderAlert = require('../../src/models/reorderAlert.model');
 const InventoryConfig = require('../../src/models/inventoryConfig.model');
 const Doctor = require('../../src/models/doctor.model');
 const { seedDatabase, PRODUCTION_SAFETY_ERROR } = require('../../src/seed/seed');
-const { DEV_DEFAULT_PASSWORD } = require('../../src/seed/data/users.data');
+const { DEV_DEFAULT_PASSWORD, createSeedEmail } = require('../../src/seed/data/users.data');
 const { ROLE_VALUES } = require('../../src/constants/roles');
 const { APPOINTMENT_STATUS_VALUES } = require('../../src/constants/appointmentStatuses');
 const { PAYMENT_STATUS, PAYMENT_METHOD } = require('../../src/constants/payment');
@@ -197,7 +197,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
     const prescriptions = await Prescription.find().populate('customerId').populate('recordedBy');
     expect(prescriptions.length).toBeGreaterThanOrEqual(3);
 
-    const kamalCustomer = await Customer.findOne({ email: 'kamal.customer@gmail.com' });
+    const kamalCustomer = await Customer.findOne({ email: createSeedEmail('kamal.customer') });
     const kamalPrescriptions = await Prescription.find({ customerId: kamalCustomer._id }).sort({
       recordedAt: -1,
     });
@@ -321,5 +321,58 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
     for (const a of admins) await expect(a.validate()).resolves.toBeUndefined();
     for (const i of inventoryItems) await expect(i.validate()).resolves.toBeUndefined();
     for (const p of prescriptions) await expect(p.validate()).resolves.toBeUndefined();
+  });
+
+  it('should safely migrate legacy seeded accounts to new email addresses without creating duplicate identities', async () => {
+    // 60-char valid bcrypt dummy hash
+    const dummyHash = '$2b$12$' + 'x'.repeat(53);
+
+    // Simulate an existing development database pre-seeded with legacy accounts
+    const legacyAdmin = await Admin.create({
+      name: 'Dev Admin',
+      email: 'admin.dev@darshanaopticals.local',
+      phone: '+94 77 100 0001',
+      role: ROLE_VALUES.SYSTEM_ADMIN,
+      passwordHash: dummyHash,
+    });
+
+    const legacyStaff = await Staff.create({
+      name: 'Gampaha Branch Assistant',
+      email: 'sales.gampaha@darshanaopticals.local',
+      phone: '+94 77 100 0005',
+      address: '12 Main Street, Gampaha',
+      role: ROLE_VALUES.BRANCH_ASSISTANT,
+      passwordHash: dummyHash,
+    });
+
+    const legacyCustomer = await Customer.create({
+      name: 'Kamal Perera',
+      email: 'kamal.customer@example.com',
+      phone: '+94 71 200 0001',
+      address: '15 Station Road, Nugegoda',
+      role: ROLE_VALUES.CUSTOMER,
+      passwordHash: dummyHash,
+    });
+
+    // Run seed without reset
+    const summary = await seedDatabase({ reset: false });
+
+    // The legacy accounts should be migrated in place without incrementing created count for them
+    expect(summary.adminsCreated).toBe(0);
+    expect(await Admin.countDocuments()).toBe(1);
+
+    const migratedAdmin = await Admin.findById(legacyAdmin._id);
+    expect(migratedAdmin.email).toBe(createSeedEmail('admin.dev'));
+
+    const migratedStaff = await Staff.findById(legacyStaff._id);
+    expect(migratedStaff.email).toBe(createSeedEmail('sales.gampaha'));
+
+    const migratedCustomer = await Customer.findById(legacyCustomer._id);
+    expect(migratedCustomer.email).toBe(createSeedEmail('kamal.customer'));
+
+    // Verify no duplicate accounts exist with legacy emails
+    expect(await Admin.exists({ email: 'admin.dev@darshanaopticals.local' })).toBeNull();
+    expect(await Staff.exists({ email: 'sales.gampaha@darshanaopticals.local' })).toBeNull();
+    expect(await Customer.exists({ email: 'kamal.customer@example.com' })).toBeNull();
   });
 });

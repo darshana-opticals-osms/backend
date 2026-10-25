@@ -111,10 +111,23 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
 
   // 2. Seed Admins (AC4, AC7)
   for (const adminData of SEED_ADMINS) {
-    const existing = await Admin.exists({ email: adminData.email });
-    if (!existing) {
+    const { legacyEmails = [], ...adminPayload } = adminData;
+    let admin = await Admin.findOne({ email: adminPayload.email });
+
+    // Safe migration: check if previously seeded under legacy email addresses
+    if (!admin && legacyEmails.length > 0) {
+      admin = await Admin.findOne({ email: { $in: legacyEmails } });
+      if (admin) {
+        admin.email = adminPayload.email;
+        if (adminPayload.name) admin.name = adminPayload.name;
+        if (adminPayload.phone) admin.phone = adminPayload.phone;
+        await admin.save();
+      }
+    }
+
+    if (!admin) {
       await Admin.create({
-        ...adminData,
+        ...adminPayload,
         passwordHash: devPasswordHash,
       });
       adminsCreated += 1;
@@ -123,15 +136,25 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
 
   // 3. Seed Staff (AC4, AC7)
   for (const staffData of SEED_STAFF) {
-    const existing = await Staff.exists({ email: staffData.email });
-    if (!existing) {
-      const branchId = branchMap.get(staffData.branchCodeName) || null;
+    const { legacyEmails = [], branchCodeName, ...staffPayload } = staffData;
+    let staff = await Staff.findOne({ email: staffPayload.email });
+
+    // Safe migration: check if previously seeded under legacy email addresses
+    if (!staff && legacyEmails.length > 0) {
+      staff = await Staff.findOne({ email: { $in: legacyEmails } });
+      if (staff) {
+        staff.email = staffPayload.email;
+        if (staffPayload.name) staff.name = staffPayload.name;
+        if (staffPayload.phone) staff.phone = staffPayload.phone;
+        if (staffPayload.address) staff.address = staffPayload.address;
+        await staff.save();
+      }
+    }
+
+    if (!staff) {
+      const branchId = branchMap.get(branchCodeName) || null;
       await Staff.create({
-        name: staffData.name,
-        email: staffData.email,
-        phone: staffData.phone,
-        address: staffData.address,
-        role: staffData.role,
+        ...staffPayload,
         branchId,
         passwordHash: devPasswordHash,
       });
@@ -141,10 +164,24 @@ async function seedDatabase({ reset = false, connection = null } = {}) {
 
   // 4. Seed Customers (AC3, AC7)
   for (const customerData of SEED_CUSTOMERS) {
-    const existing = await Customer.exists({ email: customerData.email });
-    if (!existing) {
+    const { legacyEmails = [], ...customerPayload } = customerData;
+    let customer = await Customer.findOne({ email: customerPayload.email });
+
+    // Safe migration: check if previously seeded under legacy email addresses
+    if (!customer && legacyEmails.length > 0) {
+      customer = await Customer.findOne({ email: { $in: legacyEmails } });
+      if (customer) {
+        customer.email = customerPayload.email;
+        if (customerPayload.name) customer.name = customerPayload.name;
+        if (customerPayload.phone) customer.phone = customerPayload.phone;
+        if (customerPayload.address) customer.address = customerPayload.address;
+        await customer.save();
+      }
+    }
+
+    if (!customer) {
       await Customer.create({
-        ...customerData,
+        ...customerPayload,
         passwordHash: devPasswordHash,
       });
       customersCreated += 1;

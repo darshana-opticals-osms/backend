@@ -80,16 +80,17 @@ The backend includes a controlled seed-data mechanism for local development and 
 #### Development Test Accounts
 
 All seeded development accounts use the default password: **`DevPassword123!`**
+Seed accounts use verified team-controlled Gmail plus-addressing (default base: `darshanaoptic@gmail.com`, configurable via `DEV_SEED_EMAIL_BASE` in `.env`):
 
-- **System Admin:** `admin.dev@gmail.com` (Role: `SYSTEM_ADMIN`)
-- **Branch Manager:** `manager.colombo@gmail.com` (Role: `BRANCH_MANAGER`, Branch: Colombo)
-- **Optometrist:** `optometrist.kandy@gmail.com` (Role: `OPTOMETRIST`, Branch: Kandy)
-- **Gampaha Optometrist:** `optometrist.gampaha@gmail.com` (Role: `OPTOMETRIST`, Branch: Gampaha)
-- **Branch Assistant:** `sales.gampaha@gmail.com` (Role: `BRANCH_ASSISTANT`, Branch: Gampaha)
-- **Gampaha Branch Manager:** `manager.gampaha@gmail.com` (Role: `BRANCH_MANAGER`, Branch: Gampaha)
-- **Customer 1:** `kamal.customer@gmail.com` (Role: `CUSTOMER`)
-- **Customer 2:** `alice.customer@gmail.com` (Role: `CUSTOMER`)
-- **Customer 3:** `nimal.customer@gmail.com` (Role: `CUSTOMER`)
+- **System Admin:** `darshanaoptic+admin.dev@gmail.com` (Role: `SYSTEM_ADMIN`)
+- **Branch Manager:** `darshanaoptic+manager.colombo@gmail.com` (Role: `BRANCH_MANAGER`, Branch: Colombo)
+- **Optometrist:** `darshanaoptic+optometrist.kandy@gmail.com` (Role: `OPTOMETRIST`, Branch: Kandy)
+- **Gampaha Optometrist:** `darshanaoptic+optometrist.gampaha@gmail.com` (Role: `OPTOMETRIST`, Branch: Gampaha)
+- **Branch Assistant:** `darshanaoptic+sales.gampaha@gmail.com` (Role: `BRANCH_ASSISTANT`, Branch: Gampaha)
+- **Gampaha Branch Manager:** `darshanaoptic+manager.gampaha@gmail.com` (Role: `BRANCH_MANAGER`, Branch: Gampaha)
+- **Customer 1:** `darshanaoptic+kamal.customer@gmail.com` (Role: `CUSTOMER`)
+- **Customer 2:** `darshanaoptic+alice.customer@gmail.com` (Role: `CUSTOMER`)
+- **Customer 3:** `darshanaoptic+nimal.customer@gmail.com` (Role: `CUSTOMER`)
 
 #### Sample Branches & Product Catalog
 
@@ -97,7 +98,11 @@ The seed script creates fictional branches (`COLOMBO_MAIN`, `KANDY_CITY`, `GAMPA
 
 #### Sample Clinical Prescriptions (ADR-001)
 
-The seed script populates 3 fictional clinical prescription records adhering to ADR-001 specifications (Distance/Reading parameters for Right & Left eye, VA, Add Power, Near VA, clinical remarks, and soft-archival status). Multiple prescriptions are attached to `kamal.customer@example.com` to support testing prescription history viewing (FR-002) and optometrist traceability (FR-013).
+The seed script populates 3 fictional clinical prescription records adhering to ADR-001 specifications (Distance/Reading parameters for Right & Left eye, VA, Add Power, Near VA, clinical remarks, and soft-archival status). Multiple prescriptions are attached to `darshanaoptic+kamal.customer@gmail.com` to support testing prescription history viewing (FR-002) and optometrist traceability (FR-013).
+
+#### Existing Database Compatibility & Migration
+
+When executing `npm run seed` against an existing development database, the seeder automatically detects previously seeded accounts under legacy domains (e.g. `@darshanaopticals.local` and early test addresses) and safely upgrades their email addresses in place without creating duplicate Admin, Staff, or Customer records. All foreign-key relationships, appointments, and clinical prescriptions remain fully linked and intact.
 
 #### Production Safety
 
@@ -934,13 +939,13 @@ node scripts/backfillGampahaBranchCode.js --branch-id <existing-branch-id> --con
 
 Start the backend with `npm run dev` and open `http://localhost:5000/api-docs`. This section describes a manual workflow; it is not a claim that Swagger Try it out was manually exercised.
 
-1. Obtain a JWT by logging in as the Branch Assistant `sales.gampaha@gmail.com` with the development password `DevPassword123!`; click **Authorize** and enter the token.
+1. Obtain a JWT by logging in as the Branch Assistant `darshanaoptic+sales.gampaha@gmail.com` with the development password `DevPassword123!`; click **Authorize** and enter the token.
 2. Use `node scripts/backfillGampahaBranchCode.js --list` or an approved database inventory to find the verified `GAMPAHA_CENTRAL` Branch ID. The public `GET /branches` endpoint intentionally omits `codeName` and is not available to Branch Assistants.
 3. As the Branch Assistant, use `GET /appointments/providers` to obtain an eligible provider ID and the approved branch ID, then use `POST /doctor-sessions` with those IDs, timezone-aware `startAt` and `endAt`, and positive integer `capacity`. Choose a start at least 24 hours ahead.
-4. Log in as `kamal.customer@gmail.com` with the development password, authorize with that JWT, then call `GET /appointments/providers` and `GET /doctor-sessions/available`.
+4. Log in as `darshanaoptic+kamal.customer@gmail.com` with the development password, authorize with that JWT, then call `GET /appointments/providers` and `GET /doctor-sessions/available`.
 5. Use `POST /appointments` with only `{ "sessionId": "<available-session-id>" }`. The response includes the server-assigned queue position.
 6. As the customer, use `GET /appointments` and `PATCH /appointments/{id}/cancel` before the session begins. The cancellation endpoint accepts no body.
 7. As the Branch Assistant, use `GET /appointments` and `PATCH /appointments/{id}/reassign` with `{ "sessionId": "<other-available-session-id>" }` when reassignment is needed.
-8. Log in as `manager.gampaha@gmail.com` and verify read-only access to `GET /doctor-sessions`, `GET /appointments`, and `GET /appointments/{id}`. Write operations are rejected.
+8. Log in as `darshanaoptic+manager.gampaha@gmail.com` and verify read-only access to `GET /doctor-sessions`, `GET /appointments`, and `GET /appointments/{id}`. Write operations are rejected.
 
 For repeatable automated verification, run `npx jest tests/integration/appointmentApi.test.js --runInBand` and `npx jest --runInBand --coverage` from `backend`.
