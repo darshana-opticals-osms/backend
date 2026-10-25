@@ -197,7 +197,7 @@ describe('Seed Data Mechanism (Integration & Validation tests)', () => {
     const prescriptions = await Prescription.find().populate('customerId').populate('recordedBy');
     expect(prescriptions.length).toBeGreaterThanOrEqual(3);
 
-    const kamalCustomer = await Customer.findOne({ email: 'kamal.customer@example.com' });
+    const kamalCustomer = await Customer.findOne({ email: 'kamal.customer@gmail.com' });
     const kamalPrescriptions = await Prescription.find({ customerId: kamalCustomer._id }).sort({
       recordedAt: -1,
     });
