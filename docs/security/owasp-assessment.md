@@ -6,7 +6,9 @@
 
 - **Repository:** `darshana-opticals-osms/backend`
 
-- **Security branch:** `test/91-owasp-security-verification`
+- **Security implementation branch:** `test/91-owasp-security-verification` (merged through PR #108)
+
+- **Post-deployment evidence branch:** `docs/91-post-deployment-security-verification`
 
 - **Target branch:** `develop`
 
@@ -14,13 +16,13 @@
 
 - **Approach:** Verify existing controls first, identify real security gaps, apply minimum targeted fixes, run regression tests, and document reproducible evidence.
 
-This document is a working security-assessment record. Final release verification must be repeated after all relevant backend changes are merged into `develop`.
+This document records the DDP-085 backend security assessment, targeted hardening, final regression evidence, and post-merge deployment verification. The remaining release evidence is explicitly identified in Sections 14–16.
 
 ---
 
 ## 2. Current Assessment Baseline
 
-The DDP-085 branch has been synchronized with backend `develop` through the merged DDP-101 and DDP-086 / PR #107 baselines.
+The DDP-085 implementation was completed on `test/91-owasp-security-verification` and merged into backend `develop` through PR #108.
 
 Relevant security and CI history includes:
 
@@ -42,7 +44,15 @@ Relevant security and CI history includes:
 
 - `393da00` – `fix(security): log access control rejections`
 
-Backend PR #107 / DDP-086 Performance and Reliability Testing has now been merged into `develop` at commit `5c1e20e`.
+- `00c2a7a` – `fix(security): make account lockout concurrency safe`
+
+- `2f31231` – `docs(security): fix OWASP assessment Markdown formatting`
+
+- `7afbeb0` – `fix(security): close zero-state account lockout race`
+
+- `0881662` – merge commit for backend PR #108 into `develop`
+
+Backend PR #107 / DDP-086 Performance and Reliability Testing had already been merged into `develop` at commit `5c1e20e`.
 
 Security-relevant changes from that merged baseline include:
 
@@ -50,7 +60,7 @@ Security-relevant changes from that merged baseline include:
 
 - Express `trust proxy` configuration for reverse-proxy client-IP handling;
 
-- performance-related model/index updates that must remain compatible with authorization, transaction, and audit controls.
+- performance-related model/index updates that remain compatible with authorization, transaction, and audit controls.
 
 After synchronizing with the merged PR #107 baseline, targeted security/authentication/password-reset regression verification passed:
 
@@ -60,17 +70,25 @@ After synchronizing with the merged PR #107 baseline, targeted security/authenti
 
 - **0 failed**
 
-The final local backend regression and dependency audit are complete.
+The final DDP-085 backend regression completed successfully after the final concurrency fix:
 
-Backend Draft PR #108 (`[DDP-085] test(security): complete OWASP verification and backend security hardening`) has been opened from `test/91-owasp-security-verification` into `develop`.
+- **118 / 118 test suites passed**
 
-PR-triggered Backend CI run #495 completed successfully, including dependency installation, ESLint, Prettier/format verification, the full Jest test suite with coverage, coverage artifact upload, and the dependency security scan.
+- **2075 / 2075 tests passed**
 
-The PR-triggered dependency scan passed the DDP-085 High/Critical release gate with the documented residual result of **0 Critical / 0 High / 2 Moderate**.
+- ESLint passed
 
-Safe deployed-backend security smoke verification has also been performed against the currently deployed Render backend. Final runtime verification of the DDP-085 branch-specific account-lockout and security-logging changes remains pending until PR #108 is merged and that revision is deployed.
+- Prettier passed
 
----
+- `git diff --check` passed
+
+Backend CI run #501 for final commit `7afbeb0` completed successfully.
+
+The final dependency audit satisfied the DDP-085 High/Critical release gate with **0 Critical / 0 High / 2 Moderate** findings. The remaining Moderate findings are documented as residual dependency risk and were not force-remediated because the available automatic fix would introduce a breaking dependency change.
+
+PR #108 received final approval after the account-lockout concurrency edge cases were resolved and was merged into `develop` as commit `0881662`.
+
+The accepted DDP-085 backend revision was then deployed successfully to Render. Targeted post-deployment verification confirmed HTTPS/security headers, generic authentication failures, account-lockout behavior and recovery, approved-origin CORS behavior, and final frontend/backend authentication integration. Runtime inspection of the deployed authentication security log entries remains pending because the current tester does not have Render dashboard access.
 
 ## 3. Verification Already Executed
 
@@ -134,11 +152,11 @@ High-severity findings:
 
 1. `body-parser <1.20.9`
 
-   - Denial-of-Service vulnerability involving trailing bytes after compressed request bodies.
+   - Denial-of-Service vulnerability involving trailing bytes after compressed request bodies.
 
 2. `multer 2.0.0 – 2.4.0`
 
-   - Denial-of-Service vulnerability involving an asynchronous `fileFilter` remaining pending after request teardown.
+   - Denial-of-Service vulnerability involving an asynchronous `fileFilter` remaining pending after request teardown.
 
 Additional Moderate findings affected:
 
@@ -248,7 +266,7 @@ Result:
 
 **PASS for DDP-085 High/Critical dependency release gate at the tested baseline.**
 
-The dependency scan must be repeated during final verification after all relevant backend changes are merged.
+The dependency scan was repeated in the final PR CI after the relevant backend changes were integrated. The verified final result remained **0 Critical / 0 High / 2 Moderate**.
 
 ---
 
@@ -290,11 +308,11 @@ The force fix was intentionally **not applied** because DDP-085 requires minimal
 
 ### Current Disposition
 
-**Residual Moderate risk – documented pending final review.**
+**Residual Moderate risk – documented for final release review; no force-fix applied.**
 
 This finding is not being treated as silently resolved.
 
-Final dependency scanning must confirm that no newer safe compatible remediation becomes available before release.
+Final PR CI confirmed the documented **0 Critical / 0 High / 2 Moderate** state. The residual Moderate dependency risk should continue to be monitored for a safe compatible remediation before the final production release.
 
 ---
 
@@ -354,11 +372,15 @@ Configuration is environment-driven through:
 
 The identity models store hidden account-lockout state and do not expose it through normal API responses.
 
-### Fix Reference
+### Fix References
 
-Commit:
+Relevant commits:
 
-`88b1adc – fix(security): implement account login lockout`
+- `88b1adc – fix(security): implement account login lockout`
+
+- `00c2a7a – fix(security): make account lockout concurrency safe`
+
+- `7afbeb0 – fix(security): close zero-state account lockout race`
 
 ### Regression Evidence
 
@@ -372,7 +394,7 @@ Focused validation after implementation passed:
 
 - authentication service unit tests
 
-Result:
+Initial focused result:
 
 - **4 suites passed**
 
@@ -388,15 +410,35 @@ Additional post-hardening verification covering authentication, lockout, access-
 
 - **0 failed**
 
+The final regression after the concurrency fixes passed:
+
+- **118 / 118 test suites**
+
+- **2075 / 2075 tests**
+
+- **0 failed**
+
+Backend CI run #501 completed successfully.
+
+### Deployed Verification
+
+The merged DDP-085 revision was deployed to Render and the account-lockout lifecycle was verified using a fictional staging Customer account:
+
+- five consecutive incorrect passwords returned HTTP 401;
+
+- the correct password was still rejected with HTTP 401 while the account was locked;
+
+- after the 15-minute lock expired, the same correct credentials authenticated successfully;
+
+- the authenticated identity returned the expected `CUSTOMER` role.
+
+This verifies the deployed account-lockout and recovery behavior without exposing credentials in the assessment document.
+
 ### Current Status
 
-**RESOLVED LOCALLY**
+**RESOLVED / FINAL REGRESSION PASS / DEPLOYED LOCKOUT VERIFICATION PASS**
 
 A07 is no longer blocked by SEC-003.
-
-PR-triggered Backend CI #495 has passed. Runtime verification of the new account-level lockout behavior remains pending until PR #108 is merged and the DDP-085 revision is deployed to Render.
-
----
 
 ## 7. MongoDB Security-Test Environment
 
@@ -592,24 +634,27 @@ Examples of relevant test suites include:
 
 - administrative API integration tests
 
-### Current Status
+### Final Verification Evidence
 
-**PASS LOCALLY / DEPLOYED SMOKE PASS**
+The latest final backend regression completed successfully with **118 / 118 suites and 2075 / 2075 tests passed**.
 
-The final local backend regression completed successfully with **118 suites / 2072 tests passed**.
-
-Deployed-backend smoke verification also confirmed:
+Deployed-backend smoke verification confirmed:
 
 - protected administrative endpoints reject missing authentication with HTTP 401;
+
 - malformed/invalid bearer tokens receive a safe HTTP 401 response;
+
 - unexpected privileged `role` fields are rejected by login validation;
+
 - public registration rejects attempts to inject `SYSTEM_ADMIN` or other privileged account fields.
 
-### Remaining Work
+Final browser-level integration also confirmed that the deployed Customer authentication flow works through the production Vercel frontend against the Render backend.
 
-After PR #108 is merged and deployed, perform only the targeted delta runtime verification required for the new DDP-085 branch-specific controls. The completed full local regression does not need to be repeated.
+### Current Status
 
----
+**PASS – AUTOMATED REGRESSION AND DEPLOYED ACCESS-CONTROL SMOKE VERIFIED**
+
+No additional A01-specific manual repetition is required for DDP-085. Final release sign-off remains dependent on the explicitly listed outstanding evidence in Sections 14–16.
 
 ## A02 – Cryptographic Failures
 
@@ -627,23 +672,25 @@ After PR #108 is merged and deployed, perform only the targeted delta runtime ve
 
 - database connection failures do not expose credentials.
 
-### Verified in Final Local / Deployed Checks
+### Final Local and Deployed Evidence
 
-- final backend regression includes the existing password-reset security coverage;
+- the latest final backend regression passed **118 / 118 suites and 2075 / 2075 tests**;
+
 - the deployed Render API is reachable over HTTPS;
-- HSTS is enabled with `max-age=31536000; includeSubDomains`;
-- authentication failures do not expose passwords, password hashes, JWT secrets, database credentials, or stack traces.
 
-### Pending
+- backend HSTS is enabled with `max-age=31536000; includeSubDomains`;
 
-- final runtime deployment/configuration sign-off after PR #108 is merged and deployed;
-- final integrated frontend/backend verification using the approved Vercel production origin.
+- authentication failures do not expose passwords, password hashes, JWT secrets, database credentials, or stack traces;
+
+- the production Vercel frontend is served over HTTPS and returns HSTS;
+
+- production frontend/backend authentication integration was verified successfully.
 
 ### Status
 
-**PASS LOCALLY / DEPLOYED HTTPS AND ERROR-SAFETY CHECKS PASS; FINAL RELEASE SIGN-OFF PENDING**
+**PASS – LOCAL REGRESSION AND DEPLOYED HTTPS / AUTHENTICATION INTEGRATION VERIFIED**
 
----
+The remaining Render log inspection is tracked under A09 rather than A02.
 
 ## A03 – Injection
 
@@ -665,12 +712,14 @@ Input-validation tests exist across authentication, prescriptions, payments, rep
 
 ### Final Verification Evidence
 
-The final backend regression completed successfully with **118 suites / 2072 tests passed**.
+The final backend regression completed successfully with **118 suites / 2075 tests passed**.
 
 Deployed input-validation smoke checks also confirmed:
 
 - malformed JSON is rejected with a controlled HTTP 400 response;
+
 - unexpected privileged `role` input on login is rejected with HTTP 422;
+
 - privileged `role` injection during public registration is rejected with HTTP 422.
 
 ### Status
@@ -707,29 +756,18 @@ DDP-085 therefore records the verified design risks and mitigations without crea
 
 ### Design Risks and Mitigations Assessed
 
-| Design Risk                                       | Verified / Existing Mitigation                                                                   |
-
+| Design Risk                                       | Verified / Existing Mitigation                                                                   |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-
-| Duplicate or forged payment effects               | provider verification, amount/currency checks, replay/idempotency controls, reconciliation logic |
-
-| Inventory overselling or inconsistent restoration | transaction-backed reservation/restoration rules and concurrency tests                           |
-
-| Appointment overbooking                           | authoritative session-capacity and conflict controls                                             |
-
-| Cross-customer clinical disclosure                | backend role/ownership restrictions and safe response shaping                                    |
-
-| Cross-branch inventory/report access              | server-side RBAC and branch-scoping controls                                                     |
-
-| Unauthorized loyalty manipulation                 | backend-authoritative loyalty rules and controlled persistence                                   |
-
-| Audit-history tampering                           | centralized immutable audit-trail design with restricted normal mutation paths                   |
-
-| Authentication brute force                        | IP rate limiting plus account-level temporary lockout                                            |
-
-| Unrestricted external server requests             | fixed/configured provider destinations; no generic arbitrary URL-fetch feature identified        |
-
-| Sensitive information in operational logs         | sanitizer controls plus privacy-safe authentication and access-rejection event logging           |
+| Duplicate or forged payment effects               | provider verification, amount/currency checks, replay/idempotency controls, reconciliation logic |
+| Inventory overselling or inconsistent restoration | transaction-backed reservation/restoration rules and concurrency tests                           |
+| Appointment overbooking                           | authoritative session-capacity and conflict controls                                             |
+| Cross-customer clinical disclosure                | backend role/ownership restrictions and safe response shaping                                    |
+| Cross-branch inventory/report access              | server-side RBAC and branch-scoping controls                                                     |
+| Unauthorized loyalty manipulation                 | backend-authoritative loyalty rules and controlled persistence                                   |
+| Audit-history tampering                           | centralized immutable audit-trail design with restricted normal mutation paths                   |
+| Authentication brute force                        | IP rate limiting plus account-level temporary lockout                                            |
+| Unrestricted external server requests             | fixed/configured provider destinations; no generic arbitrary URL-fetch feature identified        |
+| Sensitive information in operational logs         | sanitizer controls plus privacy-safe authentication and access-rejection event logging           |
 
 Existing automated coverage was identified for critical business boundaries including:
 
@@ -785,36 +823,47 @@ The final SDS owner must incorporate the verified DDP-085 security findings, inc
 
 ### Deployed Render Verification
 
-Safe deployed-backend smoke verification was performed against:
+Safe deployed-backend verification was performed against:
 
 `https://osms-backend-staging.onrender.com`
 
 Verified evidence includes:
 
 - `GET /api/health` returned HTTP 200 with `{"status":"ok","service":"osms-backend"}`;
+
 - HTTPS is active;
+
 - HSTS is enabled;
+
 - Helmet security headers are present, including CSP, `X-Content-Type-Options`, `X-Frame-Options`, Referrer Policy, COOP, and CORP;
+
 - general API rate-limit headers are present;
+
 - an unapproved origin (`https://attacker.example.com`) did **not** receive `Access-Control-Allow-Origin`;
+
 - missing authentication on a protected admin endpoint returned a safe HTTP 401 response;
+
 - an invalid JWT returned a safe HTTP 401 response;
+
 - an unknown API route returned a controlled HTTP 404 response without stack traces or internal implementation details;
+
 - malformed JSON returned a controlled HTTP 400 response;
+
 - login and registration validation rejected unexpected privileged `role` fields with HTTP 422;
-- the deployed authentication limiter was observed as **10 requests per 180 seconds**.
 
-The positive CORS test for the **approved Vercel production origin** remains pending because DDP-083 has not yet finalized/verified the actual production Vercel URL.
+- the deployed authentication limiter was observed as **10 requests per 180 seconds**;
 
-The deployed Render revision has not yet been proven to be the unmerged DDP-085 PR #108 revision. Therefore branch-specific runtime verification for the new account-lockout and A09 logging changes remains pending until PR #108 is merged and deployed.
+- the approved production origin `https://darshana-opticals.vercel.app` received `Access-Control-Allow-Origin: https://darshana-opticals.vercel.app`;
+
+- credentialed CORS support returned `Access-Control-Allow-Credentials: true`.
+
+The deployed revision was confirmed to include merged backend PR #108.
 
 No destructive or aggressive security testing was performed against the deployed environment.
 
 ### Status
 
-**DEPLOYED BACKEND SECURITY SMOKE PASS; FINAL DDP-085 REVISION / APPROVED-ORIGIN VERIFICATION PENDING**
-
----
+**PASS – FINAL DDP-085 BACKEND REVISION AND APPROVED-ORIGIN CORS VERIFIED**
 
 ## A06 – Vulnerable and Outdated Components
 
@@ -826,7 +875,7 @@ Initial:
 
 - 5 Moderate
 
-After safe remediation:
+After safe remediation and final verification:
 
 - 0 Critical
 
@@ -836,33 +885,47 @@ After safe remediation:
 
 `SEC-001` remediated the identified High findings.
 
-`SEC-002` records the remaining transitive Moderate `uuid` risk.
+`SEC-002` records the remaining transitive Moderate `uuid` risk through `exceljs`.
+
+The backend dependency scan passed the High/Critical release gate in the final PR CI. The available forced automatic remediation was intentionally not used because it would introduce a potentially breaking dependency change.
 
 ### Frontend
 
-The separate frontend DDP-085 branch has Draft PR #68:
+Frontend DDP-085 PR #68 was merged into `develop`.
 
-`[DDP-085] fix(security): remediate frontend dependency vulnerabilities`
+Final synchronized frontend verification recorded:
 
-Previously recorded frontend validation reported:
+- **110 / 110 test files passed**
 
-- 0 Critical
+- **1341 / 1341 tests passed**
 
-- 0 High
+- **88.05% statements coverage**
 
-- 2 Moderate React Router advisories
+- **81.80% branch coverage**
 
-The available automatic remediation requires a breaking React Router major upgrade and was intentionally not force-applied.
+- **90.95% function coverage**
+
+- **88.86% line coverage**
+
+- ESLint passed
+
+- Prettier passed
+
+- production build passed
+
+- **0 Critical / 0 High** dependency vulnerabilities
+
+- 2 Moderate React Router advisories remain
+
+The available automatic remediation for the remaining frontend Moderate advisories requires a breaking React Router major-version upgrade and was intentionally not force-applied.
+
+Post-merge production verification also confirmed the expected Vercel security headers and successful frontend/backend authentication integration.
 
 ### Current Status
 
-**PASS for known High/Critical dependency gate at the verified baseline, with documented Moderate residual risks.**
+**PASS for the DDP-085 High/Critical dependency gate, with documented Moderate residual dependency risks.**
 
-The backend dependency scan was repeated in PR-triggered Backend CI #495 and passed the High/Critical release gate. The documented residual state remains **0 Critical / 0 High / 2 Moderate**.
-
-Frontend final dependency/security verification remains pending before overall DDP-085 release sign-off.
-
----
+No unresolved Critical or High dependency vulnerability remains in the verified backend or frontend baseline.
 
 ## A07 – Identification and Authentication Failures
 
@@ -920,9 +983,13 @@ Implemented policy:
 
 - IP-based authentication rate limiting remains active
 
-Relevant commit:
+Relevant commits:
 
-`88b1adc – fix(security): implement account login lockout`
+- `88b1adc – fix(security): implement account login lockout`
+
+- `00c2a7a – fix(security): make account lockout concurrency safe`
+
+- `7afbeb0 – fix(security): close zero-state account lockout race`
 
 Focused lockout/authentication/security verification passed:
 
@@ -940,15 +1007,35 @@ Post-hardening A09/A07/RBAC verification also passed:
 
 - **0 failed**
 
+The final regression after all concurrency fixes passed:
+
+- **118 / 118 test suites**
+
+- **2075 / 2075 tests**
+
+Backend CI run #501 completed successfully.
+
+### Deployed Verification
+
+Post-merge Render verification confirmed:
+
+- five consecutive incorrect login attempts returned HTTP 401;
+
+- the correct password was rejected while the account remained locked;
+
+- after the 15-minute lock expired, the same correct credentials authenticated successfully;
+
+- the authenticated test identity returned role `CUSTOMER`;
+
+- the production Vercel frontend successfully authenticated against the deployed backend;
+
+- authenticated state remained valid after refresh;
+
+- logout returned the application to the unauthenticated state.
+
 ### Status
 
-**PASS LOCALLY / FINAL PR CI PASS**
-
-PR-triggered Backend CI #495 passed, including the full test-with-coverage job and dependency security scan.
-
-Runtime verification of the new account-level lockout behavior remains pending until PR #108 is merged and the DDP-085 revision is deployed to Render.
-
----
+**PASS – FINAL REGRESSION, CI, DEPLOYED ACCOUNT LOCKOUT, RECOVERY, AND FRONTEND/BACKEND AUTHENTICATION VERIFIED**
 
 ## A08 – Software and Data Integrity Failures
 
@@ -968,30 +1055,39 @@ Runtime verification of the new account-level lockout behavior remains pending u
 
 - immutable audit-trail architecture
 
-- security remediation associated with a specific commit
+- security remediation associated with specific commits and peer review
 
-### Relevant Security Commit
+### Relevant Security References
 
-`f7f56eb`
+- dependency remediation commit `f7f56eb`
+
+- final account-lockout concurrency fix `7afbeb0`
+
+- backend PR #108
+
+- backend merge commit `0881662`
 
 ### Verified
 
-- PR-triggered Backend CI #495 passed;
-- committed npm lockfile remains reproducible;
-- final backend regression completed successfully with **118 suites / 2072 tests passed**;
-- dependency security scan passed the High/Critical release gate.
+- the committed npm lockfile remains reproducible;
 
-### Pending
+- backend PR #108 received approving peer review;
 
-- peer review / branch-protection evidence for PR #108;
-- merge and deployment traceability for the accepted DDP-085 revision;
-- final release-level integration evidence.
+- final backend regression completed successfully with **118 / 118 suites and 2075 / 2075 tests passed**;
+
+- Backend CI run #501 completed successfully;
+
+- the dependency security scan passed the High/Critical release gate;
+
+- PR #108 was merged into `develop`;
+
+- the accepted revision was successfully deployed to Render;
+
+- final frontend/backend authentication integration was verified after deployment.
 
 ### Status
 
-**CI / INTEGRITY REGRESSION PASS; REVIEW AND RELEASE TRACEABILITY PENDING**
-
----
+**PASS – CI, PEER REVIEW, MERGE TRACEABILITY, DEPLOYMENT, AND INTEGRATION EVIDENCE VERIFIED**
 
 ## A09 – Security Logging and Monitoring Failures
 
@@ -1039,7 +1135,7 @@ The following events are now logged:
 
 Successful-login logging contains the canonical role only.
 
-Authentication security logs do not include:
+Authentication security logs are designed not to include:
 
 - email addresses
 
@@ -1109,15 +1205,29 @@ Result:
 
 - `git diff --check` passed
 
+The latest full backend regression also passed **118 / 118 suites and 2075 / 2075 tests**, and Backend CI run #501 completed successfully.
+
+### Deployed Runtime Evidence
+
+The deployed authentication behavior itself has been verified, including failed-login responses, account lockout, post-lock recovery, and frontend/backend authentication integration.
+
+Direct inspection of the Render runtime log stream is still pending because the current tester does not have Render dashboard access.
+
+A teammate with Render access must confirm that:
+
+- `[SecurityAuth] LOGIN_FAILED` appears for failed authentication;
+
+- `[SecurityAuth] LOGIN_BLOCKED_LOCKED` appears for locked-account authentication attempts;
+
+- passwords are not logged;
+
+- JWT/access-token values are not logged;
+
+- credentials and unnecessary Customer data are not exposed.
+
 ### Status
 
-**PASS LOCALLY / FINAL PR CI PASS**
-
-The final backend regression and PR-triggered CI completed successfully.
-
-Runtime verification of the new privacy-safe authentication and access-rejection log events remains pending until PR #108 is merged and the DDP-085 revision is deployed. No sensitive log payloads will be intentionally generated against production.
-
----
+**PASS IN CODE / AUTOMATED REGRESSION / CI; DEPLOYED RUNTIME LOG INSPECTION PENDING TEAMMATE CONFIRMATION**
 
 ## A10 – Server-Side Request Forgery
 
@@ -1257,11 +1367,21 @@ Existing prescription integration tests cover:
 
 # 13. Frontend Security Assessment
 
-Frontend security remediation is tracked separately through frontend Draft PR #68.
+Frontend DDP-085 remediation was completed through frontend PR #68 and merged into `develop`.
 
-Previously verified frontend results:
+Final synchronized frontend verification recorded:
 
-- frontend tests passed
+- **110 / 110 test files passed**
+
+- **1341 / 1341 tests passed**
+
+- statements coverage: **88.05%**
+
+- branch coverage: **81.80%**
+
+- function coverage: **90.95%**
+
+- line coverage: **88.86%**
 
 - ESLint passed
 
@@ -1269,55 +1389,151 @@ Previously verified frontend results:
 
 - production build passed
 
-- 0 High dependency vulnerabilities
+- dependency audit: **0 Critical / 0 High**
 
-- 0 Critical dependency vulnerabilities
+- 2 Moderate React Router advisories remain and are documented as residual dependency risk because the available automatic remediation requires a breaking major-version upgrade.
 
-- 2 Moderate React Router advisories remain
-
-Frontend final verification must include:
+Frontend security verification covered:
 
 - public Vite environment variables
 
-- absence of private keys/secrets in browser bundles
+- absence of checked private keys/secrets in deployed browser bundles
 
 - protected navigation
 
 - safe rendering of untrusted content
 
-- appropriate client-side persistence
+- authentication/logout/session handling
+
+- password-reset token handling
+
+- payment-state integrity and provider response validation
 
 - safe error presentation
 
-- final dependency audit against the integrated frontend baseline
+- dependency security
 
-- staging integration verification before final release
+- production build integrity
+
+Pre-merge deployed verification confirmed:
+
+- frontend HTTPS access
+
+- HSTS
+
+- SPA deep-route rewriting
+
+- production Vercel origin accepted by Render CORS
+
+- unauthorized preview origin not allowlisted
+
+- deployed frontend bundle uses the configured Render API base URL
+
+- checked localhost/loopback values and backend secret identifiers were absent from the deployed frontend bundle
+
+Post-merge production verification additionally confirmed:
+
+- HTTP 200 from `https://darshana-opticals.vercel.app`;
+
+- HSTS `max-age=63072000; includeSubDomains; preload`;
+
+- `X-Content-Type-Options: nosniff`;
+
+- `X-Frame-Options: DENY`;
+
+- `Referrer-Policy: no-referrer`;
+
+- restrictive `Permissions-Policy`;
+
+- Content Security Policy with `frame-ancestors 'none'`, `object-src 'none'`, and `base-uri 'self'`;
+
+- approved production Vercel origin accepted by Render CORS;
+
+- `Access-Control-Allow-Credentials: true`;
+
+- Customer login through the deployed frontend;
+
+- authenticated Customer functionality loading successfully;
+
+- authenticated state remaining valid after refresh;
+
+- logout returning to the unauthenticated state.
 
 Backend authorization remains authoritative.
 
+The existing browser-side JWT `localStorage` design remains a documented residual design consideration; DDP-085 did not redesign the authentication architecture.
+
 ### Status
 
-**PARTIAL – DRAFT PR #68 REMAINS OPEN**
+**PASS – FRONTEND PR #68 MERGED; LOCAL SECURITY VERIFICATION AND POST-MERGE DEPLOYED INTEGRATION VERIFIED**
 
----
+# 14. Final Verification Status
 
-# 14. Final Verification Still Required
+Backend PR #108 has been approved and merged into `develop`.
 
-Local backend verification, final backend PR CI, and the currently deployed Render backend security smoke checks are complete.
+The accepted DDP-085 revision was deployed successfully to the Render staging backend and targeted post-deployment verification was completed.
 
-Remaining work is:
+Verified after deployment:
 
-- obtain peer review for backend PR #108 and merge it into `develop`;
-- allow the accepted DDP-085 revision to deploy to Render;
-- perform only the targeted post-deployment delta verification for the new account-lockout and A09 logging controls;
-- verify positive CORS behavior using the exact approved Vercel production origin after DDP-083 finalizes that URL;
-- rerun/confirm final frontend dependency and security checks for Draft PR #68;
-- complete the final deployed frontend/backend security smoke after Vercel deployment is available;
-- provide the verified A04 security-design/threat-model findings to DDP-088 for final SDS integration;
-- prepare the final OWASP compliance checklist in the `documents` repository;
-- obtain required peer review/sign-off and close DDP-085 only after the remaining release evidence is complete.
+- Render backend `/api/health` returned HTTP 200 with `status: ok`.
 
----
+- HTTPS transport was confirmed.
+
+- HSTS was enabled.
+
+- `X-Content-Type-Options`, `X-Frame-Options`, and Content Security Policy headers were present.
+
+- Invalid authentication returned HTTP 401 with the generic `Invalid email or password.` response.
+
+- Five consecutive invalid login attempts triggered the account-level lockout.
+
+- A correct password was rejected while the account remained locked.
+
+- The same correct credentials authenticated successfully after the 15-minute lockout expired.
+
+- Production Vercel frontend login succeeded against the deployed backend.
+
+- Authenticated Customer functionality loaded correctly.
+
+- Authenticated state remained valid after refresh.
+
+- Logout completed successfully.
+
+- Production Vercel security headers were verified, including HSTS, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, and Content Security Policy.
+
+- The exact production Vercel origin `https://darshana-opticals.vercel.app` was accepted by Render CORS.
+
+- Credentialed CORS support returned `Access-Control-Allow-Credentials: true`.
+
+Frontend DDP-085 PR #68 has also been merged and its final local and deployed integration evidence is recorded in Section 13.
+
+### Remaining Post-Deployment Evidence
+
+Only one deployed-runtime check remains directly outstanding:
+
+- Render authentication-security log inspection by a team member with dashboard access.
+
+The teammate verification must confirm that:
+
+- `[SecurityAuth] LOGIN_FAILED` is emitted for failed authentication;
+
+- `[SecurityAuth] LOGIN_BLOCKED_LOCKED` is emitted for a locked account;
+
+- passwords are not exposed;
+
+- JWT/access-token values are not exposed;
+
+- credentials and unnecessary Customer data are not exposed.
+
+No additional manual repetition of the completed backend or frontend automated suites is required.
+
+Other release-documentation work that remains outside this direct runtime check:
+
+- DDP-088 final SDS incorporation of the verified A04 security-design/threat-model findings;
+
+- final OWASP compliance evidence in the `documents` repository;
+
+- final DDP-085 release sign-off after the remaining evidence is complete.
 
 # 15. Security Release Gate
 
@@ -1331,7 +1547,7 @@ DDP-085 must not be marked complete until:
 
 - authorization controls are verified against the final integrated backend
 
-- dependency scans are repeated against the final backend and frontend lockfiles
+- dependency scans are completed against the verified backend and frontend baselines
 
 - final CI passes for the accumulated backend DDP-085 commits
 
@@ -1353,15 +1569,43 @@ DDP-085 must not be marked complete until:
 
 - all relevant CI security gates pass
 
-Current evidence already satisfies the backend local regression and PR CI portions of this gate, including **118 suites / 2072 tests passed**, PR-triggered Backend CI #495 success, and **0 Critical / 0 High / 2 Moderate** dependency findings.
+Current evidence satisfies the following gate items:
 
-Remaining gate items are primarily post-merge deployment delta verification, approved Vercel-origin/integration verification, frontend completion, documentation handoff, and peer review/sign-off.
+- backend final regression: **118 / 118 suites and 2075 / 2075 tests passed**;
 
----
+- Backend CI run #501: **success**;
+
+- backend dependency result: **0 Critical / 0 High / 2 Moderate**;
+
+- backend PR #108: **approved and merged**;
+
+- accepted backend security revision: **deployed to Render**;
+
+- deployed HTTPS, HSTS, security-header, safe-error, account-lockout, recovery, and approved-origin CORS verification: **passed**;
+
+- frontend PR #68: **merged**;
+
+- frontend final local verification: **110 / 110 test files and 1341 / 1341 tests passed**;
+
+- frontend dependency gate: **0 Critical / 0 High**, with 2 documented Moderate React Router advisories;
+
+- production Vercel security-header verification: **passed**;
+
+- final deployed frontend/backend login, authenticated refresh, and logout integration verification: **passed**.
+
+Remaining release-gate evidence:
+
+- Render runtime authentication-security log inspection by a team member with dashboard access;
+
+- DDP-088 final SDS incorporation of the verified A04 design-risk/threat-model findings;
+
+- final OWASP compliance evidence in the `documents` repository;
+
+- final DDP-085 release sign-off.
 
 # 16. Current Overall Status
 
-**DDP-085: IN PROGRESS**
+**DDP-085: IN PROGRESS – FINAL EVIDENCE / SIGN-OFF STAGE**
 
 Completed so far:
 
@@ -1387,7 +1631,9 @@ Completed so far:
 
 - account-lockout gap `SEC-003` remediated
 
-- account-lockout commit `88b1adc`
+- initial account-lockout commit `88b1adc`
+
+- account-lockout concurrency fixes `00c2a7a` and `7afbeb0`
 
 - account-lockout/auth/security verification: **4 suites / 40 tests passed**
 
@@ -1397,11 +1643,11 @@ Completed so far:
 
 - post-hardening A07/A09/RBAC/error-handler verification: **8 suites / 82 tests passed**
 
-- final backend regression with coverage: **118 suites / 2072 tests passed**
+- latest final backend regression: **118 / 118 suites and 2075 / 2075 tests passed**
 
-- final coverage: **92.33% statements / 81.68% branches / 97.86% functions / 93% lines**
+- recorded backend coverage evidence: **92.33% statements / 81.68% branches / 97.86% functions / 93% lines**
 
-- final dependency audit: **0 Critical / 0 High / 2 Moderate** residual vulnerabilities through `exceljs -> uuid`
+- final backend dependency audit: **0 Critical / 0 High / 2 Moderate** residual vulnerabilities through `exceljs -> uuid`
 
 - lint verification
 
@@ -1413,21 +1659,23 @@ Completed so far:
 
 - review of existing authorization, authentication, clinical, payment, upload, logging, sanitizer, and integrity coverage
 
-- A04 design-risk and mitigation assessment completed locally
+- A04 design-risk and mitigation assessment completed
 
 - final A04 SDS integration correctly assigned to existing DDP-088 / `documents#47` rather than duplicated
 
 - A10 external-request/SSRF boundary review completed
 
-- A07 marked locally passing after SEC-003 remediation
+- A07 automated verification passed after SEC-003 remediation and concurrency fixes
 
-- A09 marked locally passing after privacy-safe authentication and access-rejection logging
+- A09 code and automated verification passed after privacy-safe authentication and access-rejection logging
 
-- backend Draft PR #108 opened against `develop`
+- backend PR #108 received final approving peer review
 
-- PR-triggered Backend CI #495 completed successfully
+- Backend CI run #501 completed successfully
 
-- PR CI dependency security scan completed successfully
+- backend PR #108 merged into `develop` at merge commit `0881662`
+
+- accepted DDP-085 backend revision deployed successfully to Render
 
 - deployed Render `/api/health` HTTPS check passed
 
@@ -1443,24 +1691,32 @@ Completed so far:
 
 - deployed authentication limiter observed as 10 requests per 180 seconds
 
+- deployed generic authentication-error verification passed
+
+- deployed account-lockout lifecycle verification passed
+
+- post-lockout authentication recovery verification passed
+
+- frontend PR #68 merged into `develop`
+
+- frontend final verification: **110 / 110 test files and 1341 / 1341 tests passed**
+
+- frontend coverage recorded as **88.05% statements / 81.80% branches / 90.95% functions / 88.86% lines**
+
+- frontend dependency verification: **0 Critical / 0 High**, with 2 documented Moderate React Router advisories
+
+- production Vercel security-header verification passed
+
+- approved production Vercel origin CORS verification passed
+
+- deployed frontend/backend login, authenticated refresh, and logout integration verification passed
+
 Still pending:
 
-- peer review and merge of backend PR #108
-
-- deployment of the accepted DDP-085 revision to Render
-
-- targeted post-deployment account-lockout runtime verification
-
-- targeted post-deployment A09 security-logging runtime verification
-
-- positive CORS verification using the exact approved Vercel production origin
-
-- final frontend verification for Draft PR #68
-
-- final deployed frontend/backend security smoke
+- Render runtime authentication-security log inspection by a team member with dashboard access
 
 - DDP-088 final SDS incorporation of verified A04 security-design/threat-model findings
 
 - final OWASP compliance evidence in the `documents` repository
 
-- peer review and final DDP-085 release sign-off
+- final DDP-085 release sign-off
