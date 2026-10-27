@@ -1,950 +1,743 @@
-# backend
-
-Backend API and business logic for Darshana Opticals OSMS
+# Darshana Opticals - Optical Store Management System (OSMS) Backend
 
 [![Backend CI](https://github.com/darshana-opticals-osms/backend/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/darshana-opticals-osms/backend/actions/workflows/ci.yml)
-![Test Coverage](https://img.shields.io/badge/coverage-91.14%25-brightgreen)
+[![Test Coverage](https://img.shields.io/badge/coverage-92.34%25-brightgreen)](docs/security/owasp-assessment.md)
+[![SemVer](https://img.shields.io/badge/version-v1.0.0-blue.svg)](package.json)
+[![Node Version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](package.json)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## Continuous Integration
+Backend REST API, business logic services, transactional data management, and secure integration engine for the **Darshana Opticals Optical Store Management System (OSMS)**. This repository houses the server-side architecture developed as part of **SENG 34213: System Development Project** at the Faculty of Science, Software Engineering Teaching Unit, University of Kelaniya.
 
-Backend changes are automatically validated using GitHub Actions.
+---
 
-The CI pipeline performs:
+## Table of Contents
 
-- ESLint code-quality checks
-- Prettier formatting validation
-- Automated Jest tests
-- Test coverage generation
-- Dependency vulnerability scanning
+- [1. Executive Overview & Objectives](#1-executive-overview--objectives)
+- [2. Live API & Evaluation Access](#2-live-api--evaluation-access)
+  - [2.1 Hosted Staging Endpoints](#21-hosted-staging-endpoints)
+  - [2.2 Academic Evaluation Demo Accounts](#22-academic-evaluation-demo-accounts)
+  - [2.3 Local Development Seed Accounts (Distinction Note)](#23-local-development-seed-accounts-distinction-note)
+- [3. Technology Stack](#3-technology-stack)
+- [4. Backend Architecture & Source Structure](#4-backend-architecture--source-structure)
+  - [4.1 Layered Architecture Pattern](#41-layered-architecture-pattern)
+  - [4.2 Directory Tree](#42-directory-tree)
+- [5. Authentication, Authorization & Security (OWASP Top 10)](#5-authentication-authorization--security-owasp-top-10)
+  - [5.1 Authentication Engine & Account Protection](#51-authentication-engine--account-protection)
+  - [5.2 Role-Based Access Control (RBAC) & Scope Matrix](#52-role-based-access-control-rbac--scope-matrix)
+  - [5.3 Customer Ownership & Branch-Level Scoping](#53-customer-ownership--branch-level-scoping)
+  - [5.4 OWASP Top 10 Compliance Implementation](#54-owasp-top-10-compliance-implementation)
+- [6. Implemented Core Domain Modules](#6-implemented-core-domain-modules)
+  - [6.1 Product Catalog & Multi-Branch Inventory Management](#61-product-catalog--multi-branch-inventory-management)
+  - [6.2 Customer Cart, Multi-Document Checkout & Order Lifecycle](#62-customer-cart-multi-document-checkout--order-lifecycle)
+  - [6.3 Payment Gateway Integration (PayHere Hosted Checkout & Webhooks)](#63-payment-gateway-integration-payhere-hosted-checkout--webhooks)
+  - [6.4 Unpaid Reservation Expiry & Automatic Cart Recovery](#64-unpaid-reservation-expiry--automatic-cart-recovery)
+  - [6.5 Doctor Sessions & Branch Appointment Scheduling](#65-doctor-sessions--branch-appointment-scheduling)
+  - [6.6 Clinical Prescriptions & Optometrist Records](#66-clinical-prescriptions--optometrist-records)
+  - [6.7 AI Customer Support Chatbot (Gemini Integration)](#67-ai-customer-support-chatbot-gemini-integration)
+  - [6.8 Customer Loyalty Engine & Manual Full-Refund Reversal](#68-customer-loyalty-engine--manual-full-refund-reversal)
+  - [6.9 Sales & Inventory Analytics Reporting](#69-sales--inventory-analytics-reporting)
+  - [6.10 Cryptographic Hash-Chained Immutable Audit Trail](#610-cryptographic-hash-chained-immutable-audit-trail)
+- [7. REST API Reference & Swagger Documentation](#7-rest-api-reference--swagger-documentation)
+  - [7.1 Interactive OpenAPI / Swagger Documentation](#71-interactive-openapi--swagger-documentation)
+  - [7.2 Module Route Catalog](#72-module-route-catalog)
+- [8. Local Installation & Development Setup](#8-local-installation--development-setup)
+  - [8.1 Prerequisites](#81-prerequisites)
+  - [8.2 Local MongoDB Replica Set Setup](#82-local-mongodb-replica-set-setup)
+  - [8.3 Step-by-Step Installation](#83-step-by-step-installation)
+  - [8.4 Environment Variables Configuration](#84-environment-variables-configuration)
+  - [8.5 Development Seed Mechanism & Production Safeguards](#85-development-seed-mechanism--production-safeguards)
+- [9. Testing Strategy & Evidence](#9-testing-strategy--evidence)
+  - [9.1 Test Pyramid Implementation](#91-test-pyramid-implementation)
+  - [9.2 Executing Automated Tests](#92-executing-automated-tests)
+  - [9.3 Verified Test Evidence (DDP-087 Baseline)](#93-verified-test-evidence-ddp-087-baseline)
+  - [9.4 Payment Verification Boundary (Localhost Sandbox vs. Hosted Staging)](#94-payment-verification-boundary-localhost-sandbox-vs-hosted-staging)
+- [10. Continuous Integration & Deployment Workflow](#10-continuous-integration--deployment-workflow)
+  - [10.1 GitHub Actions CI Pipeline](#101-github-actions-ci-pipeline)
+  - [10.2 Render.com Staging Deployment](#102-rendercom-staging-deployment)
+  - [10.3 Deployment Health Verification & Troubleshooting](#103-deployment-health-verification--troubleshooting)
+- [11. Known Limitations & Outstanding Verification](#11-known-limitations--outstanding-verification)
+- [12. Related Project Repositories & Documents](#12-related-project-repositories--documents)
 
-The backend Jest suite and coverage are generated with the commands in the Testing section below.
+---
 
-## Prerequisites
+## 1. Executive Overview & Objectives
 
-- Node.js 18+ recommended
-- npm
+**Darshana Opticals - Optical Store Management System (OSMS)** is an end-to-end enterprise solution designed to modernize operational workflows for a multi-branch optical retail and clinical eyewear provider in Sri Lanka.
 
-## Setup
+The backend service serves as the core authoritative business engine, fulfilling the following functional objectives:
 
-1. Install dependencies:
-   npm install
-2. Create your local environment file by copying the example:
-   copy .env.example .env
-3. Update the values in .env as needed for your environment.
+1. **Centralized & Branch-Scoped Operations**: Managing multi-branch inventory across physical stores (`COLOMBO_MAIN`, `KANDY_CITY`, `GAMPAHA_CENTRAL`), while establishing dedicated online fulfillment scoping.
+2. **Clinical Eyecare Workflow**: Providing high-fidelity clinical prescription storage (sphere, cylinder, axis, visual acuity, near addition) with optometrist traceability and customer historical viewing.
+3. **Doctor Scheduling & Appointment Management**: Facilitating queue-based in-person consultations with branch-level doctor sessions, automated queue allocation, and rescheduling workflows.
+4. **E-Commerce & High-Integrity Checkout**: Delivering an atomic shopping cart, checkout inventory reservation, and payment processing backed by MongoDB ACID multi-document transactions.
+5. **Secure Payment Lifecycle**: Integrating PayHere hosted checkout, timing-safe IPN signature verification, automatic reservation sweeps, and tamper-resistant payment retrieval evidence.
+6. **Regulatory Compliance & Forensic Defensibility**: Enforcing a four-tier immutable audit trail protected by SHA-256 cryptographic hash chaining, strict role-based access control (RBAC), and OWASP Top 10 mitigations.
+7. **AI-Driven Customer Experience**: Grounded domain customer support chatbot powered by Google Gemini, enforced by a strict 30-minute rolling budget to eliminate resource exhaustion.
 
-Authentication configuration:
+---
 
-- `JWT_SECRET` is required outside test mode. Set it to a long, random secret
-  and never commit the real value.
-- `JWT_EXPIRES_IN` controls access-token lifetime and defaults to `24h`.
+## 2. Live API & Evaluation Access
 
-## Chatbot session budget (issue #77)
+### 2.1 Hosted Staging Endpoints
 
-The backend shares a fixed 30-minute usage window across tabs, devices and JWTs
-for each authenticated Customer. Twenty messages means ten question/reply
-exchanges. Each admitted query reserves two slots before retrieval/provider work,
-including unsupported and failed requests. Manual retries count again; automatic
-adapter retries use the original reservation. Refresh, logout/login, tab close
-and clearing browser history do not reset the budget.
+The backend application is continuously integrated and deployed to an active staging environment on Render.com, paired with the Vercel-hosted frontend application.
 
-Existing widget requests and successful responses remain compatible. Exhaustion
-returns `429` with `error.code = CHATBOT_SESSION_EXHAUSTED` and `Retry-After`
-seconds until expiry. Per-minute rejection retains `RATE_LIMIT_EXCEEDED`. Usage
-storage failure returns safe `503` `CHATBOT_USAGE_UNAVAILABLE` before retrieval
-or provider work. The widget should distinguish these error codes. No reset API
-exists.
+| Service Component             | Environment      | Uniform Resource Locator (URL)                                                                               | Status |
+| :---------------------------- | :--------------- | :----------------------------------------------------------------------------------------------------------- | :----- |
+| **Live Frontend Application** | Staging (Vercel) | [https://darshana-opticals.vercel.app](https://darshana-opticals.vercel.app/)                                | Active |
+| **Backend REST API Root**     | Staging (Render) | [https://osms-backend-staging.onrender.com](https://osms-backend-staging.onrender.com/)                      | Active |
+| **API Health Check**          | Staging (Render) | [https://osms-backend-staging.onrender.com/api/health](https://osms-backend-staging.onrender.com/api/health) | Active |
+| **Interactive Swagger UI**    | Staging (Render) | [https://osms-backend-staging.onrender.com/api-docs](https://osms-backend-staging.onrender.com/api-docs)     | Active |
 
-Only a Customer reference, window timestamps and count are retained in
-`chatbotusages`. MongoDB TTL cleanup deletes expired records asynchronously;
-expiry is enforced independently of cleanup. Customer model deletion removes
-usage. Raw database/bulk deletions bypass model hooks and must explicitly remove
-matching usage records. No conversation text is stored. Deployment must ensure
-the `expiresAt` TTL index exists when automatic index creation is disabled.
-See the [approved contract](docs/chatbot-session-budget-proposal.md).
+> [!NOTE]
+> The hosted staging backend on Render runs on a managed container tier that enters sleep mode during periods of inactivity. If the service is idle, the initial HTTP request or health check may take 20–50 seconds to complete while the container boots up. Subsequent requests execute with normal sub-second latency.
 
-## Development
+### 2.2 Academic Evaluation Demo Accounts
 
-Start the backend in development mode:
+For assessment, panel demonstration, and external evaluation, the team has provisioned isolated demonstration accounts on the hosted staging environment. These accounts represent fictional test personas populated with safe, non-sensitive mock data.
 
+| Role                     | Demo Email Address          | Demo Password     | Primary Operational Scope                                                                                             |
+| :----------------------- | :-------------------------- | :---------------- | :-------------------------------------------------------------------------------------------------------------------- |
+| **System Administrator** | `admin.dev@gmail.com`       | `DevPassword123!` | System-wide configuration, staff/doctor onboarding, immutable audit inspection, admin analytics.                      |
+| **Branch Manager**       | `brachmanager@gmail.com`    | `DevPassword123!` | Branch inventory management, payment monitoring, retrieval evidence, manual full-refund recording, sales analytics.   |
+| **Branch Assistant**     | `branchassistant@gmail.com` | `DevPassword123!` | In-store POS operations, stock receipts, doctor session setup, appointment queue management/reassignment.             |
+| **Optometrist**          | `optometrist@gmail.com`     | `DevPassword123!` | Customer clinical record lookup, refraction testing, optical prescription creation and history viewing.               |
+| **Customer**             | `kavindueka@gmail.com`      | `Amalka@123`      | Product browsing, cart & checkout, PayHere payment initiation, prescription viewing, appointment booking, AI chatbot. |
+
+> [!IMPORTANT]
+> **Evaluation Account Safety Guarantee**: All evaluation accounts listed above are isolated demo identities populated with synthetic records. They contain zero Personal Identifiable Information (PII), zero real patient eye prescriptions, and zero live payment credentials. Never attempt to use or input live commercial credentials or banking information into evaluation environments.
+
+### 2.3 Local Development Seed Accounts (Distinction Note)
+
+The hosted evaluation accounts above must not be confused with the local development seed accounts generated on developer machines during `npm run seed`:
+
+- **Hosted Demonstration Accounts**: Provisioned in the hosted cloud database for evaluation and assessment.
+- **Local Seed Accounts**: Use local RFC test domains (e.g., `manager.colombo@darshanaopticals.local`, `sales.gampaha@darshanaopticals.local`, `kamal.customer@example.com`) and are intended strictly for offline local debugging with `mongodb-memory-server` or local MongoDB.
+- Do not assume local seed accounts exist in the hosted staging database or vice-versa.
+
+---
+
+## 3. Technology Stack
+
+The backend application is engineered using Node.js and Express in strict alignment with the SENG 34213 industrial coding standards:
+
+```text
++---------------------------------------------------------------------------------+
+|                               OSMS Technology Stack                             |
++---------------------------------------------------------------------------------+
+| Runtime & Language     | Node.js 20 LTS (ES6+ CommonJS modules)                |
+| HTTP Framework         | Express.js v4.19.2                                     |
+| Database & Modeling    | MongoDB Atlas / Community 7.0+, Mongoose v8.8.4        |
+| Security & Protection  | Helmet v8.3.0, CORS v2.8.6, express-rate-limit v8.7.0  |
+| Authentication & Crypto| jsonwebtoken v9.0.3, bcrypt v6.0.0, crypto (SHA-256)  |
+| Asset Storage          | Cloudinary SDK v2.11.0, Multer v2.4.0 (Memory Storage) |
+| Reporting & Export     | ExcelJS v4.4.0 (Spreadsheet generation)                |
+| Email & Notifications  | Nodemailer v10.1.0 (SMTP / Console fallback)           |
+| External AI Engine     | Google Gemini API (@google/genai, REST adapter)        |
+| Payment Integration    | PayHere Hosted Checkout & Merchant Retrieval API       |
+| API Documentation      | Swagger UI Express v5.0.1, swagger-jsdoc v6.3.0        |
+| Testing & Quality      | Jest v30.5.2, Supertest v7.0.0, mongodb-memory-server  |
+| Linting & Formatting   | ESLint v9.39.5, Prettier v3.9.6                        |
+| Containerization       | Docker Alpine (node:20-alpine)                         |
++---------------------------------------------------------------------------------+
+```
+
+---
+
+## 4. Backend Architecture & Source Structure
+
+### 4.1 Layered Architecture Pattern
+
+The codebase adheres strictly to a 4-tier Layered Architecture adhering to SOLID, DRY, and Clean Code principles:
+
+```text
+   +-------------------------------------------------------------+
+   |                Client (Web / Mobile / Swagger)              |
+   +-------------------------------------------------------------+
+                                  |
+                                  v
+   +-------------------------------------------------------------+
+   |                   Express Router & Routes                   |
+   +-------------------------------------------------------------+
+                                  |
+                                  v
+   +-------------------------------------------------------------+
+   |                      Middleware Stack                       |
+   |   [Helmet] -> [CORS] -> [RateLimiter] -> [SanitizeInput]    |
+   |   -> [Authenticate (JWT)] -> [AuthorizeRoles (RBAC)]        |
+   |   -> [Validate (Joi/Custom Rules)]                          |
+   +-------------------------------------------------------------+
+                                  |
+                                  v
+   +-------------------------------------------------------------+
+   |                        Controllers                          |
+   |   - Unpack & normalize request parameters/body              |
+   |   - Delegate to domain service layer                        |
+   |   - Format HTTP response (consistent { success, data } DTO) |
+   +-------------------------------------------------------------+
+                                  |
+                                  v
+   +-------------------------------------------------------------+
+   |                       Domain Services                       |
+   |   - Core business logic & business rule enforcement         |
+   |   - Orchestrate multi-document transactions (session)       |
+   |   - Audit event dispatching & third-party integrations      |
+   +-------------------------------------------------------------+
+                                  |
+                                  v
+   +-------------------------------------------------------------+
+   |                   Mongoose Data Access Layer                |
+   |   - Data models & validation schemas                        |
+   |   - Pre/post lifecycle hooks & immutability guards          |
+   |   - Database indexes & multi-document ACID transactions     |
+   +-------------------------------------------------------------+
+                                  |
+                                  v
+   +-------------------------------------------------------------+
+   |                   MongoDB (Replica Set / Atlas)             |
+   +-------------------------------------------------------------+
+```
+
+### 4.2 Directory Tree
+
+```text
+backend/
+├── .github/
+│   └── workflows/
+│       └── ci.yml               # GitHub Actions 5-stage automated CI/CD pipeline
+├── .standards/
+│   └── STANDARDS.md             # SENG 34213 coding, testing, and review standards
+├── docs/
+│   ├── audit-trail-architecture.md         # Forensic immutability & SHA-256 specification
+│   ├── chatbot-session-budget-proposal.md  # 30-min AI budget contract & state machine
+│   ├── investigation-affected-orders-...   # OrderItem classification resolution notes
+│   └── security/
+│       └── owasp-assessment.md  # Full OWASP Top 10 compliance audit & evidence
+├── scripts/
+│   ├── backfillGampahaBranchCode.js        # Production branch code migration utility
+│   └── run-concurrency-tests.ps1           # High-concurrency test automation script
+├── src/
+│   ├── app.js                   # Express application factory & middleware composition
+│   ├── server.js                # HTTP server bootstrap & graceful shutdown handler
+│   ├── config/                  # Database, environment, security, swagger, cloudinary
+│   ├── constants/               # System roles, order statuses, appointment statuses
+│   ├── controllers/             # HTTP endpoint request/response handlers
+│   ├── errors/                  # AppError class hierarchy & operational error types
+│   ├── jobs/                    # Schedulers (reservation sweep, image & reminder cleanup)
+│   ├── middleware/              # Auth, RBAC, input sanitization, error & rate limiters
+│   ├── models/                  # 25+ Mongoose domain schemas with immutability guards
+│   ├── routes/                  # Express route definitions & OpenAPI specifications
+│   ├── seed/                    # Controlled idempotent non-production database seeder
+│   ├── services/                # Authoritative domain business logic & transactions
+│   ├── utils/                   # Sanitizers, crypto helpers, date utilities, excel builders
+│   └── validations/             # Request payload and query parameter validators
+├── tests/
+│   ├── integration/             # 118 test suites covering all REST endpoints
+│   ├── performance/             # Load tests, baseline benchmarks & concurrency suites
+│   └── unit/                    # Unit tests for domain services, tokens & utilities
+├── Dockerfile                   # Alpine production container specification
+├── package.json                 # Dependencies, npm scripts & metadata
+└── README.md                    # System documentation and operational guide
+```
+
+---
+
+## 5. Authentication, Authorization & Security (OWASP Top 10)
+
+### 5.1 Authentication Engine & Account Protection
+
+The backend uses a stateless JSON Web Token (JWT) architecture paired with industry-standard cryptographic protections:
+
+- **Password Storage**: Passwords are cryptographically hashed using `bcrypt` with a minimum cost factor of 12 (exceeding standard CPU/memory hardness recommendations).
+- **Access Tokens**: High-entropy tokens signed via `HMAC-SHA256` containing the user ID and canonical role, configured with a 24-hour expiration (`JWT_EXPIRES_IN`).
+- **Account Lockout (Brute-Force Mitigation)**: Enforced via `ACCOUNT_LOCKOUT_MAX_ATTEMPTS=5`. Five consecutive failed authentication attempts automatically lock the user account for 15 minutes (`ACCOUNT_LOCKOUT_DURATION_MS=900000`). Concurrency-safe state transitions ensure zero-state race conditions cannot bypass lockout.
+- **Secure Password Reset**: Implements a two-phase token flow (`POST /api/auth/forgot-password` and `POST /api/auth/reset-password`). Reset tokens are generated via `crypto.randomBytes(32)`, stored only as SHA-256 hashes in MongoDB, and expire after 1 hour. System administrators are strictly excluded by policy from self-service reset issuance.
+
+### 5.2 Role-Based Access Control (RBAC) & Scope Matrix
+
+Every protected endpoint is guarded by the reusable `authorizeRoles(...allowedRoles)` middleware, which evaluates `req.auth.role` extracted directly from the verified JWT. Roles are defined centrally in `src/constants/roles.js`:
+
+| Role Key           | Name                 | Access Level & Description                                                                                                                           |
+| :----------------- | :------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SYSTEM_ADMIN`     | System Administrator | Superuser privileges. Manages system users, branches, doctors, views full audit logs, and system analytics. Excluded from clinical/order operations. |
+| `BRANCH_MANAGER`   | Branch Manager       | Oversees branch inventory, payment monitoring, retrieval recovery, manual full-refund recording, branch loyalty audit, and sales reports.            |
+| `BRANCH_ASSISTANT` | Branch Assistant     | In-store POS cashiering, inventory receiving, doctor session scheduling, and appointment queue management/reassignment.                              |
+| `OPTOMETRIST`      | Optometrist          | Clinical refractionist. Customer profile lookup, recording eye exam prescriptions, and reviewing customer clinical history.                          |
+| `CUSTOMER`         | Customer             | Self-service end user. Manages own profile, shopping cart, checkout, payment initiation, order tracking, appointments, and chatbot.                  |
+
+### 5.3 Customer Ownership & Branch-Level Scoping
+
+To prevent Insecure Direct Object References (IDOR):
+
+- **Customer Ownership Verification**: Endpoints querying personal data (e.g., `GET /api/profile/me`, `GET /api/cart`, `GET /api/loyalty/me`, `GET /api/orders/:orderId/payment-status`, `PATCH /api/appointments/:id/cancel`) derive the customer identifier exclusively from `req.auth.userId`. Request body/query customer IDs are strictly ignored or rejected.
+- **Branch-Scoped Inventory & Scheduling**: Branch Assistants and Managers are strictly bound to their assigned branch (`req.auth.branchId`). Cross-branch inventory edits or appointments are rejected with HTTP 403 Forbidden.
+- **Online Fulfillment Isolation**: Public catalog availability and online orders are tied to the configured fulfillment hub (`ONLINE_FULFILLMENT_BRANCH_CODE=GAMPAHA_CENTRAL`).
+
+### 5.4 OWASP Top 10 Compliance Implementation
+
+The backend architecture is audited and verified against the OWASP Top 10 (2021) security framework. Complete documentation is maintained in [docs/security/owasp-assessment.md](docs/security/owasp-assessment.md):
+
+| OWASP Risk   | Category                    | Implemented Defensive Control in Codebase                                                                                              |
+| :----------- | :-------------------------- | :------------------------------------------------------------------------------------------------------------------------------------- |
+| **A01:2021** | Broken Access Control       | Reusable RBAC middleware (`authorizeRoles`), customer ownership checks, branch scoping, and non-enumerable object identifiers.         |
+| **A02:2021** | Cryptographic Failures      | `bcrypt` (cost $\ge 12$), SHA-256 hash chaining on audit logs, SHA-256 hashed password reset tokens, and enforced TLS.                 |
+| **A03:2021** | Injection                   | Mongoose schema type-casting, input sanitization (`sanitizeInput` removes Mongo operators `$` and `.`), and regex boundary escapes.    |
+| **A04:2021** | Insecure Design             | Threat models documented in SDS/ADRs, multi-document transactions on checkout, and immutable order classification snapshots.           |
+| **A05:2021** | Security Misconfiguration   | `helmet()` security headers, strict CORS origin allowlist (`FRONTEND_ORIGIN`), and stack-trace stripping in non-development modes.     |
+| **A06:2021** | Vulnerable Components       | Automated `npm audit --audit-level=high` gate in CI, strict lockfile commitment, and Dependabot automated updates.                     |
+| **A07:2021** | Auth & Identification       | Account lockout after 5 failed attempts, 24-hour token expiry, timing-safe string comparison on tokens and Webhook signatures.         |
+| **A08:2021** | Software & Data Integrity   | Exact package version pinning in `package-lock.json`, immutable Mongoose schema hooks, and PayHere MD5 checksum validation.            |
+| **A09:2021** | Security Logging Failures   | Centralized `AuditEvent` model with actor, IP, action, timestamp, and target tracking. Strict redaction of passwords, tokens, and PII. |
+| **A10:2021** | Server-Side Request Forgery | Outbound webhooks/APIs restricted to trusted domains (Cloudinary, PayHere, Gemini). No user-supplied URL fetching.                     |
+
+---
+
+## 6. Implemented Core Domain Modules
+
+### 6.1 Product Catalog & Multi-Branch Inventory Management
+
+- **Catalog Browsing**: Public endpoints (`GET /api/products`, `GET /api/products/:id`) allow customers to browse optical frames, sunglasses, lenses, and accessories. Scoped to the active online fulfillment branch (`GAMPAHA_CENTRAL`).
+- **Branch Inventory Control**: Branch Managers and Assistants manage branch-level quantities (`GET /api/inventory`, `POST /api/inventory`, `PATCH /api/inventory/:id`).
+- **Item Classification**: Every inventory record is categorized into `MERCHANDISE` (eligible for loyalty) or `CLINICAL` (ineligible exam fees), which freezes upon checkout.
+- **Low-Stock Alerts**: Automated threshold monitoring triggers `ReorderAlert` records and email notifications when inventory drops below configured minimums.
+- **Cloudinary Asset Storage**: Multipart image uploads (`POST /api/inventory/:id/image`) validate MIME types, resize images in memory, and persist secure URLs to Cloudinary with orphaned-image cleanup jobs.
+
+### 6.2 Customer Cart, Multi-Document Checkout & Order Lifecycle
+
+- **Persistent Shopping Cart**: Authenticated customers manage items via `GET /api/cart`, `POST /api/cart`, `PATCH /api/cart/:itemId`, and `DELETE /api/cart/:itemId`.
+- **Atomic Checkout**: Checkout (`POST /api/checkout`) executes inside a MongoDB ACID transaction:
+  1. Validates real-time inventory quantity and active price.
+  2. Decrements branch inventory stock immediately.
+  3. Creates an immutable `OrderItem` snapshot capturing classification (`MERCHANDISE` vs `CLINICAL`).
+  4. Generates an `Order` in `ORDER_CREATED` status with a 30-minute reservation deadline (`reservationExpiresAt`).
+  5. Clears the customer's shopping cart atomically.
+- **Order State Machine**: Enforces strict linear progression: `ORDER_CREATED` $\rightarrow$ `PROCESSING` $\rightarrow$ `SHIPPED` $\rightarrow$ `DELIVERED` $\rightarrow$ `COMPLETED`, or `CANCELLED`.
+
+### 6.3 Payment Gateway Integration (PayHere Hosted Checkout & Webhooks)
+
+- **Hosted Payment Initiation**: `POST /api/payments/initiate` generates secure checkout parameters (merchant ID, order ID, amount formatted to 2 decimals, currency LKR, and pre-computed MD5 signature).
+- **Server-to-Server IPN Webhook**: `POST /api/payments/notify` processes asynchronous notifications directly from PayHere:
+  - Validates `merchant_id` and calculates expected MD5 signature (`strtoupper(md5(merchant_id + order_id + amount + currency + status_code + strtoupper(md5(merchant_secret))))`).
+  - Utilizes `crypto.timingSafeEqual` to eliminate timing attack vectors.
+  - Idempotent processing ensures duplicate webhooks do not double-process transitions.
+  - Upon successful verification (`status_code = 2`), transitions Payment to `completed` and Order to `PROCESSING`.
+- **Management Payment Monitoring**: Restricted to `BRANCH_MANAGER` (`GET /api/payments`, `GET /api/payments/:paymentId`, `GET /api/payments/:paymentId/events`) for safe financial audit without exposing raw cardholder data.
+- **Retrieval API Investigation**: `POST /api/payments/:paymentId/recovery` queries PayHere's server-to-server Order Retrieval API to investigate missed callbacks. Defaults to dry-run; explicit non-dry-run logs append-only `PaymentRetrievalEvidence`.
+
+### 6.4 Unpaid Reservation Expiry & Automatic Cart Recovery
+
+- **Background Sweep Scheduler**: Runs every 60 seconds (`src/jobs/reservationExpirySweep.js`), scanning for `ORDER_CREATED` orders exceeding `reservationExpiresAt`.
+- **Atomic Stock Restoration**: Transactions restore inventory quantities and update reorder alerts atomically.
+- **Automatic Cart Recovery (ADR-003)**: Selections from expired orders are automatically restored into the customer's active shopping cart, allowing seamless re-checkout without manual re-selection.
+
+### 6.5 Doctor Sessions & Branch Appointment Scheduling
+
+- **Branch-Restricted Scheduling**: In-person clinical appointments are anchored to `GAMPAHA_CENTRAL`.
+- **Session Provisioning**: Branch Assistants create doctor consultation windows (`POST /api/doctor-sessions`) specifying start/end timestamps ($\ge 24\text{ hours}$ in advance) and capacity limits.
+- **Customer Booking**: Customers book available sessions (`POST /api/appointments`), receiving an automatically calculated, deterministic queue number.
+- **Atomic Reassignment & Cancellation**: Cancellations compact queue numbers and restore session capacity inside a transaction.
+
+### 6.6 Clinical Prescriptions & Optometrist Records
+
+- **Clinical Recording**: Optometrists record comprehensive eye examinations (`POST /api/prescriptions`) capturing sphere (SPH), cylinder (CYL), axis, near addition (ADD), visual acuity (VA), and pupillary distance (PD).
+- **Optometrist Traceability**: Records maintain immutable references to the examining optometrist.
+- **Customer Self-Service**: Customers review historical prescriptions via `GET /api/prescriptions/my-prescriptions`.
+- **Soft-Archival**: Clinical records adhere to medical record retention rules; records can be archived (`isArchived: true`) but are never deleted from storage.
+
+### 6.7 AI Customer Support Chatbot (Gemini Integration)
+
+- **Knowledge-Grounded Assistance**: Powered by Google Gemini (`gemini-flash-lite-latest`), grounded using optical store `KnowledgeArea` domain articles (store hours, frame care, lens types, branch locations).
+- **Session Budget Enforcement (Issue #77)**: Each customer is allocated a rolling 30-minute usage budget enforced via the `ChatbotUsage` model. Customers are limited to 20 messages (10 question/reply exchanges) per window.
+- **Fail-Safe Operation**: If the Gemini API is unreachable, the system gracefully falls back to structured FAQ recommendations without breaking user experience.
+
+### 6.8 Customer Loyalty Engine & Manual Full-Refund Reversal
+
+- **Spend-Based Points Accrual (ADR-005 §14)**: Upon an Order transitioning to `COMPLETED`, the system calculates points based on eligible merchandise spend:
+  $$\text{Points Earned} = \left\lfloor \frac{\text{Eligible Merchandise Spend (LKR)}}{100} + 0.5 \right\rfloor \quad (\text{ROUND\_HALF\_UP})$$
+- **Decimal128 Ledger**: Customer balances and append-only `LoyaltyTransaction` ledgers maintain exact two-decimal monetary precision.
+- **Customer Self-Service**: `GET /api/loyalty/me` provides customer point balances and historical ledger statements.
+- **Manual Full-Refund Reversal**: When a Branch Manager records a confirmed external refund (`POST /api/payments/:paymentId/refunds`), the exact points originally awarded are atomically deducted via a compensating ledger reversal.
+
+### 6.9 Sales & Inventory Analytics Reporting
+
+- **Analytical Endpoints**: Provide Branch Managers and System Admins with daily, weekly, and monthly sales volume, revenue breakdown, inventory turnover, and reorder alerts (`/api/reports/*`).
+- **Excel Export**: Streams server-generated `.xlsx` workbooks built dynamically using `exceljs`.
+
+### 6.10 Cryptographic Hash-Chained Immutable Audit Trail
+
+- **Forensic Immutability**: All security, administrative, and clinical actions dispatch events to the `AuditEvent` collection.
+- **SHA-256 Hash Chaining**: Every audit entry computes:
+  $$\text{eventHash} = \text{SHA256}(\text{prevEventHash} + \text{payloadString})$$
+  Genesis hash is fixed to 64 zeros. Any external attempt to alter historical records breaks chain validation.
+- **Four-Layer Immutability**: Enforced via (1) Service-level absence of update/delete methods, (2) Mongoose schema pre-hooks blocking mutations, (3) MongoDB custom `auditAppendOnly` role, and (4) Cryptographic chain verification.
+
+---
+
+## 7. REST API Reference & Swagger Documentation
+
+### 7.1 Interactive OpenAPI / Swagger Documentation
+
+The backend includes interactive OpenAPI 3.0 documentation. When running locally or on staging, navigate to `/api-docs`:
+
+- **Staging Swagger UI**: [https://osms-backend-staging.onrender.com/api-docs](https://osms-backend-staging.onrender.com/api-docs)
+- **Local Swagger UI**: `http://localhost:5000/api-docs`
+
+### 7.2 Module Route Catalog
+
+| HTTP Method                         | Route Endpoint                        | Required Role                        | Summary & Purpose                                               |
+| :---------------------------------- | :------------------------------------ | :----------------------------------- | :-------------------------------------------------------------- |
+| **System Health**                   |                                       |                                      |                                                                 |
+| `GET`                               | `/api/health`                         | Public                               | System liveness probe and database connectivity status          |
+| **Authentication & Profile**        |                                       |                                      |                                                                 |
+| `POST`                              | `/api/auth/register`                  | Public                               | Customer self-registration (CUSTOMER role only)                 |
+| `POST`                              | `/api/auth/login`                     | Public                               | Stateless authentication; returns signed Bearer JWT             |
+| `POST`                              | `/api/auth/forgot-password`           | Public                               | Requests 1-hour secure password reset token                     |
+| `POST`                              | `/api/auth/reset-password`            | Public                               | Resets password using valid unexpired SHA-256 token             |
+| `GET`                               | `/api/profile/me`                     | `CUSTOMER`                           | Retrieves authenticated customer's own profile                  |
+| `PATCH`                             | `/api/profile/me`                     | `CUSTOMER`                           | Updates customer's own contact information                      |
+| **User & Staff Administration**     |                                       |                                      |                                                                 |
+| `POST`                              | `/api/admin/staff`                    | `SYSTEM_ADMIN`                       | Creates branch staff (Manager, Assistant, Optometrist)          |
+| `GET`                               | `/api/admin/staff`                    | `SYSTEM_ADMIN`                       | Lists all staff across all branches                             |
+| `GET`                               | `/api/admin/staff/:id`                | `SYSTEM_ADMIN`                       | Retrieves specific staff details                                |
+| `PATCH`                             | `/api/admin/staff/:id`                | `SYSTEM_ADMIN`                       | Updates staff assignment, contact info, or active status        |
+| `POST`                              | `/api/doctors`                        | `SYSTEM_ADMIN`                       | Registers consulting ophthalmologist / doctor                   |
+| `GET`                               | `/api/doctors`                        | Authenticated                        | Lists consulting doctors directory                              |
+| `GET`                               | `/api/branches`                       | Public / Staff                       | Lists active branch locations                                   |
+| **Product Catalog & Inventory**     |                                       |                                      |                                                                 |
+| `GET`                               | `/api/products`                       | Public                               | Browses active online catalog (Gampaha fulfillment)             |
+| `GET`                               | `/api/products/:id`                   | Public                               | Retrieves specific product catalog item                         |
+| `GET`                               | `/api/inventory`                      | `BRANCH_MANAGER`, `BRANCH_ASSISTANT` | Lists branch inventory items                                    |
+| `POST`                              | `/api/inventory`                      | `BRANCH_MANAGER`                     | Creates new inventory item at branch                            |
+| `PATCH`                             | `/api/inventory/:id`                  | `BRANCH_MANAGER`, `BRANCH_ASSISTANT` | Updates inventory stock / reorder thresholds                    |
+| `DELETE`                            | `/api/inventory/:id`                  | `BRANCH_MANAGER`                     | Soft-deletes or archives branch inventory item                  |
+| `POST`                              | `/api/inventory/:id/image`            | `BRANCH_MANAGER`                     | Uploads product image to Cloudinary CDN                         |
+| `GET`                               | `/api/inventory/alerts`               | `BRANCH_MANAGER`                     | Lists active low-stock reorder alerts                           |
+| **Customer Lookup & Prescriptions** |                                       |                                      |                                                                 |
+| `GET`                               | `/api/customer-lookup`                | `OPTOMETRIST`                        | Searches customer clinical profile by phone/NIC                 |
+| `POST`                              | `/api/prescriptions`                  | `OPTOMETRIST`                        | Records comprehensive optical clinical refraction               |
+| `GET`                               | `/api/prescriptions/customer/:id`     | `OPTOMETRIST`                        | Reviews customer's clinical prescription history                |
+| `GET`                               | `/api/prescriptions/my-prescriptions` | `CUSTOMER`                           | Customer views their own prescription records                   |
+| **Doctor Sessions & Appointments**  |                                       |                                      |                                                                 |
+| `GET`                               | `/api/appointments/providers`         | Staff / Customer                     | Discovers eligible optometrists & approved branch IDs           |
+| `POST`                              | `/api/doctor-sessions`                | `BRANCH_ASSISTANT`                   | Creates scheduled consultation session ($\ge 24\text{h}$ ahead) |
+| `GET`                               | `/api/doctor-sessions/available`      | Public / Customer                    | Lists upcoming bookable doctor sessions                         |
+| `POST`                              | `/api/appointments`                   | `CUSTOMER`                           | Books appointment session; assigns queue position               |
+| `GET`                               | `/api/appointments`                   | Customer / Assistant / Manager       | Views appointments (ownership or branch-scoped)                 |
+| `PATCH`                             | `/api/appointments/:id/cancel`        | `CUSTOMER`, `BRANCH_ASSISTANT`       | Cancels appointment; releases session capacity                  |
+| `PATCH`                             | `/api/appointments/:id/reassign`      | `BRANCH_ASSISTANT`                   | Atomically reassigns appointment to new session                 |
+| **Cart, Checkout & Orders**         |                                       |                                      |                                                                 |
+| `GET`                               | `/api/cart`                           | `CUSTOMER`                           | Retrieves customer's current shopping cart                      |
+| `POST`                              | `/api/cart`                           | `CUSTOMER`                           | Adds product item to shopping cart                              |
+| `PATCH`                             | `/api/cart/:itemId`                   | `CUSTOMER`                           | Modifies item quantity in cart                                  |
+| `DELETE`                            | `/api/cart/:itemId`                   | `CUSTOMER`                           | Removes product item from cart                                  |
+| `POST`                              | `/api/checkout`                       | `CUSTOMER`                           | Executes transactional checkout & stock reservation             |
+| `GET`                               | `/api/orders`                         | Customer / Staff / Admin             | Lists orders (ownership or branch-scoped)                       |
+| `GET`                               | `/api/orders/:id`                     | Customer / Staff / Admin             | Retrieves specific order details and tracking                   |
+| `PATCH`                             | `/api/orders/:id/status`              | `BRANCH_ASSISTANT`, `BRANCH_MANAGER` | Updates order progression status                                |
+| `POST`                              | `/api/orders/:id/cancel`              | `BRANCH_MANAGER`, `BRANCH_ASSISTANT` | Staff cancellation of eligible unpaid orders                    |
+| **Payments & Refunds**              |                                       |                                      |                                                                 |
+| `POST`                              | `/api/payments/initiate`              | `CUSTOMER`                           | Initiates PayHere checkout attempt for own order                |
+| `GET`                               | `/api/orders/:orderId/payment-status` | `CUSTOMER`                           | Retrieves payment status for own order                          |
+| `POST`                              | `/api/payments/notify`                | Public Webhook (PayHere IPN)         | Server-to-server callback; verifies MD5 signature               |
+| `GET`                               | `/api/payments`                       | `BRANCH_MANAGER`                     | Management payment monitoring & search                          |
+| `GET`                               | `/api/payments/:paymentId`            | `BRANCH_MANAGER`                     | Detailed financial inspection & refund evidence                 |
+| `GET`                               | `/api/payments/:paymentId/events`     | `BRANCH_MANAGER`                     | Audited payment webhook event history                           |
+| `POST`                              | `/api/payments/:paymentId/recovery`   | `BRANCH_MANAGER`                     | Queries PayHere Retrieval API; logs reconciliation              |
+| `POST`                              | `/api/payments/:paymentId/refunds`    | `BRANCH_MANAGER`                     | Records external full refund & reverses loyalty points          |
+| **Customer Loyalty**                |                                       |                                      |                                                                 |
+| `GET`                               | `/api/loyalty/me`                     | `CUSTOMER`                           | Retrieves customer point balance & ledger history               |
+| `GET`                               | `/api/loyalty`                        | `BRANCH_MANAGER`                     | Read-only loyalty ledger audit and monitoring                   |
+| **AI Support Chatbot**              |                                       |                                      |                                                                 |
+| `POST`                              | `/api/chatbot/message`                | `CUSTOMER`                           | Sends message to Gemini AI (30-min budget enforced)             |
+| **Reporting & Audit Trail**         |                                       |                                      |                                                                 |
+| `GET`                               | `/api/reports/sales`                  | `BRANCH_MANAGER`, `SYSTEM_ADMIN`     | Aggregated sales revenue and volume analytics                   |
+| `GET`                               | `/api/reports/inventory`              | `BRANCH_MANAGER`, `SYSTEM_ADMIN`     | Inventory turnover and low-stock analysis                       |
+| `GET`                               | `/api/reports/export`                 | `BRANCH_MANAGER`, `SYSTEM_ADMIN`     | Exports formatted `.xlsx` spreadsheet report                    |
+| `GET`                               | `/api/audit-events`                   | `SYSTEM_ADMIN`                       | Inspects SHA-256 hash-chained immutable audit log               |
+
+---
+
+## 8. Local Installation & Development Setup
+
+### 8.1 Prerequisites
+
+Ensure your local development workstation satisfies the following requirements:
+
+- **Node.js**: Version `20.x` LTS or higher (`node -v`)
+- **Package Manager**: npm version `10.x` or higher (`npm -v`)
+- **MongoDB**: Community or Enterprise Server version `7.0+` with **Replica Set** enabled (required for multi-document ACID transactions).
+- **Git**: Installed and configured.
+
+### 8.2 Local MongoDB Replica Set Setup
+
+Because Checkout, Payment initiation, Reservation Expiry, Cart Recovery, and Loyalty Reversals utilize multi-document ACID transactions, MongoDB **must** run as a replica set.
+
+1. Start your local MongoDB daemon with the replica set name `osms-dev-rs`:
+   ```bash
+   mongod --replSet osms-dev-rs --dbpath /path/to/data/directory
+   ```
+2. In a separate terminal, initiate the replica set using `mongosh`:
+   ```bash
+   mongosh --eval "rs.initiate({ _id: 'osms-dev-rs', members: [{ _id: 0, host: '127.0.0.1:27017' }] })"
+   ```
+3. Verify status:
+   ```bash
+   mongosh --eval "rs.status().ok"
+   # Output should return 1
+   ```
+
+### 8.3 Step-by-Step Installation
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/darshana-opticals-osms/backend.git
+cd backend
+
+# 2. Check out the development branch
+git checkout develop
+
+# 3. Install dependencies using the exact lockfile
+npm ci
+
+# 4. Create your local environment file
+cp .env.example .env
+
+# 5. Populate local development seed data
+npm run seed
+
+# 6. Start the server in development mode (with hot-reload)
 npm run dev
-
-### Development Seed Mechanism
-
-The backend includes a controlled seed-data mechanism for local development and automated non-production testing. Seed data contains only fictional test records and never real customer, staff, or clinical information.
-
-#### Seed Commands
-
-- `npm run seed` — Populates non-production development data idempotently without creating uncontrolled duplicate records.
-- `npm run seed:reset` — Destructively clears all local development records across target and dependent collections (`OrderItem` -> `Payment` -> `Order` -> `Appointment` -> `Prescription` -> `Inventory` -> `Staff` -> `Customer` -> `Admin` -> `Branch`) sequentially in strict dependency order (removing both seeded and custom local development records), then repopulates fresh sample data.
-
-#### Development Test Accounts
-
-All seeded development accounts use the default password: **`DevPassword123!`**
-
-- **System Admin:** `admin.dev@gmail.com` (Role: `SYSTEM_ADMIN`, configurable via `DEV_ADMIN_EMAIL` in `.env`)
-- **Branch Manager:** `manager.colombo@darshanaopticals.local` (Role: `BRANCH_MANAGER`, Branch: Colombo)
-- **Optometrist:** `optometrist.kandy@darshanaopticals.local` (Role: `OPTOMETRIST`, Branch: Kandy)
-- **Gampaha Optometrist:** `optometrist.gampaha@darshanaopticals.local` (Role: `OPTOMETRIST`, Branch: Gampaha)
-- **Branch Assistant:** `sales.gampaha@darshanaopticals.local` (Role: `BRANCH_ASSISTANT`, Branch: Gampaha)
-- **Gampaha Branch Manager:** `manager.gampaha@darshanaopticals.local` (Role: `BRANCH_MANAGER`, Branch: Gampaha)
-- **Customer 1:** `kamal.customer@example.com` (Role: `CUSTOMER`)
-- **Customer 2:** `alice.customer@example.com` (Role: `CUSTOMER`)
-- **Customer 3:** `nimal.customer@example.com` (Role: `CUSTOMER`)
-
-#### Sample Branches & Product Catalog
-
-The seed script creates fictional branches (`COLOMBO_MAIN`, `KANDY_CITY`, `GAMPAHA_CENTRAL`) and populates 11 representative product inventory items across multiple categories (`Sunglasses`, `Sports`, `Men`, `Women`, `Kids`, `Contact Lenses`), brands (`Ray-Ban`, `Oakley`, `Persol`, `Oliver Peoples`, `Vogue Eyewear`, `Gucci`, `Acuvue`), and price points for testing search and filtering APIs.
-
-#### Sample Clinical Prescriptions (ADR-001)
-
-The seed script populates 3 fictional clinical prescription records adhering to ADR-001 specifications (Distance/Reading parameters for Right & Left eye, VA, Add Power, Near VA, clinical remarks, and soft-archival status). Multiple prescriptions are attached to `kamal.customer@example.com` to support testing prescription history viewing (FR-002) and optometrist traceability (FR-013).
-
-#### Existing Database Compatibility & Migration
-
-When executing `npm run seed` against an existing development database, the seeder automatically detects previously seeded accounts under legacy domains and addresses (including `@darshanaopticals.local`, early test addresses, and previously modified emails) and safely synchronizes their email addresses in place without creating duplicate Admin, Staff, or Customer records. All foreign-key relationships, appointments, and clinical prescriptions remain fully linked and intact.
-
-#### Production Safety
-
-Seed operations are strictly prohibited when `NODE_ENV=production`. Attempting to run seed operations in production triggers a safety error.
-
-### MongoDB setup
-
-- Checkout uses MongoDB multi-document transactions. Development and deployed MongoDB
-  configurations must therefore support transactions through a replica set or sharded cluster.
-- Appointment booking, cancellation, reassignment, and doctor-session writes also require transaction support;
-  standalone MongoDB deployments are not supported for these operations.
-- For a local MongoDB server, configure the replica set name `osms-dev-rs`, start `mongod`
-  with `--replSet osms-dev-rs`, then initialize it once with
-  `mongosh --eval "rs.initiate({_id:'osms-dev-rs',members:[{_id:0,host:'127.0.0.1:27017'}]})"`.
-- Copy `.env.example` to `.env` and set `MONGODB_URI` to your replica-set URI. For production,
-  use the provider's replica-set/sharded-cluster connection URI and provide credentials only
-  through deployment secrets; do not commit credentials.
-- In test mode, the application starts an in-memory MongoDB instance automatically when `MONGODB_URI` is not set.
-
-### Payment reservation expiry
-
-The server runs a reservation sweep on startup and once per minute, processing at most
-100 expired `ORDER_CREATED` Orders per run. The scheduler advances through bounded
-pages so held Orders do not prevent later reservations from being examined. The
-deadline remains the original checkout `reservationExpiresAt`; the sweep never
-extends it or creates a replacement payment window.
-
-Orders without confirmed payment or unresolved reconciliation can expire. Stale
-PayHere pending/processing attempts are locally `cancelled` with
-`failureReason: session_expired` at the original reservation deadline (ADR-011
-sections 12/13). Orders with no Payments or only failed/cancelled attempts are also
-eligible. Exact reserved stock and the local session cancellation commit in one
-transaction. Unpaid staff cancellation uses the same restoration transaction.
-`inventoryRestoredAt` and the conditional Order transition prevent duplicate
-restoration. Payment initiation, IPNs and restoration coordinate through a write
-to the same Order document, requiring MongoDB replica-set or sharded-cluster support.
-Restored quantities also update existing reorder alerts transactionally.
-
-Local cancellation closes checkout; it does not claim PayHere cancelled or refunded
-funds. Late verified success is retained for reconciliation, never Order revival
-or another stock change. Completed/refunded Payments, confirmed capture evidence
-and unresolved reconciliation hold stock. Staff cancellation still holds uncertain
-active sessions before expiry. Attempts, provider references and verified events
-are retained; expiry creates no fabricated provider event.
-
-An initiation request after the original deadline closes stale local attempts but
-returns `409 ORDER_PAYMENT_EXPIRED` without a new checkout. Once the sweep has
-cancelled that Order, initiation returns `409 ORDER_NOT_PAYABLE` instead; neither
-response permits retry on that expired Order. The team-approved ADR-011 amendment
-in [Documents PR #38](https://github.com/darshana-opticals-osms/documents/pull/38)
-requires a fresh checkout and new Order after genuine expiry; checkout revalidates
-current prices, quantities and Inventory without extending or re-reserving the old
-Order. A signed failure or cancellation before the deadline permits a distinct
-Payment attempt within the remaining original reservation window. Browser navigation
-alone never cancels a Payment.
-
-Missing OrderItem inventory references, deleted Inventory, invalid stock quantities,
-or empty item lists block the entire restoration and are reported by the scheduler
-using Order IDs and reason codes. Legacy Orders without an original reservation
-deadline are excluded from automatic expiry; their deadline or Inventory mapping
-must not be guessed. Staff cancellation of an unverifiable unpaid reservation is
-also rejected. These holds require manual review; Phase 4 adds no reconciliation API.
-
-Cancellation appends audit history and sends the existing shop-contact/refund-guidance
-notification after commit. SMTP failure is logged without undoing cancellation.
-As with existing cancellation notifications, delivery is best effort; this phase
-does not add a durable notification outbox or automatic email retries.
-
-### Cart recovery after automatic unpaid reservation expiry
-
-Once automatic expiry passes all existing financial/reconciliation and exact
-Inventory-reference checks, it restores the expired Order's `inventoryId` and
-quantity selections into that Customer's Cart. Existing items are preserved;
-matching Inventory IDs have quantities added without duplicate rows. An absent
-Cart is created. No historical prices, eligibility snapshots or stock reservation
-are copied into the Cart.
-
-Cart recovery, local payment-session expiry, Inventory release/reorder alerts and
-Order cancellation share the same MongoDB transaction and Order restoration guard.
-Concurrent Cart edits serialize through Cart writes; first-Cart unique-key races
-retry the entire aborted transaction. Invalid persisted Cart data, missing
-references, quantity overflow or a failed Cart write roll back the whole operation
-and are reported for safe retry/review; quantities are never truncated. Repeated
-sweeps cannot restore the same Order twice. Staff cancellation, refunds and browser
-navigation retain their existing behavior and do not trigger this recovery.
-
-Customers review the recovered selections through `GET /api/cart` and use the
-existing `POST /api/checkout`. Checkout revalidates current prices and stock,
-creates a **new Order** and fresh 30-minute reservation, then clears the Cart.
-Payment must target the new Order. The old Order/Payment history remains intact;
-a late verified success remains reconciliation evidence and does not revive the
-old Order, deduct stock again or remove recovered Cart selections.
-
-Automatic Cart recovery is a team-approved business rule documented in ADR-003,
-"Automatic Cart Recovery After Eligible Unpaid Order Expiry." The amendment was
-approved and merged in [Documents PR #38](https://github.com/darshana-opticals-osms/documents/pull/38),
-and the implementation above follows that approved rule.
-
-### PayHere callback and availability contracts
-
-The allowlist also accepts the optional scalar `recurring` field observed in a
-real one-time Sandbox notification. It is unsigned metadata, discarded just like
-custom/card/message fields, and cannot enable recurring billing or prove payment.
-Bare empty `custom_1`/`custom_2` form keys are supported; repeated keys are rejected.
-
-`POST /api/payments/notify` accepts only allowlisted scalar form fields. The
-optional sandbox `captured_amount` must be a nonnegative decimal with two places;
-it is ignored for financial decisions and is not persisted. The official Checkout
-signature covers merchant ID, attempt reference, `payhere_amount`, currency and
-status; merchant/amount/currency checks, timing-safe verification and idempotency
-remain mandatory. Optional custom/card/message fields are discarded; only
-documented provider payment-method labels are retained as unsigned display
-metadata. Unknown method labels are accepted but discarded; unknown field names
-and duplicate fields remain rejected. See the [official PayHere Checkout contract](https://support.payhere.lk/api-%26-mobile-sdk/checkout-api).
-
-A separate per-IP limiter runs before callback form parsing, independently of the
-general customer API limiter. Defaults: `PAYHERE_NOTIFY_RATE_LIMIT_MAX=600` and
-`PAYHERE_NOTIFY_RATE_LIMIT_WINDOW_MS=60000` (600 requests per 60 seconds), including
-retries. Configure these positive integers at startup to fit provider delivery volume.
-Excess traffic receives `429 RATE_LIMIT_EXCEEDED` with `Retry-After`, before
-financial processing. The existing in-memory limiter applies per application
-process; shared deployment limits belong at the trusted proxy/shared limiter layer.
-
-Missing PayHere configuration returns operational `503 PAYMENT_UNAVAILABLE` with
-a safe message and no initiation effects. Hosted-checkout parameters are built
-locally; the backend does not make a charge request or probe the PayHere website.
-Provider website/network failure after successful initiation is therefore not a
-backend 503; verified IPNs and reservation expiry determine subsequent state.
-Further Sandbox E2E checks must use a fresh Order within its reservation, sandbox
-credentials for the registered checkout domain, and a reachable public notify URL.
-Never log callback bodies, signatures or credentials as evidence.
-
-### PayHere Retrieval API investigation and missed-callback evidence
-
-An approved payment in the provider dashboard is not automatically an OSMS
-completed Payment. A rejected/missed callback can leave no verified PaymentEvent;
-normal expiry can then close the local session and restore Inventory/Cart. The
-browser return URL never repairs that financial discrepancy.
-
-Optional `PAYHERE_API_APP_ID` and `PAYHERE_API_APP_SECRET` configure the Merchant
-Retrieval API, **not** the Checkout Merchant Secret. Obtain these from API Keys in
-the same merchant account and environment as checkout. Use the provider's required
-API-key permissions/domain allowlist; live Merchant API access additionally needs
-PayHere IP approval. Never put credentials in a browser or an online encoder.
-`PAYHERE_RETRIEVAL_TIMEOUT_MS` defaults to 8000 (allowed 1000–30000). Credentials are
-optional at application startup; missing credentials fail retrieval closed with
-`503 PAYHERE_RETRIEVAL_NOT_CONFIGURED`, without affecting hosted checkout or IPN.
-
-The adapter uses only the fixed sandbox/live OAuth token and payment/search
-endpoints, Basic client-credentials OAuth, a memory-only expiring token cache, one
-refresh after invalid-token responses, request/body timeouts and bounded response
-size. No redirect following, raw provider-body persistence or sensitive logging.
-The process-local budget permits at most 18 Merchant API requests per 10 seconds
-(including OAuth), below PayHere's documented 20; provider 429/Retry-After is
-honored with safe 503/retryAfterSeconds details. This is not a shared multi-instance
-quota: coordinate deployment-wide usage before adding automatic polling.
-
-BRANCH_MANAGER-only APIs (all other canonical roles are denied):
-
-- `POST /api/payments/:paymentId/recovery`, with omitted body or `{ "dryRun": true }`,
-  reads the provider by the stored unique attempt `providerOrderId`, validates and
-  returns only financial references/status/amount/currency and a proposed reason.
-  Default dry-run makes **no database writes**, including no lock/version writes.
-- Explicit `{ "dryRun": false }` records a sanitized append-only
-  `PaymentRetrievalEvidence` observation. It may set a reconciliation flag but never
-  clears an existing flag/reason or modifies Payment/Order status. Apply only after
-  reviewing the dry-run and obtaining authority for the particular transaction.
-- `GET /api/payments/:paymentId/retrieval-evidence?page=1&limit=25` reads the complete
-  paginated evidence history (page 1–10000, limit 1–100, newest first). Observation
-  identity, staff identity, OAuth tokens, signatures and customer/card data are not
-  exposed. Existing customer own-Order status and signed-IPN event APIs are unchanged.
-
-Source is explicitly `PAYHERE_RETRIEVAL_API`, stored separately from signed IPNs.
-Observation uniqueness prevents identical snapshots being inserted twice. Changed
-provider statuses/references append new evidence rather than replacing history.
-Distinct provider payment IDs for one merchant reference require review; no row is
-silently selected as the canonical capture. Amount, currency, Order reference and
-any previously stored provider transaction reference are checked. HTTP/token failures
-and malformed/unknown statuses fail closed without creating evidence. The ambiguous
-envelope `-2` described below is only an observation, never proof of a financial outcome.
-Network I/O finishes before transactions; application re-reads state under the same
-Order write lock used by IPN/expiry and atomically appends evidence plus any flag.
-Concurrent IPN/expiry outcomes are re-evaluated, not overwritten. Audit insertion
-failure rolls back the entire local transaction.
-
-Provider mapping follows the [official Retrieval API](https://support.payhere.lk/api-%26-mobile-sdk/retrieval-api):
-
-- `data[*].status`: `RECEIVED` means received; `REFUND REQUESTED`, `REFUND PROCESSING`,
-  `REFUNDED`, `CHARGEBACKED` are separate observations requiring review, not automatic
-  OSMS refund/loyalty mutations. Portal `Authorized` is **not** assumed equivalent.
-- Envelope `status=0`: pending; `-1`: no records; neither proves no funds exist.
-- Envelope `-2` is documented both as declined and authentication error. It is
-  reported as `declined_or_error`, never used to cancel or release stock. Unsafe
-  HTTP/token/response failures instead return sanitized operational 503 errors.
-
-**ADR boundary:** ADR-011 sections 10/11 explicitly require cryptographically
-verified IPN for `completed`. Retrieval-only completion remains inactive, including
-on unexpired Orders. One matching `RECEIVED` observation for an active, unexpired
-attempt on an `ORDER_CREATED` Order, with no conflicting financial state, records
-`RETRIEVAL_SUCCESS_REQUIRES_IPN` as evidence only: it does not set a blocking
-reconciliation flag. A later genuine signed IPN can complete normally. The evidence
-reason is a historical assessment, not the current Payment reconciliation flag.
-Actual mismatches, conflicting attempts/captures, refunds, chargebacks and late
-success retain blocking reconciliation protection; existing flags are never cleared.
-An IPN reporting a different capture from saved `RECEIVED` evidence is also held,
-not treated as the delayed matching notification.
-Even an identical observation replay rechecks current state under the Order lock,
-so expiry or a new conflict can establish a hold without rewriting old evidence.
-Previously stored holds are not automatically cleared by this correction.
-For cancelled/expired Orders, evidence records `RETRIEVAL_LATE_SUCCESS` and
-flags reconciliation without revival, stock deduction, Cart removal, refund or
-loyalty changes. No reconciliation-resolution or flag-clearing API is introduced.
-
-For an existing real transaction: dry-run first; compare the exact merchant
-reference, provider transaction ID, amount/currency and provider status against
-authenticated provider records. Obtain genuine provider redelivery where possible.
-If expired, use authorized financial reconciliation; do not pay again, fabricate an
-IPN, replay inspector traffic or manually edit records. Local automated tests use
-mock HTTP responses and do not establish real Sandbox synchronization.
-
-**Expiry design requiring review (not implemented):** a bounded pre-expiry verifier
-could read candidate versions, retrieve outside MongoDB, then take the shared Order
-lock and re-check expiry/payment state before recording evidence. A successful
-concurrent IPN or expiry must win/retry safely. Pending, absent, timeout and API
-failure results cannot establish unpaid status. Any network grace period, new hold
-or automated use of retrieval for completion requires an explicit approved rule.
-No automatic provider polling, reservation extension, new grace duration or expiry
-policy change is included here; the existing 30-minute sweep remains unchanged.
-
-### Real Sandbox evidence and remaining verification
-
-The operator completed a real hosted Sandbox checkout for Payment
-`6ad11a57fe503192fd00fa39`, Order `6ad119ecfe503192fd00fa27`, LKR 37000.00.
-A read-only database check on 2026-10-16 confirmed `Payment.status=completed`,
-`Order.status=PROCESSING`, `reconciliationRequired=false`, one applied success
-PaymentEvent (`statusCode=2`), and no Inventory restoration. This is IPN evidence,
-not proof inferred from a browser return. Order completion/loyalty earning was
-not exercised by this checkout.
-
-For the earlier missed-callback Payment `6ad10540d8f95641b92ae200`, genuine Sandbox
-OAuth/retrieval verification found one matching `RECEIVED` provider transaction,
-LKR 37000.00. The operator also reports successful authorized recovery dry-run.
-The final read-only database check confirmed Payment `cancelled/session_expired`,
-Order `CANCELLED`, restored Inventory marker, no signed PaymentEvents and no saved
-retrieval evidence. The cancelled Order was not revived. No callback replay,
-replacement charge or manual financial mutation was used for this review.
-
-Real hosted failed/cancelled flows, Order COMPLETED loyalty earning and an
-externally confirmed manual full-refund/reversal remain unverified end to end.
-Automated tests do not replace those checks. Documents PR #38 resolved the ADR-011
-sections 8/12 expiry/retry boundary. The section 13 earning-trigger discrepancy with
-ADR-005 section 14 remains documented; earning follows successful Payment **and Order
-COMPLETED**. No ADR is edited in this backend repository.
-
-PR #80 closes payment issue #53. The backend API implementation for the currently
-supported loyalty workflow now includes customer ownership-scoped reads,
-`BRANCH_MANAGER` read-only monitoring, and their Swagger/security tests. Issue #54
-still requires the remaining business approvals and verification identified below;
-this is not a claim that all loyalty Definition of Done items are complete.
-
-### Management payment monitoring
-
-Phase 5A adds three authenticated, read-only endpoints restricted to `BRANCH_MANAGER`:
-
-- `GET /api/payments`: all historical attempts with optional `status`, `orderId`,
-  exact `providerTransactionId`, and `reconciliationRequired=true|false` filters.
-- `GET /api/payments/:paymentId`: one attempt's approved financial metadata.
-- `GET /api/payments/:paymentId/events`: that attempt's stored verified audit evidence,
-  optionally filtered by `action`, `statusCode`, and exact `providerTransactionId`.
-
-Both lists accept `page` (1–10000, default 1), `limit` (1–100, default 25), and
-`sortOrder=asc|desc`. Payment `sortBy` allows `createdAt` (default), `updatedAt`,
-`amount`, or `status`; event sorting allows `verifiedAt` (default) or `createdAt`.
-Sorting includes an ID tie-breaker. Lists return
-`{ success: true, data: { items, pagination: { page, limit, total, totalPages } } }`;
-detail returns `{ success: true, data: payment }`. These are live monitoring reads,
-not a frozen accounting report; records and totals may change during callbacks.
-Unknown parameters and non-scalar filter values are rejected with 422.
-
-Payment reference search matches the stored Payment reference; event reference
-search also reveals distinct provider transactions retained as reconciliation
-evidence. Verified event success does not imply that its Payment or Order transition
-was applied: inspect event `action`/`reason` and the Payment reconciliation flag.
-Absent legacy reconciliation flags are treated as false. Known backend reason codes
-are exposed; unknown/free-text legacy reasons are returned as null without modifying
-the persisted evidence. DTOs exclude signatures, idempotency/event keys, raw payloads,
-card data, merchant credentials, and customer profile information.
-
-Monitoring follows the existing role-wide Order oversight scope. Payment/Order
-records do not provide an authoritative branch ownership mapping; branch-restricted
-payment oversight requires a separate approved mapping. Other roles, including
-`SYSTEM_ADMIN`, cannot access these management endpoints. Customer own-Order payment
-status access remains separate. Phase 5A provides no status overrides, reconciliation
-clearing, or refund mutations; those require the Phase 5B workflow review.
-
-### Phase 5B Part 1: internal refund evidence infrastructure
-
-`manualRefundEvidence.service` provides an internal append primitive for facts about
-an already confirmed external full refund. It is not connected to a route, controller,
-scheduler or financial transition. The helper requires trusted `BRANCH_MANAGER`
-authentication context and derives Order/capture identity and the recording actor
-from backend context. Evidence amount/currency must exactly match the full original
-Payment under the existing monetary precision contract. The Payment must already
-represent a canonical completed/refunded transaction; late captures on failed or
-cancelled attempts remain outside this primitive's supported source mapping.
-Unresolved reconciliation on the source Payment or any other attempt on its Order
-blocks append/replay with `409 PAYMENT_RECONCILIATION_REQUIRED`; flags are not cleared.
-
-The dedicated audit collection preserves original capture references and records
-the full amount/currency, actor and server recording timestamp. A unique Payment
-index permits one full-refund evidence record for its canonical capture; a unique
-idempotency-key index protects retries. Identical retries return the original DTO;
-changed data/actor/Payment or a second key for an existing record conflicts. This
-prevents duplicate local recording, not duplicate external transfers. No global
-uniqueness assumption is made about external receipt/bank reference formats.
-
-The optional `session` binds all audit/source reads and insertion to the caller's
-MongoDB session, with sequential operations and no nested transaction or commit.
-Initialize the collection/indexes before starting a caller-owned transaction.
-A duplicate-key insertion inside that transaction propagates the original error:
-the caller must abort/retry before recovering an identical committed record. The
-helper never queries an aborted transaction; nontransactional retries retain recovery.
-
-Only amount, currency, optional `refundChannel` (`payhere_portal` or `bank_transfer`)
-and optional scalar `refundReference` are accepted as evidence. Optional references
-are metadata, not proof of transfer. ADR-011 does not define mandatory receipt
-documents, their verification procedure, external-reference formats or execution-time
-proof. Those gaps are intentionally not implemented as mandatory business rules.
-The helper does not independently verify an external refund. Raw receipts, credentials,
-signatures, client-chosen actors/statuses and arbitrary payloads are not accepted.
-Internal keys/hashes and unknown fields are excluded from the explicit response DTO.
-
-Evidence is append-only through application-model save/query/document middleware;
-update, replacement, deletion and batch-write operations are rejected. Raw MongoDB
-collection access or privileged database administration bypasses model middleware:
-this is not database-level tamper-proof storage, and deployment DB permissions remain
-an operational boundary. Original Payment, PaymentEvent, Order, inventory, Customer
-and reconciliation state is unchanged when evidence is appended. Recording evidence
-does not assert that loyalty reversal or other refund side effects have happened.
-
-Payment initiation now rejects an Order containing any `refunded` Payment, including
-duplicate-key recovery, so refunded history cannot accidentally enable repeat checkout.
-No refund/reconciliation mutation endpoint or automatic flag clearing is enabled.
-
-The accepted loyalty ADRs conflict: ADR-005 §14 requires successful Payment **and
-Order COMPLETED** for confirmed earning, while ADR-011 §13 triggers accrual when
-Payment becomes completed and Order moves to **PROCESSING**. Neither rule is changed
-or selected here. No loyalty award, reversal, Order cancellation or inventory
-restoration is performed by this infrastructure.
-
-### Phase 5B Part 2: inactive manual full-refund orchestration (historical)
-
-For activated behavior, see "Final loyalty and manual full-refund integration" below.
-
-`manualRefund.service.recordConfirmedManualFullRefund` is internal only: no refund
-controller, route, scheduler, Swagger mutation operation or runtime enable flag is
-installed. It accepts trusted manager auth context, a Payment ID, an idempotency key
-and the existing Part 1 evidence contract. The caller must have verified that the
-external full refund really happened; this code never transfers money or verifies
-receipts. No new mandatory proof format is introduced.
-
-The orchestrator locks the Order through the existing transactional `__v` write,
-re-reads Payment/Order data, matches full stored totals and LKR currency, and requires
-the exact original successful applied PayHere PaymentEvent. Related active/captured
-attempts, any reconciliation flag, or reconciliation-required events hold processing.
-There is no reconciliation-resolution model yet, so historical reconciliation events
-cannot be assumed resolved merely because a flag is absent. It preserves the original
-capture reference and provider history, uses the existing unique refund/identity
-indexes, and supports identical replay without a second reversal only after durable
-loyalty reversal completion is authoritatively verified in the same session. Refund
-evidence and refunded Payment status alone are not completion proof. Duplicate-key
-recovery restarts the transaction after abort, never queries the aborted transaction.
-All session operations are sequential.
-
-Evidence insertion, the conditional `completed -> refunded` update and the loyalty
-boundary share one transaction. Phase 6 Part 1 implements the ledger-backed reversal
-and verification primitives, but still installs no refund endpoint. Missing earning
-history holds the refund with `LOYALTY_EARNING_HISTORY_MISSING`; absence is not proof
-of a zero-point award. Missing or mismatched reversal evidence never verifies a replay.
-ADR-011 section 15 requires reversal on refund; ADR-005 sections 16 and 18 to 20 require
-auditable reversal and balance/history consistency. Their award-trigger contradiction
-(section 14 versus section 13,
-described above) remains unchanged. Activation requires resolving that actual conflict
-and the data/rounding contracts described below. Reversal is now idempotent,
-source-linked and session-bound with atomic balance/history writes. Negative balance
-or prior-redemption cases needing unspecified policy remain held.
-No award formula, zero-point fallback or replacement business rule is selected here.
-
-Transaction/concurrency tests use an explicitly test-only loyalty double to exercise
-the prepared orchestration. Passing those tests is **not** evidence that production
-refund/loyalty mutation is ready. Tests also prove that the real dependency holds
-PROCESSING, COMPLETED and CANCELLED Orders with all provisional writes rolled back.
-Already-refunded retries also fail closed without durable verification, preserving
-Payment, Order lock metadata, audit evidence and inventory. The minimal future
-`verifyFullRefundReversal({ payment, order, refundEvidence, session })` interface will
-return exactly `true` only after reading authoritative durable reversal completion
-for the same Payment/refund and checking balance/history consistency. It now uses
-the real ledger; neither a refunded Payment nor refund evidence alone is proof.
-Tests cover both the historical boundary doubles and the real reversal path.
-No zero-point fallback is introduced.
-Neither this code nor refund evidence changes Order status/history, restores inventory,
-clears reconciliation, edits provider events or executes external refunds. Committed
-test-double paths change only Payment status, audit evidence and Order lock metadata.
-
-Manager-only `GET /api/payments/:paymentId` now includes sanitized `refundEvidence`
-(or null); the list, event-list and customer status contracts are unchanged. Evidence
-may predate an operational refund transition and does not imply refunded status or
-completed loyalty reversal. Internal keys/hashes, arbitrary fields and raw receipts
-are excluded.
-
-Proposed **inactive** API contract for later activation/review:
-
-- `POST /api/payments/:paymentId/refunds`, authenticated `BRANCH_MANAGER` only.
-- `Idempotency-Key`: bounded scalar key following the existing internal contract.
-- Body: `{ amount, currency, refundChannel?, refundReference? }` using Part 1 validation;
-  submitted amount/currency confirm evidence, never determine the financial amount.
-- Success/replay: `200 { success: true, data: { paymentId, orderId, status: "refunded",
-amount, currency, refundEvidence } }`; identical actor/key/payload returns the same audit DTO
-  only after authoritative durable loyalty reversal verification.
-- Errors: authentication 401, role 403, missing source 404, unsafe/conflicting state 409,
-  invalid evidence 422. Reconciliation always holds, never auto-clears.
-
-This proposed path is deliberately not registered or advertised as an available API.
-
-### Final loyalty and manual full-refund integration (current behavior)
-
-This section supersedes the historical phase descriptions below and the previously
-inactive refund proposal above. The current backend integration follows the ADR-005
-section 14 boundary: a verified successful Payment **and** the authorized Order
-transition to COMPLETED. ADR-011 section 13 still describes earlier earning at
-PROCESSING; that discrepancy is recorded here, not implemented or edited in either
-accepted ADR.
-
-- Inventory `itemClassification` is explicitly `UNKNOWN` (default), `MERCHANDISE`
-  or `CLINICAL`. Existing manager inventory create/update permissions apply;
-  SYSTEM_ADMIN remains price-only. Category strings never determine classification.
-- Checkout copies this server-owned fact into the immutable OrderItem snapshot
-  and derives `loyaltyEligibility` as UNKNOWN, ELIGIBLE or INELIGIBLE respectively.
-  No legacy backfill is performed; later Inventory edits cannot reclassify a sale.
-  Persisted item price, quantity, Inventory/Order references and the snapshot are
-  protected from Mongoose saves, updates, replacements, batch edits and deletion.
-  Only the explicit non-production seed reset and disposable test fixtures use raw
-  collection cleanup; privileged raw database access remains outside model guards.
-- Eligible spend sums snapshotted merchandise prices times quantities using integer
-  cents. Clinical eye-test/examination fees are excluded. Unknown, missing or
-  inconsistent classification/amounts hold processing rather than substitute totals.
-  The earning formula is `eligible merchandise spend / 100`. The implementation
-  rounds the final aggregate once using `ROUND_HALF_UP`; ADR-005 requires a defined
-  deterministic two-decimal convention but does not explicitly select `HALF_UP`, so
-  approval of that convention remains pending.
-- Order completion, verified-source earning ledger and Customer balance commit in
-  one transaction. A failure rolls back completion and its audit history as well.
-  No points are awarded by payment IPNs or the PROCESSING transition.
-- Customer balances use Decimal128 with two-decimal precision. A dedicated
-  append-only `LoyaltyTransaction` history records source-linked awards and reversals.
-  Unique source/Payment indexes, transactional writes, optimistic balance matching
-  and retry handling protect against duplicate awards and concurrent divergence.
-- Authenticated `CUSTOMER` users can call `GET /api/loyalty/me`. Identity comes only
-  from the verified JWT; the endpoint accepts `page` and `limit`, returns the current
-  balance and the caller's paginated history as exact two-decimal strings, and never
-  accepts a Customer ID or loyalty value from the client.
-- Authenticated `BRANCH_MANAGER` users can call `GET /api/loyalty` for read-only
-  monitoring. It accepts validated `page`, `limit`, `customerId`, `orderId`,
-  `paymentId`, `eventType` and `sortOrder` parameters, uses deterministic
-  `createdAt`/`_id` ordering, and returns a minimal DTO without Customer PII or
-  payment-provider secrets. Other roles cannot use this monitoring endpoint.
-- `POST /api/payments/:paymentId/refunds` is now active for BRANCH_MANAGER only.
-  Required header: `Idempotency-Key` (1-120 characters, no controls). Body:
-  `{ amount, currency: "LKR", refundChannel?, refundReference? }`; the amount must
-  equal the full verified capture. Channels remain `payhere_portal`/`bank_transfer`.
-  This records a manager-confirmed **already executed external refund**, not a
-  transfer, external receipt verification, or a refund-eligibility decision.
-- Successful recording/replay returns 200 with the sanitized contract above.
-  Capture evidence, immutable refund audit and Payment refunded status must agree.
-  Existing earned points require a real compensating reversal in the same transaction.
-  Before Order COMPLETED, a valid lifecycle history, no Payment loyalty events and a
-  consistent Customer balance establish that no award occurred; no reversal is made.
-  Identical replay verifies the same condition. Order status, inventory and provider
-  events remain unchanged. Conflicting evidence/idempotency identity is rejected.
-
-Reconciliation, missing awards for completed Orders, incomplete lifecycle history,
-legacy uninitialized balances and unsafe negative-balance deductions remain 409 holds.
-Missing or null legacy balances are never initialized or migrated automatically.
-Missing ledger entries alone never establish a zero-point award. Explicit clinical-only
-sales can record a calculated zero award
-and its linked compensating reversal. No reconciliation resolution, redemption,
-arbitrary adjustment, partial/automatic refund or automatic inventory restoration
-is activated. Full-refund reversal is supported only through the approved manual
-full-refund evidence workflow described above; partial-refund processing is not
-implemented. There is no Customer balance-adjustment API, loyalty redemption, tier,
-voucher or discount functionality. Points and balances remain backend-authoritative,
-and clients cannot submit awarded points, balance replacements or conversion rates.
-
-The backend API work is complete for this currently supported workflow. Full Issue
-#54 closure still depends on explicit approval of the implemented `HALF_UP` convention,
-an approved decision and separate implementation scope for partial refunds, Swagger
-UI/manual workflow verification, CI, peer review and the remaining PR/issue lifecycle
-checks. No production verification is claimed here. Existing review patches and
-accepted ADRs are unchanged.
-
-### Phase 6 Part 1: loyalty core and refund reversal infrastructure (historical)
-
-New Customers have a hidden `loyaltyBalance` stored as exact Decimal128 `0.00`.
-Existing Customers without the field are **not** silently initialized or backfilled;
-loyalty writes hold with `LOYALTY_BALANCE_UNINITIALIZED` pending authoritative migration.
-Existing profile/authentication DTOs do not expose this internal field.
-
-`LoyaltyTransaction` stores Customer/Order/Payment IDs, controlled event type,
-source-event ID, original earning ID for reversals, capture reference, exact decimal
-points delta, resulting balance and creation timestamp. Unique indexes protect
-`(sourceEventId, eventType)` and one earning/one full reversal per Payment.
-`REDEMPTION_DEDUCTION` is centralized as an architectural event category only: no
-redemption operation, partial refund, manual adjustment or loyalty API is installed.
-
-All calculations use integer hundredths (`BigInt`) and validated Decimal128 strings,
-not binary floating-point sums. `earnedPoints = eligibleSpend / 100` is implemented
-for exact two-place results. Fractional LKR spend requiring more than two point
-places holds with `LOYALTY_ROUNDING_CONTRACT_REQUIRED`; no floor, half-up or other
-rounding convention is selected. Two-decimal **representation** is not a rounding policy.
-
-`earnPurchasePoints({ paymentId, session? })` accepts source IDs only, re-reads the
-verified applied capture and stored Order amount, and atomically updates balance
-and earning history. It has no live trigger. Its backend-only contract guards remain
-unavailable: ADR-005 section 14 requires Payment success plus Order COMPLETED, while
-ADR-011 section 13 specifies completed Payment plus PROCESSING. No status is chosen.
-The product catalog is Inventory-backed, with mutable free-text categories;
-OrderItems preserve exact inventory references and, since Part 2A, checkout-time
-category facts, but no authoritative merchandise/clinical eligibility mapping.
-No item name, category string, total Order amount or client
-eligible-spend value is used as a substitute. Clinical examination fees cannot leak
-into an award: current data remains held with `LOYALTY_ITEM_CLASSIFICATION_REQUIRED`.
-An authoritative Order/Checkout eligibility contract is required, including safe
-handling for legacy items and the category scope noted in ADR-005 section 6.6.
-
-`reverseFullRefundPoints({ paymentId, refundEvidenceId, session? })` compensates only
-an existing, source-linked earning, preserving its original history. It validates the
-refunded capture, exact full-refund audit, reconciliation flags and provider evidence.
-It never invents a deduction for missing history. Insufficient balances or existing
-negative balances hold with `LOYALTY_NEGATIVE_BALANCE_POLICY_REQUIRED`, not clamping,
-partial reversal or assumed debt. `verifyFullRefundPoints` requires matching earning,
-reversal, capture and refund identities plus consistent Customer balance/history;
-later valid earnings do not invalidate an earlier reversal merely by changing balance.
-
-The services use the same Order lock as callbacks/refunds and sequential session
-operations. Supplied sessions must already be transactional; the caller must propagate
-errors and abort the whole workflow, and the service never commits/ends their session.
-Initialize collection/indexes before caller-owned transactions. Owned transactions
-retry driver-labelled transient errors; duplicate-key recovery starts a fresh
-transaction only after abort. Unique indexes and Customer write conflicts protect
-concurrent events, including different Orders belonging to the same Customer.
-
-Profile mutations reject balance changes. Ordinary Customer model saves/queries,
-bulk replacements, and aggregation writes cannot adjust balances; direct loyalty
-model writes/updates/deletes are rejected. The trusted service validates new history
-and uses transaction-bound native collection writes for both balance and ledger.
-Raw DB access/privileged administration bypasses ODM protections and remains an
-operational security boundary, not a tamper-proof audit claim.
-
-Tests explicitly double only the unresolved earning-contract boundaries to exercise
-real balance/ledger writes, precision, concurrency and refund integration. Production
-has no runtime contract bypass. No Order status/history change, inventory restoration,
-reconciliation clearing, earning callback wiring or refund API activation is added.
-
-### Phase 6 Part 2A: immutable checkout classification context (historical)
-
-Every new checkout OrderItem has an internal `classificationSnapshot` built only
-from the Inventory records already read in the checkout transaction:
-
-| Field                | Provenance / meaning                                                                                                 |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `source`             | Literal `Inventory`, identifying the backend source model.                                                           |
-| `sourceInventoryId`  | Exact Inventory `_id` at checkout, retained independently of later reference edits.                                  |
-| `category`           | Verbatim stored Inventory category string; null when unavailable. This is a free-text fact, not an eligibility rule. |
-| `loyaltyEligibility` | Always `UNKNOWN`; the only currently supported value.                                                                |
-
-The existing OrderItem creation timestamp records persistence time; no policy version
-or approved classification is fabricated. There is no category-to-eligibility mapping,
-new catalog administration policy or client-settable eligibility flag. Cart metadata
-and purported classification/eligibility fields are not copied. Checkout still accepts
-only an empty JSON object, rejecting client classification payloads with 422.
-
-Legacy records have a null or absent snapshot, explicitly treated as unresolved.
-Nothing is backfilled from current Inventory on read. The loyalty eligibility reader
-uses only stored OrderItem context and holds missing, UNKNOWN and unsupported values
-with `LOYALTY_ITEM_CLASSIFICATION_REQUIRED`. It never substitutes the Order total or
-consults today's mutable Inventory category to qualify a past purchase.
-
-Snapshots are immutable through ordinary document/query writes. Model guards reject
-snapshot updates/unsets/renames, replacement and pipeline updates, bulk edits and
-aggregation writes that could overwrite history. Raw collection access/privileged DB
-administration bypasses ODM protections and remains an operational boundary.
-No migration or snapshot-edit API is added.
-
-The snapshot is persisted with Order creation, stock deduction and Cart removal in
-the existing transaction. Inventory ID, unit price, quantity, Order totals, reservation
-and restoration logic are unchanged. Checkout and Order-tracking DTOs remain unchanged;
-the snapshot is not exposed as a client input or a public response field.
-
-This preserves context only. The earning-trigger conflict, authoritative eligibility
-mapping and rounding contract remain unresolved. No automatic earning, refund endpoint,
-redemption or manual point adjustment is activated.
-
-## Production-style start
-
-npm start
-
-## Testing
-
-Run the automated tests:
-
+```
+
+The server will initialize on port 5000:
+
+- REST API: `http://localhost:5000/api`
+- Swagger Documentation: `http://localhost:5000/api-docs`
+- Health Probe: `http://localhost:5000/api/health`
+
+### 8.4 Environment Variables Configuration
+
+Copy `.env.example` to `.env`. Configure the variables according to your local environment:
+
+| Variable Name                    | Required | Default Value                                               | Purpose & Architectural Guidance                           |
+| :------------------------------- | :------: | :---------------------------------------------------------- | :--------------------------------------------------------- |
+| `NODE_ENV`                       |   Yes    | `development`                                               | Runtime mode: `development`, `test`, or `production`.      |
+| `PORT`                           |   Yes    | `5000`                                                      | Local HTTP binding port.                                   |
+| `MONGODB_URI`                    |   Yes    | `mongodb://127.0.0.1:27017/osms-dev?replicaSet=osms-dev-rs` | MongoDB connection string. Must point to a replica set.    |
+| `JWT_SECRET`                     |   Yes    | _Required Secret_                                           | High-entropy random key for signing JWTs.                  |
+| `JWT_EXPIRES_IN`                 |    No    | `24h`                                                       | Token lifetime for stateless sessions.                     |
+| `FRONTEND_ORIGIN`                |   Yes    | `http://localhost:3000`                                     | Allowed CORS origins (comma-separated list for multiples). |
+| `FRONTEND_URL`                   |   Yes    | `http://localhost:3000`                                     | Base URL used to build customer email notification links.  |
+| `RATE_LIMIT_WINDOW_MS`           |    No    | `900000`                                                    | General API rate-limit window in milliseconds (15 min).    |
+| `RATE_LIMIT_MAX`                 |    No    | `100`                                                       | Maximum general requests allowed per IP per window.        |
+| `AUTH_RATE_LIMIT_WINDOW_MS`      |    No    | `900000`                                                    | Auth rate-limit window in milliseconds.                    |
+| `AUTH_RATE_LIMIT_MAX`            |    No    | `10`                                                        | Maximum failed auth attempts per IP per window.            |
+| `ACCOUNT_LOCKOUT_MAX_ATTEMPTS`   |    No    | `5`                                                         | Failed logins before account is temporarily locked.        |
+| `ACCOUNT_LOCKOUT_DURATION_MS`    |    No    | `900000`                                                    | Account lockout duration (15 minutes).                     |
+| `REQUEST_BODY_LIMIT`             |    No    | `10kb`                                                      | Maximum allowed JSON request body size.                    |
+| `GEMINI_API_KEY`                 |    No    | _Optional Secret_                                           | Google Gemini API key for AI support chatbot.              |
+| `GEMINI_MODEL`                   |    No    | `gemini-flash-lite-latest`                                  | Model version for AI chatbot assistance.                   |
+| `CHATBOT_RATE_LIMIT_MAX`         |    No    | `10`                                                        | Maximum customer chatbot prompts per minute.               |
+| `SMTP_HOST`                      |    No    | _Unset_                                                     | SMTP server host. If blank, emails log to console.         |
+| `SMTP_PORT`                      |    No    | `587`                                                       | SMTP communication port.                                   |
+| `SMTP_USER` / `SMTP_PASS`        |    No    | _Unset_                                                     | SMTP credentials.                                          |
+| `DEV_ADMIN_EMAIL`                |    No    | `admin.dev@gmail.com`                                       | Email assigned to the default System Administrator.        |
+| `CLOUDINARY_CLOUD_NAME`          |    No    | _Optional_                                                  | Cloudinary cloud identifier for inventory images.          |
+| `CLOUDINARY_API_KEY`             |    No    | _Optional_                                                  | Cloudinary API access key.                                 |
+| `CLOUDINARY_API_SECRET`          |    No    | _Optional Secret_                                           | Cloudinary API secret.                                     |
+| `PAYMENT_CURRENCY`               |    No    | `LKR`                                                       | Currency code for payment gateway transactions.            |
+| `PAYHERE_MODE`                   |    No    | `sandbox`                                                   | Gateway mode: `sandbox` or `live`.                         |
+| `PAYHERE_MERCHANT_ID`            |    No    | _Sandbox ID_                                                | PayHere merchant account identifier.                       |
+| `PAYHERE_MERCHANT_SECRET`        |    No    | _Sandbox Secret_                                            | PayHere merchant secret used for MD5 signatures.           |
+| `ONLINE_FULFILLMENT_BRANCH_CODE` |    No    | `GAMPAHA_CENTRAL`                                           | Branch designated for online catalog and delivery.         |
+
+> [!CAUTION]
+> **Secrets Management Rule**: NEVER commit the `.env` file or any real API keys, merchant secrets, database passwords, or JWT secrets to the repository. The `.gitignore` file enforces exclusion of `.env`. In CI/CD and production environments, configure secrets exclusively via GitHub Secrets and Render Environment Variables.
+
+### 8.5 Development Seed Mechanism & Production Safeguards
+
+The repository provides an automated, idempotent seeder (`src/seed/index.js`) for rapid onboarding and repeatable integration testing:
+
+```bash
+# Populate development database with fresh sample records
+npm run seed
+
+# Destructively reset and re-seed all collections in strict dependency order
+npm run seed:reset
+```
+
+#### Production Safety Guard
+
+The seeder includes a hard environmental guard:
+
+```javascript
+if (process.env.NODE_ENV === 'production') {
+  throw new Error(
+    'Production safety check triggered: Seeding database is prohibited in production environment.'
+  );
+}
+```
+
+Attempting to execute `npm run seed` or `npm run seed:reset` when `NODE_ENV=production` triggers immediate process termination, preventing data destruction on live systems.
+
+---
+
+## 9. Testing Strategy & Evidence
+
+### 9.1 Test Pyramid Implementation
+
+In adherence to Chapter 6 of the University Development Guideline, the repository implements a balanced Test Pyramid:
+
+```text
+               / \
+              /   \      End-to-End (E2E) Flow Tests
+             / E2E \     - Critical checkout & appointment journeys
+            /-------\
+           /         \   Integration Tests (Supertest + mongodb-memory-server)
+          / Integrat. \  - 100% of REST API routes covered
+         /-------------\ - Real DB queries, schema hooks, and rollbacks
+        /               \
+       /   Unit Tests    \ Unit Tests (Jest AAA Pattern)
+      /                   \ - Domain services, calculation algorithms,
+     /---------------------\   token rotation, validators, error classes
+```
+
+- **Unit Tests**: Follow the **Arrange-Act-Assert (AAA)** pattern using descriptive Given-When-Then specifications. Test domain logic, token signing, price calculations, and input sanitizers in strict isolation.
+- **Integration Tests**: Leverage `supertest` executing against isolated `mongodb-memory-server` in-memory database instances. Tests verify status codes, payload structures, schema hooks, index constraints, and transaction rollbacks.
+- **Performance Benchmarks**: Dedicated suites in `tests/performance/` validate response latency under concurrency and burst load.
+
+### 9.2 Executing Automated Tests
+
+```bash
+# Run full automated test suite sequentially (in-band)
 npm test
 
-## Health check
+# Run tests and generate comprehensive code coverage report
+npm test -- --coverage
 
-The backend exposes the service health endpoint:
+# Run code style and syntax checks
+npm run lint
 
-GET /api/health
+# Check formatting compliance across codebase
+npm run format:check
 
-Example response:
+# Automatically fix code formatting
+npm run format
 
-{
-"status": "ok",
-"service": "osms-backend"
-}
-
-## Public customer registration
-
-The backend exposes the public customer registration endpoint:
-
-POST /api/auth/register
-
-Request body:
-
-{
-"name": "Alice Customer",
-"email": "alice.customer@example.com",
-"address": "12 Main Street, Colombo",
-"phone": "+94711234567",
-"password": "StrongPass123!"
-}
-
-Rules:
-
-- Public registration creates a CUSTOMER account only.
-- `role` and other privileged account fields are rejected by validation.
-- Email is trimmed and normalized to lowercase before duplicate checking and persistence.
-- Passwords are hashed with bcrypt before the customer record is saved.
-- No JWT is returned on registration.
-
-Example success response:
-
-{
-"success": true,
-"data": {
-"id": "66c5d2a9d7e2b8f2d7c4ff12",
-"name": "Alice Customer",
-"email": "alice.customer@example.com",
-"address": "12 Main Street, Colombo",
-"phone": "+94711234567",
-"role": "CUSTOMER"
-}
-}
-
-HTTP status:
-
-- 201 Created for successful customer registration
-- 409 Conflict if the email already exists for a customer, staff member, or admin
-- 422 Validation failure for missing or invalid registration data
-
-## Customer profile management
-
-The backend exposes self-service customer profile endpoints for authenticated customers:
-
-### Get my profile
-
-GET /api/profile/me
-
-Requires a valid CUSTOMER JWT and returns only the safe customer profile shape.
-
-### Update my profile
-
-PATCH /api/profile/me
-
-Request body may include any subset of the allowed editable fields:
-
-{
-"name": "Alice Customer",
-"email": "alice.customer@example.com",
-"address": "12 Main Street, Colombo",
-"phone": "+94711234567"
-}
-
-Rules:
-
-- Only `name`, `email`, `address`, and `phone` are allowed.
-- `role`, `password`, `passwordHash`, and other restricted fields are rejected with HTTP 422.
-- `email` is normalized to lowercase before duplicate checking and persistence.
-- Customers may only access their own profile using the authenticated token.
-- Prescription history, profile images, and password changes are out of scope for this ticket.
-
-## User login and JWT authentication
-
-The backend exposes stateless login for customer, staff, and admin identities:
-
-POST /api/auth/login
-
-Request body:
-
-{
-"email": "alice.customer@example.com",
-"password": "StrongPass123!"
-}
-
-Successful login returns HTTP 200:
-
-{
-"success": true,
-"data": {
-"token": "<signed-jwt>",
-"user": {
-"id": "66c5d2a9d7e2b8f2d7c4ff12",
-"name": "Alice Customer",
-"email": "alice.customer@example.com",
-"role": "CUSTOMER"
-}
-}
-}
-
-Use the token on protected requests with:
-
-Authorization: Bearer <signed-jwt>
-
-Missing, malformed, expired, invalid, or incorrectly credentialed requests
-return HTTP 401 with a safe error response. Login trims and lowercases email
-before lookup and does not apply registration password-strength rules.
-
-The JWT contains only the authenticated MongoDB user ID and canonical role. No
-refresh tokens, logout API, or RBAC permission middleware are included in this
-issue.
-
-## Authentication vs authorization
-
-This backend separates authentication from authorization.
-
-- Authentication answers: "Who is this user?"
-- Authorization answers: "What may this authenticated role do?"
-
-The existing `authenticate` middleware verifies the Bearer token and attaches the
-trusted server-generated identity to `req.auth`.
-
-The RBAC middleware uses that existing context only:
-
-```javascript
-const authenticate = require('./src/middleware/authenticate');
-const { authorizeRoles } = require('./src/middleware/authorizeRoles');
-const { ROLE_VALUES } = require('./src/constants/roles');
-
-router.get('/admin-report', authenticate, authorizeRoles(ROLE_VALUES.SYSTEM_ADMIN), getAdminReport);
-
-router.get(
-  '/branch-or-admin-report',
-  authenticate,
-  authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.SYSTEM_ADMIN),
-  getBranchReport
-);
+# Run performance benchmarking suites
+npm run test:perf
+npm run test:perf:load
+npm run test:perf:concurrency
 ```
 
-Rules:
+### 9.3 Verified Test Evidence (DDP-087 Baseline)
 
-- `authorizeRoles(...)` reads only `req.auth.role`
-- it never trusts a role from the request body, query string, or headers
-- it never re-verifies JWTs or queries the database
-- a missing or invalid authenticated context returns HTTP 401
-- an authenticated but disallowed role returns HTTP 403
-- the canonical role values are defined centrally by `ROLE_VALUES`
+The backend automated test suite was executed and validated across the entire development sprint lifecycle. Evidence recorded from final verification (CI Run #501 baseline and subsequent regression CI Run #517) confirms:
 
-The authorization middleware is reusable and should be configured with canonical
-roles only. Example single-role and multi-role checks use:
+| Test Metric Dimension        | Required University Standard |  Final Documented & Verified Result  | Compliance Status |
+| :--------------------------- | :--------------------------: | :----------------------------------: | :---------------: |
+| **Total Test Suites**        |         All domains          |     **118 / 118 Suites Passing**     |    Met (100%)     |
+| **Total Test Cases**         |        All scenarios         |   **2,075 / 2,075 Passing Tests**    |    Met (100%)     |
+| **Statement Coverage**       |        $\ge 80.00\%$         |              **92.34%**              |   Met (+12.34%)   |
+| **Branch Coverage**          |        $\ge 80.00\%$         |              **81.68%**              |   Met (+1.68%)    |
+| **Function Coverage**        |        $\ge 80.00\%$         |              **97.86%**              |   Met (+17.86%)   |
+| **Line Coverage**            |        $\ge 80.00\%$         |              **93.00%**              |   Met (+13.00%)   |
+| **Linting & Code Style**     |         Zero errors          | **0 ESLint Errors / Clean Prettier** |        Met        |
+| **Dependency Security Gate** |     0 High / 0 Critical      |   **0 Critical / 0 High Findings**   |        Met        |
 
-```javascript
-authorizeRoles(ROLE_VALUES.OPTOMETRIST);
-authorizeRoles(ROLE_VALUES.BRANCH_MANAGER, ROLE_VALUES.SYSTEM_ADMIN);
+### 9.4 Payment Verification Boundary (Localhost Sandbox vs. Hosted Staging)
+
+To maintain absolute technical transparency:
+
+- **Localhost Sandbox Verification**: Completed successfully. The operator executed authentic PayHere Sandbox transactions (Payment `6ad11a57fe503192fd00fa39`), confirming MD5 webhook verification, order transition to `PROCESSING`, timing-safe signature calculation, and reservation release.
+- **Hosted Staging Verification**: Hosted PayHere payment completion in the live staging environment remains **unverified** due to external banking gateway callback URL resolution constraints on public test networks. End-to-end payment testing on hosted staging remains an outstanding verification task.
+
+---
+
+## 10. Continuous Integration & Deployment Workflow
+
+### 10.1 GitHub Actions CI Pipeline
+
+All commits pushed to branches and pull requests targeting `develop` or `main` trigger the automated GitHub Actions CI workflow (`.github/workflows/ci.yml`). The workflow enforces five sequential quality gates:
+
+```text
++-----------------------------------------------------------------------------------+
+|                        GitHub Actions CI Pipeline Stages                          |
++-----------------------------------------------------------------------------------+
+| 1. Lint & Format Check | npm run lint && npm run format:check                    |
+|                        | Fails if any lint error or unformatted file exists.      |
++------------------------+----------------------------------------------------------+
+| 2. Dependency Audit    | npm audit --audit-level=high                             |
+|                        | Blocks build if High or Critical vulnerabilities exist.  |
++------------------------+----------------------------------------------------------+
+| 3. Test & Coverage Run | npm test -- --coverage                                   |
+|                        | Executes 118 suites (2,075 tests) against in-memory DB.  |
++------------------------+----------------------------------------------------------+
+| 4. Artifact Archival   | Uploads Jest coverage reports to GitHub Actions artifacts|
++------------------------+----------------------------------------------------------+
+| 5. Staging Dispatch    | Dispatches deployment webhook to darshana-opticals-osms/ |
+|                        | infra repository upon successful merge into develop.     |
++------------------------+----------------------------------------------------------+
 ```
 
-## Code Quality & Formatting
+### 10.2 Render.com Staging Deployment
 
-- Run linter: `npm run lint`
-- Check formatting: `npm run format:check`
-- Fix formatting: `npm run format`
+The backend service is containerized via a multi-stage Docker build (`Dockerfile`) running `node:20-alpine`:
 
-## Appointment booking and management
+1. Render monitors the `develop` branch for merged code updates.
+2. The Docker engine builds the container from source, instantiating production dependencies (`npm install`).
+3. Port 5000 is bound and proxied through Render's reverse proxy with automatic TLS termination.
+4. The service initializes background cron workers (reservation expiry sweep, image cleanup, reminder dispatch).
 
-Online doctor scheduling is restricted to the approved Gampaha Main Branch, identified by the persisted branch code `GAMPAHA_CENTRAL`. Only currently eligible Gampaha `OPTOMETRIST` staff may be scheduled. Customers choose an available session and submit only its `sessionId`; the server assigns the customer, provider, session time, confirmed status, and queue position. The server requires the session to begin at least 24 hours after its current time (the exact 24-hour boundary is allowed) and rechecks capacity at booking.
+### 10.3 Deployment Health Verification & Troubleshooting
 
-### Roles and lifecycle
+#### Health Probe
 
-- A `BRANCH_ASSISTANT` assigned to Gampaha creates and reschedules sessions, and can cancel or reassign appointments.
-- A Gampaha Branch Assistant can use `GET /appointments/providers` to discover eligible Optometrists and receive the provider and approved branch IDs needed for session creation. This is not a general Staff or Branch directory.
-- Branch Assistant appointment list/detail responses include only customer ID, name, and phone for rescheduling contact. Customers do not receive customer contact data in their appointment response; Branch Managers do not receive customer contact fields.
-- A Gampaha `BRANCH_MANAGER` can read Gampaha sessions and appointments only. Managers cannot write appointment or session changes.
-- A `CUSTOMER` can view only their own appointments, book available sessions, and cancel their own confirmed appointment before its session begins.
-- `SYSTEM_ADMIN` and `OPTOMETRIST` do not have appointment-management access under the implemented API.
-- Cancellation preserves the record, releases capacity, and compacts active queue positions. Reassignment atomically updates both sessions and positions.
-- Session timestamps must be real ISO-8601 timestamps with `Z` or a numeric `±HH:MM` offset. Date-only, timezone-free, and impossible calendar dates are rejected.
-- Legacy appointments remain visible to their owning customer. Staff-wide branch visibility uses a session or persisted branch snapshot; a legacy record without either is deliberately not attributed to a branch based on the staff member's current assignment.
+Check the live service status at any time:
 
-Appointment and doctor-session endpoints reject all query parameters with `422 Unprocessable Entity`. Frontend clients must not append pagination, filtering, or cache-busting query strings to these endpoints.
-
-### Production branch backfill
-
-Do not run `seed:reset` or rely on development seed execution to identify the production branch. Before applying the backfill, compare a candidate's branch ID, exact address, and contact number with the authoritative production branch register. The script never creates branches or changes unrelated branch IDs, defaults to dry-run, and refuses to assign `GAMPAHA_CENTRAL` when another record already owns it.
-
-1. Configure the production MongoDB URI and credentials through deployment secrets, then list existing branch records:
-
-```powershell
-node scripts/backfillGampahaBranchCode.js --list
+```bash
+curl -i https://osms-backend-staging.onrender.com/api/health
 ```
 
-2. Identify the correct existing Branch record using the official branch register. Preview the proposed update by passing that exact existing ID and exact address:
+Expected HTTP 200 Response:
 
-```powershell
-node scripts/backfillGampahaBranchCode.js --branch-id <existing-branch-id> --confirm-address "<exact verified address>"
+```json
+{
+  "status": "ok",
+  "service": "osms-backend"
+}
 ```
 
-3. Review the dry-run output and confirm the address and contact number with the production owner. Apply only to that record:
+#### Common Troubleshooting Scenarios
 
-```powershell
-node scripts/backfillGampahaBranchCode.js --branch-id <existing-branch-id> --confirm-address "<exact verified address>" --apply
-```
+| Observed Symptom                   | Probable Cause              | Diagnostic & Remediation Procedure                                                                                                                            |
+| :--------------------------------- | :-------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **HTTP 503 on Checkout / Booking** | MongoDB Standalone Mode     | Transactions require a replica set. Ensure `MONGODB_URI` points to a replica set (`?replicaSet=...`) and not a standalone `mongod`.                           |
+| **CORS Error in Browser**          | Mismatched Frontend Origin  | Verify `FRONTEND_ORIGIN` in Render environment settings matches the exact scheme and hostname of the frontend (e.g., `https://darshana-opticals.vercel.app`). |
+| **HTTP 503 on Payment Initiate**   | Missing PayHere Variables   | Ensure `PAYHERE_MERCHANT_ID` and `PAYHERE_MERCHANT_SECRET` are configured in environment variables.                                                           |
+| **First Request Takes ~40s**       | Render Free-Tier Cold Start | Expected behavior for sleeping container instances. Subsequent requests will execute in <150ms.                                                               |
+| **HTTP 429 on Chatbot Request**    | 30-Minute Budget Exceeded   | The user has submitted 20 messages in their rolling 30-minute window. Inspect `Retry-After` header for cooldown seconds.                                      |
 
-4. Rerun `--list` and verify exactly one Branch record has `codeName` equal to `GAMPAHA_CENTRAL`. The operation is idempotent for the same record.
+---
 
-### Swagger Try it out guide
+## 11. Known Limitations & Outstanding Verification
 
-Start the backend with `npm run dev` and open `http://localhost:5000/api-docs`. This section describes a manual workflow; it is not a claim that Swagger Try it out was manually exercised.
+1. **Hosted PayHere Payment Completion**: While verified in local sandbox environments with simulated and captured webhook payloads, hosted end-to-end payment settlement via live commercial payment methods has not been verified in the hosted staging deployment.
+2. **Loyalty Partial Refunds & Redemptions**: The loyalty system currently supports spend-based point accrual and full-refund compensating reversals. Partial refund point deductions and point redemption at checkout are designated for future sprint milestones.
+3. **SMS Notification Gateway**: Order and appointment notifications currently use SMTP email and console dispatch fallback; integration with a Sri Lankan telecom SMS gateway (e.g., Dialog/Mobitel SMS API) is planned for future releases.
+4. **Multi-Branch Online Fulfillment**: Online order fulfillment is currently centralized through the `GAMPAHA_CENTRAL` hub. Multi-branch distributed order routing will be introduced in subsequent architectural phases.
 
-1. Obtain a JWT by logging in as the Branch Assistant `sales.gampaha@darshanaopticals.local` with the development password `DevPassword123!`; click **Authorize** and enter the token.
-2. Use `node scripts/backfillGampahaBranchCode.js --list` or an approved database inventory to find the verified `GAMPAHA_CENTRAL` Branch ID. The public `GET /branches` endpoint intentionally omits `codeName` and is not available to Branch Assistants.
-3. As the Branch Assistant, use `GET /appointments/providers` to obtain an eligible provider ID and the approved branch ID, then use `POST /doctor-sessions` with those IDs, timezone-aware `startAt` and `endAt`, and positive integer `capacity`. Choose a start at least 24 hours ahead.
-4. Log in as `kamal.customer@example.com` with the development password, authorize with that JWT, then call `GET /appointments/providers` and `GET /doctor-sessions/available`.
-5. Use `POST /appointments` with only `{ "sessionId": "<available-session-id>" }`. The response includes the server-assigned queue position.
-6. As the customer, use `GET /appointments` and `PATCH /appointments/{id}/cancel` before the session begins. The cancellation endpoint accepts no body.
-7. As the Branch Assistant, use `GET /appointments` and `PATCH /appointments/{id}/reassign` with `{ "sessionId": "<other-available-session-id>" }` when reassignment is needed.
-8. Log in as `manager.gampaha@darshanaopticals.local` and verify read-only access to `GET /doctor-sessions`, `GET /appointments`, and `GET /appointments/{id}`. Write operations are rejected.
+---
 
-For repeatable automated verification, run `npx jest tests/integration/appointmentApi.test.js --runInBand` and `npx jest --runInBand --coverage` from `backend`.
+## 12. Related Project Repositories & Documents
+
+This backend repository is part of the integrated Darshana Opticals OSMS project ecosystem:
+
+- **Frontend Repository**: [darshana-opticals-osms/frontend](https://github.com/darshana-opticals-osms/frontend) — Client web application built with React, Vite, and Tailwind CSS.
+- **Infrastructure Repository**: [darshana-opticals-osms/infra](https://github.com/darshana-opticals-osms/infra) — Docker Compose definitions, reverse-proxy configurations, and CI/CD deployment scripts.
+- **Test Automation Repository**: [darshana-opticals-osms/tests](https://github.com/darshana-opticals-osms/tests) — End-to-end test suites, Cypress scenarios, and system-level test documentation.
+- **Documents Repository**: [darshana-opticals-osms/documents](https://github.com/darshana-opticals-osms/documents) — System Requirements Specification (SRS), System Design Specification (SDS), and Architectural Decision Records (ADRs).
+
+---
+
+_Authored by the Darshana Opticals OSMS Engineering Team for SENG 34213: System Development Project, Software Engineering Teaching Unit, Faculty of Science, University of Kelaniya._
