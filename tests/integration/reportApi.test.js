@@ -108,7 +108,7 @@ describe('Sales & Inventory Reporting APIs (Issue #56 / ADR-014)', () => {
     });
 
     branchB = await Branch.create({
-      codeName: 'KANDY_CITY',
+      codeName: 'VEYANGODA_BRANCH',
       address: '50 Dalada St, Kandy',
       contactNumber: '+94 81 234 5678',
     });

@@ -40,7 +40,7 @@ describe('reportSales.service (ADR-014 §6, §7, §8)', () => {
     });
 
     branchB = await Branch.create({
-      codeName: 'KANDY_CITY',
+      codeName: 'VEYANGODA_BRANCH',
       address: '50 Dalada St, Kandy',
       contactNumber: '+94 81 234 5678',
     });

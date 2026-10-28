@@ -66,7 +66,7 @@ Backend REST API, business logic services, transactional data management, and se
 
 The backend service serves as the core authoritative business engine, fulfilling the following functional objectives:
 
-1. **Centralized & Branch-Scoped Operations**: Managing multi-branch inventory across physical stores (`COLOMBO_MAIN`, `KANDY_CITY`, `GAMPAHA_CENTRAL`), while establishing dedicated online fulfillment scoping.
+1. **Centralized & Branch-Scoped Operations**: Managing multi-branch inventory across physical stores (`MAIN_BRANCH`, `VEYANGODA_BRANCH`, `GAMPAHA_CENTRAL`), while establishing dedicated online fulfillment scoping.
 2. **Clinical Eyecare Workflow**: Providing high-fidelity clinical prescription storage (sphere, cylinder, axis, visual acuity, near addition) with optometrist traceability and customer historical viewing.
 3. **Doctor Scheduling & Appointment Management**: Facilitating queue-based in-person consultations with branch-level doctor sessions, automated queue allocation, and rescheduling workflows.
 4. **E-Commerce & High-Integrity Checkout**: Delivering an atomic shopping cart, checkout inventory reservation, and payment processing backed by MongoDB ACID multi-document transactions.

@@ -6,7 +6,7 @@
 
 const SEED_INVENTORY_ITEMS = [
   {
-    branchCodeName: 'COLOMBO_MAIN',
+    branchCodeName: 'MAIN_BRANCH',
     itemName: 'Ray-Ban Aviator Classic',
     category: 'Sunglasses',
     brand: 'Ray-Ban',
@@ -14,7 +14,7 @@ const SEED_INVENTORY_ITEMS = [
     quantity: 15,
   },
   {
-    branchCodeName: 'COLOMBO_MAIN',
+    branchCodeName: 'MAIN_BRANCH',
     itemName: 'Oakley Holbrook Sports',
     category: 'Sports',
     brand: 'Oakley',
@@ -22,7 +22,7 @@ const SEED_INVENTORY_ITEMS = [
     quantity: 8,
   },
   {
-    branchCodeName: 'COLOMBO_MAIN',
+    branchCodeName: 'MAIN_BRANCH',
     itemName: 'Persol Steve McQueen Edition',
     category: 'Men',
     brand: 'Persol',
@@ -30,7 +30,7 @@ const SEED_INVENTORY_ITEMS = [
     quantity: 5,
   },
   {
-    branchCodeName: 'COLOMBO_MAIN',
+    branchCodeName: 'MAIN_BRANCH',
     itemName: 'Vogue Eyewear Cat-Eye',
     category: 'Women',
     brand: 'Vogue Eyewear',
@@ -38,7 +38,7 @@ const SEED_INVENTORY_ITEMS = [
     quantity: 12,
   },
   {
-    branchCodeName: 'KANDY_CITY',
+    branchCodeName: 'VEYANGODA_BRANCH',
     itemName: 'Ray-Ban Wayfarer Ease',
     category: 'Sunglasses',
     brand: 'Ray-Ban',
@@ -46,7 +46,7 @@ const SEED_INVENTORY_ITEMS = [
     quantity: 10,
   },
   {
-    branchCodeName: 'KANDY_CITY',
+    branchCodeName: 'VEYANGODA_BRANCH',
     itemName: 'Oliver Peoples Gregory Peck',
     category: 'Men',
     brand: 'Oliver Peoples',
@@ -54,7 +54,7 @@ const SEED_INVENTORY_ITEMS = [
     quantity: 3,
   },
   {
-    branchCodeName: 'KANDY_CITY',
+    branchCodeName: 'VEYANGODA_BRANCH',
     itemName: 'Gucci Oversized Square',
     category: 'Women',
     brand: 'Gucci',
@@ -62,7 +62,7 @@ const SEED_INVENTORY_ITEMS = [
     quantity: 0, // Out of stock test item
   },
   {
-    branchCodeName: 'KANDY_CITY',
+    branchCodeName: 'VEYANGODA_BRANCH',
     itemName: 'Junior Flex Frame',
     category: 'Kids',
     brand: 'Vogue Eyewear',

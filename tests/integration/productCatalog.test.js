@@ -232,7 +232,7 @@ describe('Product catalog API (Integration tests)', () => {
       });
 
       colomboBranch = await Branch.create({
-        codeName: 'COLOMBO_MAIN',
+        codeName: 'MAIN_BRANCH',
         address: '100 Galle Road, Colombo 03',
         contactNumber: '+94 11 250 0000',
       });
