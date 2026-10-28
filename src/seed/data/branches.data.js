@@ -6,19 +6,19 @@
 
 const SEED_BRANCHES = [
   {
-    codeName: 'COLOMBO_MAIN',
-    address: '100 Galle Road, Colombo 03',
-    contactNumber: '+94 11 250 0000',
+    codeName: 'MAIN_BRANCH',
+    address: 'No 50, Airport Road, Minuwangoda',
+    contactNumber: '+94 77 758 7695',
   },
   {
-    codeName: 'KANDY_CITY',
-    address: '45 Peradeniya Road, Kandy',
-    contactNumber: '+94 81 220 0000',
+    codeName: 'VEYANGODA_BRANCH',
+    address: 'Minuwangoda Road, Veyangoda',
+    contactNumber: '+94 77 776 2494',
   },
   {
     codeName: 'GAMPAHA_CENTRAL',
-    address: '12 Main Street, Gampaha',
-    contactNumber: '+94 33 222 0000',
+    address: "Queen Mary's Rd, Gampaha",
+    contactNumber: '+94 77 776 2494',
   },
 ];
 

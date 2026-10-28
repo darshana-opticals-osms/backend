@@ -25,7 +25,7 @@ const SEED_ADMINS = [
 
 const SEED_STAFF = [
   {
-    branchCodeName: 'COLOMBO_MAIN',
+    branchCodeName: 'MAIN_BRANCH',
     name: 'Colombo Branch Manager',
     email: 'manager.colombo@darshanaopticals.local',
     phone: '+94 77 100 0002',
@@ -34,7 +34,7 @@ const SEED_STAFF = [
     legacyEmails: ['manager.colombo@gmail.com', 'darshanaoptic+manager.colombo@gmail.com'],
   },
   {
-    branchCodeName: 'KANDY_CITY',
+    branchCodeName: 'VEYANGODA_BRANCH',
     name: 'Kandy Optometrist',
     email: 'optometrist.kandy@darshanaopticals.local',
     phone: '+94 77 100 0004',
