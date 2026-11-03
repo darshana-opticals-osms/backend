@@ -146,3 +146,5 @@ vite.config.ts.timestamp-*
 # Temporary test and Node.js cache directories
 /jest/
 /node-compile-cache/
+# Local utility scripts
+scripts/unlock-all-accounts.js
